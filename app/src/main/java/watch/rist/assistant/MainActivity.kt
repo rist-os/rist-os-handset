@@ -1697,7 +1697,8 @@ class MainActivity : AppCompatActivity() {
                 EntryState.ANSWERED -> e.answer
             }
             if (body.isNotBlank()) col.addView(TextView(this).apply {
-                text = body
+                // Only a real answer carries markdown; the status strings are ours.
+                text = if (e.state == EntryState.ANSWERED) Markdown.render(body) else body
                 setTextColor(if (e.state == EntryState.FAILED) t.accent else t.ink)
                 typeface = tf
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, if (e.state == EntryState.ANSWERED) 17f else 12f)
