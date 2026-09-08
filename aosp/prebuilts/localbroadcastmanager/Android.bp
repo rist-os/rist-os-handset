@@ -1,0 +1,17 @@
+// Android.bp — vendored androidx.localbroadcastmanager 1.1.0 as a Soong prebuilt.
+//
+// Used by MainActivity.kt / PushService.kt (LocalBroadcastManager). Not present in
+// the platform androidx m2repository, so vendored from the exact Maven artifact the
+// Gradle build resolves (androidx.localbroadcastmanager:localbroadcastmanager:1.1.0,
+// dl.google.com maven2). It ships Android resources, so android_library_import.
+// POM dep: androidx.annotation (in-tree platform module).
+
+android_library_import {
+    name: "rist-localbroadcastmanager",
+    aars: ["localbroadcastmanager-1.1.0.aar"],
+    sdk_version: "current",
+    min_sdk_version: "34",
+    static_libs: [
+        "androidx.annotation_annotation",
+    ],
+}

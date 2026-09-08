@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/attachmentCard"
+    android:accessibilityLiveRegion="polite"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="10dp"
+    android:orientation="vertical"
+    android:padding="14dp">
+
+    <TextView
+        android:id="@+id/attachmentKind"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textAllCaps="true"
+        android:letterSpacing="0.06"
+        android:textSize="15sp" />
+
+    <TextView
+        android:id="@+id/attachmentTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="2dp"
+        android:maxLines="3"
+        android:ellipsize="end"
+        android:textSize="20sp" />
+
+    <TextView
+        android:id="@+id/attachmentMeta"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="3dp"
+        android:maxLines="2"
+        android:ellipsize="end"
+        android:textSize="15sp"
+        android:visibility="gone" />
+
+    <ImageView
+        android:id="@+id/attachmentImage"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:adjustViewBounds="true"
+        android:maxHeight="320dp"
+        android:scaleType="fitCenter"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/attachmentNoteBlock"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/attachmentText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:maxLines="8"
+            android:ellipsize="end"
+            android:textSize="17sp"
+            android:lineSpacingMultiplier="1.15" />
+
+        <TextView
+            android:id="@+id/attachmentExpand"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="48dp"
+            android:gravity="center_vertical"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:textSize="15sp"
+            android:clickable="true"
+            android:focusable="true"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/attachmentError"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="6dp"
+        android:minHeight="48dp"
+        android:textSize="15sp"
+        android:visibility="gone" />
+</LinearLayout>

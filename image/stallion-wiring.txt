@@ -1,0 +1,2 @@
+# --- Rist layer (appended post-adevtool; logic in vendor/rist/pixel-phone/aosp/rist.mk) ---
+$(call inherit-product, vendor/rist/pixel-phone/aosp/rist.mk)

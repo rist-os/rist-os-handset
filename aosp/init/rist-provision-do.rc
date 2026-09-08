@@ -1,0 +1,13 @@
+# Rist kiosk: auto-provision watch.rist.assistant as Device Owner at first boot.
+#
+# Runs as shell so DevicePolicyManagerService.isAdb() authorises set-device-owner; no custom sepolicy needed.
+service rist_provision_do /system/bin/sh /system/etc/rist/rist-provision-do.sh
+    class main
+    user shell
+    group shell
+    seclabel u:r:shell:s0
+    oneshot
+    disabled
+
+on property:sys.boot_completed=1
+    start rist_provision_do

@@ -1,0 +1,110 @@
+From 82fddaebfd12f46a79ac33e2a59d1957efdccab9 Mon Sep 17 00:00:00 2001
+From: RistOS Build <build@ristos.org>
+Date: Sun, 30 Aug 2026 00:00:00 -0600
+Subject: [PATCH] rist: let watch.rist.assistant write network_location and
+ geocoder
+
+Add ONE new KnownSystemPackage id, `RIST` -> `watch.rist.assistant`, and name it
+in the `readWrite` list of EXACTLY TWO settings:
+
+    Settings.Global.NETWORK_LOCATION  ("network_location")
+    Settings.Global.GEOCODER          ("geocoder")
+
+Nothing else in the protection mechanism changes. No other setting gains a
+writer, no setting's `restrictReads` flips, no `@Protected` annotation is
+deleted, and the SystemApi surface is unchanged.
+
+@hide keeps RIST out of system-current.txt.
+
+Pairs with 0002; without this patch NetworkLocationConsent reports REFUSED.
+---
+ core/java/android/ext/KnownSystemPackage.java  |  7 +++++++
+ core/java/android/ext/KnownSystemPackages.java | 13 +++++++++++++
+ core/java/android/provider/Settings.java       |  4 ++--
+ 3 files changed, 22 insertions(+), 2 deletions(-)
+
+diff --git a/core/java/android/ext/KnownSystemPackage.java b/core/java/android/ext/KnownSystemPackage.java
+index bb88a92ed..0d9ea4e94 100644
+--- a/core/java/android/ext/KnownSystemPackage.java
++++ b/core/java/android/ext/KnownSystemPackage.java
+@@ -13,6 +13,12 @@ public interface KnownSystemPackage {
+     int SHELL = 1;
+     int SYSTEM_UI = 2;
+     int SETUP_WIZARD = 3;
++    // RistOS: watch.rist.assistant, the RIST assistant app. Platform-signed, in the
++    // priv-app partition, and the sole launcher. Hidden from the SystemApi surface --
++    // no third-party system app has any use for it -- exactly as PackageId hides
++    // G_TEXT_TO_SPEECH and BUGLE. Keeping it hidden is also what keeps this patch out
++    // of core/api/system-current.txt, which churns on every upstream sync.
++    /** @hide */ int RIST = 4;
+ 
+     /** @hide */
+     @IntDef(value = {
+@@ -20,6 +26,7 @@ public interface KnownSystemPackage {
+             SHELL,
+             SYSTEM_UI,
+             SETUP_WIZARD,
++            RIST,
+     })
+     @Retention(RetentionPolicy.SOURCE)
+     @interface Enum {}
+diff --git a/core/java/android/ext/KnownSystemPackages.java b/core/java/android/ext/KnownSystemPackages.java
+index 839f04c07..6b0c5a0be 100644
+--- a/core/java/android/ext/KnownSystemPackages.java
++++ b/core/java/android/ext/KnownSystemPackages.java
+@@ -25,6 +25,15 @@ public final class KnownSystemPackages {
+     @NonNull public final String launcher;
+     @NonNull public final String mediaProvider;
+     @NonNull public final String permissionController;
++    /**
++     * RistOS. @hide keeps this OUT of the generated system API stubs. Its siblings here are
++     * deliberately public @SystemApi surface; adding an un-hidden field to this class changes
++     * that surface and checkapi fails the build. @hide is a metalava
++     * directive only -- the field stays fully usable in-platform, and getById() below reads it.
++     *
++     * @hide
++     */
++    @NonNull public final String rist;
+     @NonNull public final String settings;
+     @NonNull public final String setupWizard;
+     @NonNull public final String shell;
+@@ -36,6 +45,9 @@ public final class KnownSystemPackages {
+         launcher = "com.android.launcher3";
+         mediaProvider = "com.android.providers.media.module";
+         permissionController = "com.android.permissioncontroller";
++        // RistOS. Hardcoded rather than read from a resource, like every sibling here
++        // except systemUi, because it is a fixed property of this OS image.
++        rist = "watch.rist.assistant";
+         settings = "com.android.settings";
+         setupWizard = "app.grapheneos.setupwizard";
+         shell = "com.android.shell";
+@@ -49,6 +61,7 @@ public final class KnownSystemPackages {
+             case KnownSystemPackage.SHELL -> shell;
+             case KnownSystemPackage.SYSTEM_UI -> systemUi;
+             case KnownSystemPackage.SETUP_WIZARD -> setupWizard;
++            case KnownSystemPackage.RIST -> rist;
+             default -> throw new IllegalArgumentException();
+         };
+     }
+diff --git a/core/java/android/provider/Settings.java b/core/java/android/provider/Settings.java
+index bcf423537..446eeccd5 100644
+--- a/core/java/android/provider/Settings.java
++++ b/core/java/android/provider/Settings.java
+@@ -14511,12 +14511,12 @@ public final class Settings {
+ 
+         /** @hide */
+         @Protected(restrictReads = false, readWrite = {KnownSystemPackage.SETTINGS,
+-                KnownSystemPackage.SETUP_WIZARD})
++                KnownSystemPackage.SETUP_WIZARD, KnownSystemPackage.RIST})
+         public static final String NETWORK_LOCATION = "network_location";
+ 
+         /** @hide */
+         @Protected(restrictReads = false, readWrite = {KnownSystemPackage.SETTINGS,
+-                KnownSystemPackage.SETUP_WIZARD})
++                KnownSystemPackage.SETUP_WIZARD, KnownSystemPackage.RIST})
+         public static final String GEOCODER = "geocoder";
+ 
+         /** @hide */
+-- 
+2.34.1
+

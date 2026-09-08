@@ -1,0 +1,80 @@
+RistOS handset firmware
+Copyright 2026 Rist, Inc.
+
+This product includes software and assets from third parties:
+
+- Silkscreen font by Jason Kottke — SIL Open Font License 1.1
+  (app/src/main/res/font/silkscreen*.ttf)
+- Turn-arrow glyphs derived from Material Symbols by Google — Apache License 2.0
+  (app/src/main/assets/glyphs/)
+- OkHttp (com.squareup.okhttp3) — Apache License 2.0
+- Protocol Buffers Lite (com.google.protobuf) — BSD 3-Clause
+- AndroidX libraries bundled into the APK — Apache License 2.0:
+  core-ktx, appcompat, activity-ktx, constraintlayout, localbroadcastmanager,
+  security-crypto, media3 (exoplayer / session / common)
+- Material Components for Android (com.google.android.material) — Apache License 2.0
+- Kotlin standard library and kotlinx-coroutines-android (JetBrains) — Apache License 2.0
+- Navigation deviation-detection thresholds in app/src/main/cpp/ristnav/ follow the
+  approach used by Ferrostar (github.com/stadiamaps/ferrostar) — BSD 3-Clause
+- Vendored Soong prebuilts under aosp/prebuilts/ (provenance + SHA-256 in its README):
+  OkHttp 4.12.0, Okio 3.6.0, AndroidX security-crypto / localbroadcastmanager,
+  Google Tink, Media3 1.4.1 — Apache License 2.0
+- Built from the GrapheneOS source tree (grapheneos.org): this project patches and overlays it. The code the GrapheneOS project itself authors is
+  MIT-licensed, but the tree as a whole is NOT uniformly MIT — it carries the licences of
+  everything it inherits from AOSP, the Linux kernel among them. Consult the licence in each
+  component's own source tree rather than this line. GrapheneOS is not affiliated with and does
+  not endorse this project.
+- The Android Open Source Project (source.android.com) — Apache License 2.0 for the AOSP
+  platform, except the Linux kernel and other components carrying their own terms. RistOS is
+  AOSP-based. It is not certified by Google and is not "Android" in the trademark sense.
+- Google-proprietary Pixel firmware and vendor files, redistributed UNMODIFIED inside the
+  published factory image: the bootloader and radio/modem images, and the proprietary vendor
+  files enumerated with their SHA-256 hashes in image/proprietary-files.txt. These remain the
+  property of Google LLC and are governed by Google's own terms, not by this project's licence.
+  None of them are modified by Rist, and README.md and image/INSTALL.md disclose this to anyone
+  downloading the image. Google, Pixel and Android are trademarks of Google LLC. RistOS is not
+  affiliated with, sponsored by, or endorsed by Google.
+- Gradle build tooling (gradle/wrapper/gradle-wrapper.jar, Gradle Inc.) — Apache License 2.0
+- Organic Maps (organicmaps.app) — Apache License 2.0 — bundled as a standalone app.
+  The application content is the pinned official release 2026.07.15-11-android
+  (OrganicMaps-26071511-web-release.apk), unmodified. The APK CONTAINER is not: the build
+  re-stores and page-aligns the bundled JNI libraries and re-signs the package with Rist's
+  own release key, so the file RistOS ships is neither byte-identical to upstream's download
+  nor carrying upstream's signature. Organic Maps did not build, sign, review or endorse this
+  copy, and it is not the artefact they publish. See aosp/prebuilts/apps/OrganicMaps/.
+
+--------------------------------------------------------------------------------
+GPL-licensed components and where their source is
+--------------------------------------------------------------------------------
+
+RistOS is built on a GrapheneOS/AOSP base. Code that Rist wrote is Apache-2.0 (see
+LICENSE). The platform underneath it is not uniformly Apache-2.0, and the parts that
+are copyleft carry their own terms, which travel with any binary you redistribute:
+
+- The Linux kernel and its modules — GPL-2.0-only.
+- Other GPL/LGPL components inherited from the AOSP and GrapheneOS trees, each under
+  the licence in its own source tree.
+
+Corresponding source for the Linux kernel is published alongside each release, in the same
+directory as the image and reachable from the same download index (GPLv2 section 3(a)):
+
+    kernel-source-<device>-<build>.tar.gz     the kernel the build ships, with a .sha256
+
+The tarball carries the same build number as the image it corresponds to, so a binary can
+always be matched to the source it was built from. The download index for a release is
+authoritative for what accompanies it.
+
+WRITTEN OFFER (GPLv2 section 3(b), LGPL section 6(b)). For the GPL- and LGPL-licensed
+userspace components inherited from the AOSP and GrapheneOS trees, Rist Inc. will provide,
+to any third party and for three years from the date of each RistOS release, a complete
+machine-readable copy of the corresponding source of those components as shipped in that
+release, for a charge no more than the cost of physically performing source distribution.
+To request it, open an issue using the Other form at
+https://github.com/rist-os/rist-os-handset/issues, titled `Source request: <build number>`,
+naming the build number of the image you have.
+
+If you have a RistOS image and cannot obtain its corresponding source by either route, that
+is a defect in our release process; open an issue and we will treat it as one.
+
+If you redistribute a RistOS image, the same obligation passes to you. Redistributing
+the source tarball alongside the image is the simplest way to meet it.

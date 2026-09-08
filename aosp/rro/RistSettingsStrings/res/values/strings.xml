@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Overridden Settings strings for RistOS.
+
+  NetworkLocationPromptActivity.showRefused() quotes this label; change both in the same commit.
+
+  Only this string: the other GrapheneOS-named strings describe traffic that still goes to GrapheneOS hosts.
+-->
+<resources>
+
+    <!-- Radio option at Settings → Location → Location services → Network location.
+         Stock value: "GrapheneOS Apple proxy". Sibling labels are not overridden. -->
+    <string name="network_location_enabled_grapheneos_apple_proxy">Rist Apple proxy</string>
+
+</resources>

@@ -1,0 +1,8 @@
+runtime_resource_overlay {
+    name: "RistSettingsStrings",
+
+    // Must match the target app's certificate.
+    certificate: "platform",
+
+    product_specific: true,
+}

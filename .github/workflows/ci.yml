@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # fetch-depth 0: preflight_publish.sh scans history; a shallow clone would silently pass.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      # rist.releaseVariant is required: testReleaseUnitTest depends on genDeployAssetsRelease.
+      - name: Write a placeholder local.properties
+        run: |
+          {
+            echo "rist.backendUrl=https://example.test/v1/device"
+            echo "rist.pushUrl=wss://example.test/v0/stream"
+            echo "rist.releaseVariant=public"
+          } > local.properties
+
+      - name: Check theme contrast
+        run: python3 tools/check_contrast.py
+
+      - name: Check for dangling doc references
+        run: python3 tools/check_links.py
+
+      - name: OTA server and manifest tests
+        run: python3 ota-server/test_server.py
+
+      - name: Publication hygiene (all checks except the denylist scan)
+        env:
+          PREFLIGHT_DENYLIST_OPTIONAL: '1'
+        run: |
+          set +e
+          bash tools/preflight_publish.sh > /tmp/preflight.log 2>&1
+          rc=$?
+          set -e
+
+          sed -E 's#^(FAIL  denylisted pattern[^/]*)/.*/$#\1/<withheld>/#' /tmp/preflight.log
+
+          if ! grep -qE '^PREFLIGHT (PASS|PARTIAL|FAIL)' /tmp/preflight.log; then
+            echo "::error::preflight_publish.sh produced no verdict line -- refusing to call that a pass"
+            exit 1
+          fi
+
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::Publication gate failed (preflight_publish.sh exit $rc)"
+            exit 1
+          fi
+
+          if grep -q '^PREFLIGHT PARTIAL' /tmp/preflight.log; then
+            echo "::warning::Publication gate ran PARTIAL: the private-string denylist scan does not run in CI. A green build is NOT a publish certification -- run tools/preflight_publish.sh locally with the real .publish-denylist before publishing."
+            if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+              {
+                echo "### Publication gate: PARTIAL"
+                echo
+                echo "Every file-level check passed. One check **did not run**:"
+                echo
+                grep '^  did not run:' /tmp/preflight.log | sed 's/^  /- /'
+                echo
+                echo "\`.publish-denylist\` is gitignored because it names the real private strings,"
+                echo "and it is not supplied as a CI secret because the gate prints the matched"
+                echo "pattern on a hit (and fork PRs get no secrets regardless)."
+                echo
+                echo "**A green CI run is not a publish certification.** Run"
+                echo "\`tools/preflight_publish.sh\` locally and require \`PREFLIGHT PASS\`."
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
+      # Every checker that carries a self-test must prove its checks can both fire and pass.
+      - name: Checker self-tests
+        run: |
+          rc=0
+          for t in check_adb_keys check_debrand check_organicmaps_apk check_otacerts \
+                   check_partial_ota check_patches check_release_gate; do
+            if ! python3 "tools/$t.py" --selftest; then
+              echo "::error::tools/$t.py --selftest failed"
+              rc=1
+            fi
+          done
+          exit $rc
+
+      - name: Build and test
+        timeout-minutes: 12
+        run: ./gradlew :app:assembleDebug test --no-daemon --stacktrace
+
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports
+          path: app/build/reports/tests/
+          retention-days: 7

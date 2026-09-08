@@ -1,0 +1,41 @@
+// Android.bp — vendored androidx.security:security-crypto + its Tink runtime.
+//
+// Config.kt uses androidx.security.crypto.{EncryptedSharedPreferences,MasterKey}.
+// Neither security-crypto nor Tink is present as a platform Soong module in this
+// tree (external/tink only exposes the tiny `tink-java-x25519-sources` filegroup,
+// NOT a full tink-java library). So both are vendored here.
+//
+// Provenance:
+//   androidx.security:security-crypto:1.1.0-alpha06 (dl.google.com maven2)
+//       -> security-crypto-1.1.0-alpha06.aar  (android_library_import; has resources)
+//   com.google.crypto.tink:tink-android:1.8.0 (repo1.maven.org, packaged as .jar)
+//       -> tink-android-1.8.0.jar  (java_import; plain JVM/android jar, no res)
+//
+// security-crypto POM deps: androidx.annotation (compile), androidx.collection
+// (runtime), com.google.crypto.tink:tink-android:1.8.0 (runtime).
+// tink-android POM deps: com.google.code.gson:gson; its proto types use protobuf
+// (shaded/lite) -> libprotobuf-java-lite in-tree. Both gson and libprotobuf-java-lite
+// are in-tree platform modules.
+
+java_import {
+    name: "rist-tink-prebuilt",
+    jars: ["tink-android-1.8.0.jar"],
+    sdk_version: "current",
+    min_sdk_version: "34",
+    static_libs: [
+        "gson",
+        "libprotobuf-java-lite",
+    ],
+}
+
+android_library_import {
+    name: "rist-security-crypto",
+    aars: ["security-crypto-1.1.0-alpha06.aar"],
+    sdk_version: "current",
+    min_sdk_version: "34",
+    static_libs: [
+        "androidx.annotation_annotation",
+        "androidx.collection_collection",
+        "rist-tink-prebuilt",
+    ],
+}

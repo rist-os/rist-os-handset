@@ -1,0 +1,14 @@
+name: Other
+description: Source requests under the GPL written offer, name permission under TRADEMARKS.md, questions.
+labels: ["question"]
+body:
+  - type: textarea
+    id: request
+    attributes:
+      label: Request
+      description: >-
+        For a source request, the build number of the image you have. For name permission,
+        title the issue `Name permission: <the name you want>` and say what you would ship
+        and how the name would appear.
+    validations:
+      required: true

@@ -1,0 +1,38 @@
+# Values that must never appear in a published tree, its history, or its commit messages.
+#
+# Copy this to .publish-denylist (gitignored) and replace the descriptions with the REAL values,
+# one extended-regex per line. The real file is deliberately never committed: a denylist stored in
+# the repo it protects publishes every secret it was written to catch.
+#
+# tools/preflight_publish.sh reads it and refuses to publish on a match.
+#
+# What belongs here:
+#
+#   - The real phone number, in every format it might appear in: bare 10 digits, hyphenated,
+#     spaced, and the last-8 form. Check commit messages too, which a file scrub does not touch.
+#   - Private hostnames for the backend and push endpoints.
+#   - Deployment IPs, including any short-lived ones from an earlier host.
+#   - Any bearer token or API key that was ever pasted into a file, even briefly -- git keeps it.
+#   - Personal email addresses, if they should not be in the public log.
+#   - Infrastructure LOGIN targets (login user and host names, SSH key filenames), not just service endpoints.
+#     If a string would let someone try to log in somewhere, it belongs here.
+#
+# Anchor short numeric patterns as (^|[^0-9])NNNN([^0-9]|$) so hex digests do not match. Never write real digits into this committed file.
+#
+# Placeholders must not match themselves: anchor the pattern so a `<placeholder>` cannot match.
+#
+# Examples of the FORM (these are placeholders, not real values):
+#
+# 2405550101
+# 240[-. ]?555[-. ]?0101
+# 555-0101
+# push\.example\.internal
+# api\.example\.internal
+# 203\.0\.113\.[0-9]+
+# 198\.51\.100\.[0-9]+
+# root@[0-9A-Za-z]
+# (^|[^0-9])0101([^0-9]|$)     <- the anchored last-four form
+# example_deploy_key
+#
+# Also list internal-process phrases here rather than in preflight_publish.sh: private repo or
+# module names, first names, project code names, and any phrase that narrates a private decision.

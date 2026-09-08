@@ -1,0 +1,43 @@
+From 7157000000000000000000000000000000000005 Mon Sep 17 00:00:00 2001
+From: RistOS Build <build@ristos.org>
+Date: Sun, 30 Aug 2026 00:00:00 -0600
+Subject: [PATCH] rist: add a second HTTPS time source (fallback only, GrapheneOS stays first)
+
+Append https://cp.cloudflare.com/generate_204 to config_httpsTimeUrls as a
+fallback HTTPS time source; https://time.grapheneos.org/generate_204 stays
+first. Nothing is removed or reordered: while the first entry answers, the
+second is never contacted. This path uses the system trust store and does
+not pin; do not add a pin-set here.
+
+Apply from the frameworks/base git project with `git am`; independent of the
+other patches. Context is from GrapheneOS tag 2026081300 and may drift on
+another sync (use `patch -p1 --fuzz=3`, or regenerate with `git format-patch`).
+---
+ core/res/res/values/config.xml | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/core/res/res/values/config.xml b/core/res/res/values/config.xml
+--- a/core/res/res/values/config.xml
++++ b/core/res/res/values/config.xml
+@@ -2839,8 +2839,19 @@
+     <!-- SNTP client config: Timeout to wait for an NTP server response in milliseconds. -->
+     <integer name="config_ntpTimeout">5000</integer>
+
++    <!-- RistOS: HTTPS time sources, tried in order by HttpsTimeClient.requestTime(). The
++         GrapheneOS host stays FIRST and stays preferred: it is the only one of the two that
++         serves an X-Time header (millisecond precision). cp.cloudflare.com serves no X-Time,
++         so HttpsTimeClient falls back to the standard HTTP Date header (second precision),
++         which is ample for certificate validity but worse for time quality. The second entry
++         exists only so a RistOS handset can still set its clock when time.grapheneos.org is
++         unreachable, because a handset that cannot set its clock cannot complete a TLS
++         handshake and is useless for every network purpose. This is purely additive: when the
++         first URL answers, the second is never contacted. Verified live 2026-08-30 (bare 204,
++         correct Date header, valid chain). See vendor/rist/pixel-phone/docs/ENDPOINTS.md. -->
+     <string-array translatable="false" name="config_httpsTimeUrls">
+         <item>https://time.grapheneos.org/generate_204</item>
++        <item>https://cp.cloudflare.com/generate_204</item>
+     </string-array>
+
+     <java-symbol type="array" name="config_httpsTimeUrls" />
+--
+2.43.0

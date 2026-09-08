@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="paper">#C9C5B8</color>
+    <color name="paper_pressed">#BDB9AC</color>
+    <color name="card">#D2CEC2</color>
+    <color name="ink">#2D2A24</color>
+    <color name="ink_muted">#6C675B</color>
+    <color name="ink_faint">#9A9488</color>
+    <color name="border">#6C675B</color>
+    <color name="disabled">#9A9488</color>
+
+    <color name="record_active">#403C33</color>
+    <color name="record_active_soft">#C9C5B8</color>
+
+    <color name="ic_launcher_background">#2A2A2A</color>
+</resources>

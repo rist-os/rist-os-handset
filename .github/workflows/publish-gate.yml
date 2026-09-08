@@ -1,0 +1,48 @@
+name: Publication gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # fetch-depth: 0 is required: the gate scans history and commit messages.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Publication gate
+        env:
+          PREFLIGHT_DENYLIST_OPTIONAL: '1'
+        run: |
+          set +e
+          bash tools/preflight_publish.sh > /tmp/preflight.log 2>&1
+          rc=$?
+          set -e
+
+          sed -E 's#^(FAIL  denylisted pattern[^/]*)/.*/$#\1/<withheld>/#' /tmp/preflight.log
+
+          if ! grep -qE '^PREFLIGHT (PASS|PARTIAL|FAIL)' /tmp/preflight.log; then
+            echo "::error::preflight_publish.sh produced no verdict line -- refusing to call that a pass"
+            exit 1
+          fi
+
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::Publication gate failed (preflight_publish.sh exit $rc)"
+            exit 1
+          fi
+
+          if grep -q '^PREFLIGHT PARTIAL' /tmp/preflight.log; then
+            echo "::warning::Gate ran PARTIAL: the private-string denylist scan does not run in CI. A green run here is NOT a publish certification."
+          fi

@@ -1,0 +1,26 @@
+# Paths that must never be in a published tree, in its history, or on disk beside it.
+#
+# Copy this to .publish-never-ship (gitignored) and list the REAL paths. The real file is
+# never committed: a list of private document names is itself private.
+#
+# tools/preflight_publish.sh reads it. Without it the never-publish check reports SKIP and
+# the run ends PREFLIGHT PARTIAL, never PASS.
+#
+# Format:
+#   - one path prefix per line, matched case-folded at the repository root and at any depth
+#     (docs/PRIVATE_ matches docs/PRIVATE_NOTES.md and aosp/docs/PRIVATE_x.md)
+#   - a line starting with '+' is an allowlist entry: an exact path that may ship even
+#     though a prefix matches it
+#   - '#' starts a comment; blank lines are ignored
+#
+# docs/legal/, docs/hosting/, any *_MASTER_DOC.md and any AGENTS.md are built into the
+# script and need not be listed.
+#
+# Examples of the FORM (placeholders, not real names):
+
+docs/INTERNAL_NOTES.md
+docs/DEPLOY_
+private/
+notes/todo.md
+
++docs/legal/PUBLISHED_FINDINGS.md

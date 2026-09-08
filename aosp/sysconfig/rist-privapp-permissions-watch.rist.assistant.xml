@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<permissions>
+    <privapp-permissions package="watch.rist.assistant">
+        <permission name="android.permission.START_ACTIVITIES_FROM_BACKGROUND" />
+        <permission name="android.permission.WRITE_SECURE_SETTINGS" />
+        <permission name="android.permission.MANAGE_NOTIFICATION_LISTENERS" />
+        <permission name="android.permission.REQUEST_COMPANION_RUN_IN_BACKGROUND" />
+        <permission name="android.permission.SYSTEM_APPLICATION_OVERLAY" />
+
+    </privapp-permissions>
+
+    <allow-in-power-save package="watch.rist.assistant" />
+    <allow-in-data-usage-save package="watch.rist.assistant" />
+
+    <allow-unthrottled-location package="watch.rist.assistant" />
+</permissions>

@@ -1,0 +1,41 @@
+// Android.bp — vendored prebuilt transport libraries for RistAssistant.
+//
+// The app's transport (Uploader.kt streaming POST, PushService.kt WebSocket) uses
+// okhttp3 4.12.0 + okio 3.x. AOSP's platform tree ships only the OLD internal fork
+// (module `okhttp` / `okhttp-norepackage` = okhttp 2.x, no `okhttp3.*` package and
+// no WebSocket; `okio-lib` = okio 1.x), which does NOT satisfy the app's imports.
+//
+// So we vendor the exact Maven Central artifacts the Gradle build resolves and
+// declare them as Soong prebuilt imports. App code is then IDENTICAL across the
+// Gradle (Phase-0 APK) and Soong (OS) builds — no networking rewrite.
+//
+// Both are plain JVM JARs (okhttp and okio ship no Android resources), so
+// `java_import` is the correct module type (not `android_library_import`).
+//
+// okhttp 4.x and okio 3.x are written in Kotlin; their only runtime deps are
+// kotlin-stdlib and (for okhttp) okio. kotlin-stdlib is auto-linked by Soong for
+// any Kotlin `android_app`, and okhttp's static_libs pulls okio below, so listing
+// just "rist-okhttp3-prebuilt" in the app's static_libs brings in the whole graph.
+//
+// See README.md in this dir for artifact provenance (coordinates + SHA-256) and
+// how to refresh them.
+//
+// PLACEMENT: at integration time this dir sits at
+//   vendor/rist/pixel-phone/aosp/prebuilts/
+// and Soong picks up this Android.bp automatically (it is self-contained — the
+// globs/jars are all at or below this dir, so no ".." problem like app/Android.bp).
+
+java_import {
+    name: "rist-okio3-prebuilt",
+    jars: ["okio-jvm-3.6.0.jar"],
+    sdk_version: "current",
+    // okio-jvm needs kotlin-stdlib at runtime; provided by the Kotlin android_app.
+}
+
+java_import {
+    name: "rist-okhttp3-prebuilt",
+    jars: ["okhttp-4.12.0.jar"],
+    sdk_version: "current",
+    // okhttp depends on okio; re-export it so a single static_libs entry suffices.
+    static_libs: ["rist-okio3-prebuilt"],
+}

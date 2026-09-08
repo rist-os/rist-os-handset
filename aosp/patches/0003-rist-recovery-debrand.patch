@@ -1,0 +1,47 @@
+From 7157000000000000000000000000000000000003 Mon Sep 17 00:00:00 2001
+From: RistOS Build <build@ristos.org>
+Date: Sun, 30 Aug 2026 00:00:00 -0600
+Subject: [PATCH] rist: debrand the recovery and fastbootd title lines
+
+RistOS is a free public download built on GrapheneOS. Two screens a user can
+reach on any handset still say GrapheneOS, and both of them are compiled into
+/system/bin/recovery -- not into any partition an OTA or an app update can
+touch. They land only with an image build.
+
+    bootable/recovery/recovery.cpp:740         "GrapheneOS Recovery"  ->  "RistOS Recovery"
+    bootable/recovery/fastboot/fastboot.cpp:40 "GrapheneOS Fastboot"  ->  "RistOS Fastboot"
+
+Rename the two recovery/fastbootd title strings to RistOS.
+
+Verify with tools/check_debrand.py against the target_files zip.
+---
+ fastboot/fastboot.cpp | 2 +-
+ recovery.cpp          | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/recovery.cpp b/recovery.cpp
+--- a/recovery.cpp
++++ b/recovery.cpp
+@@ -737,7 +737,7 @@
+ 
+   std::vector<std::string> title_lines =
+       android::base::Split(android::base::GetProperty("ro.build.fingerprint", ""), ":");
+-  title_lines.insert(std::begin(title_lines), "GrapheneOS Recovery");
++  title_lines.insert(std::begin(title_lines), "RistOS Recovery");
+   ui->SetTitle(title_lines);
+ 
+   ui->ResetKeyInterruptStatus();
+diff --git a/fastboot/fastboot.cpp b/fastboot/fastboot.cpp
+--- a/fastboot/fastboot.cpp
++++ b/fastboot/fastboot.cpp
+@@ -37,7 +37,7 @@
+ };
+ 
+ void FillDefaultFastbootLines(std::vector<std::string>& title_lines) {
+-  title_lines.push_back("GrapheneOS Fastboot");
++  title_lines.push_back("RistOS Fastboot");
+   title_lines.push_back("Product name - " + android::base::GetProperty("ro.product.device", ""));
+   title_lines.push_back("Bootloader version - " + android::base::GetProperty("ro.bootloader", ""));
+   title_lines.push_back("Baseband version - " +
+--
+2.43.0

@@ -1,0 +1,523 @@
+syntax = "proto3";
+
+package rist.v1;
+
+option java_package = "rist.v1";
+option java_multiple_files = true;
+
+enum SchemaVersion {
+  option allow_alias = true;            // lets CURRENT alias the newest numbered version
+  SCHEMA_VERSION_UNSET   = 0;
+  SCHEMA_VERSION_1       = 1;
+  SCHEMA_VERSION_2       = 2;
+  SCHEMA_VERSION_3       = 3;
+  SCHEMA_VERSION_4       = 4;
+  SCHEMA_VERSION_5       = 5;
+  SCHEMA_VERSION_6       = 6;
+  SCHEMA_VERSION_7       = 7;
+  SCHEMA_VERSION_8       = 8;
+  SCHEMA_VERSION_9       = 9;
+  SCHEMA_VERSION_10      = 10;
+  SCHEMA_VERSION_11      = 11;
+  SCHEMA_VERSION_12      = 12;
+  SCHEMA_VERSION_CURRENT = 12;          // bump on every wire change
+}
+
+message DeviceRequest {
+  string device_id       = 1;
+  string session_id      = 2;   // groups a conversation for affinity
+  uint64 timestamp       = 3;
+  oneof input {
+    AudioInput audio     = 4;
+    string     text      = 5;
+    ImageInput image     = 10;   // camera still
+  }
+  string  target_tool_id = 6;   // direct address / one-tap button
+  Confirmation confirm   = 7;
+  string  auth_token     = 8;
+  Capabilities caps      = 9;   // what this device can render
+  // Texts received on the SIM since the last request; resent until named in `sms_ack`.
+  repeated InboundSms inbound_sms = 12;
+  // Outcomes of CommsCommands the device dispatched; resent until named in `comms_results_ack`.
+  repeated CommsResult comms_results = 13;
+  // Voicemail ids the device holds; ack means it holds this version of the record.
+  repeated string voicemail_ack = 14;
+  // Voicemail ids the user listened to.
+  repeated string voicemail_heard = 15;
+  // The device's actual settings after applying a SettingsCommand; not acked.
+  SettingsState settings_state = 16;
+  Location location      = 11;  // cached last-known GPS, sent when location.read is granted
+
+  // Device-generated id for this turn so /v1/cancel can name it; empty = none.
+  string request_id = 17;
+
+  // Fence crossings the device observed; resent until named in `geofence_ack`.
+  repeated GeofenceEvent geofence_events = 18;
+
+  // Ids of the fences the device currently holds; sent on every request, even when empty.
+  repeated string geofence_state = 19;
+
+  // Notification ids the device durably holds; resent until acked.
+  repeated string notification_ack = 20;
+}
+
+// Cached last-known fix; `timestamp` = unix ms of the fix; `timezone` = the device's IANA zone.
+message Location { double lat = 1; double lon = 2; string label = 3; uint32 accuracy_m = 4;
+                   uint64 timestamp = 5; uint32 age_s = 6; string timezone = 7; }
+
+message AudioInput { uint32 sample_rate = 1; uint32 bit_depth = 2;
+                     uint32 channels = 3; uint32 duration_ms = 4; bytes samples = 5;
+                     string codec = 6; }   // "" / "pcm_s16le" = raw PCM16; "opus" = Ogg-Opus in `samples`
+
+// Camera still.
+message ImageInput { string format = 1; uint32 width = 2; uint32 height = 3; bytes data = 4; }
+
+message Confirmation { string action_id = 1; bool approved = 2; }
+
+message Capabilities {
+  // Contract version the device was built against (SCHEMA_VERSION_CURRENT); 0 = legacy build.
+  uint32 schema_version      = 1;
+  uint32 screen_w            = 2;
+  uint32 screen_h            = 3;
+  uint32 color_depth         = 4;
+  repeated string input      = 5;   // ["button","voice"]
+  repeated string components = 6;
+  uint32 max_image_bytes     = 7;
+  // Fences this device can hold; 0 = cannot hold geofences.
+  uint32 max_geofences       = 8;
+
+  // Notifications this device can hold and render; 0 = cannot render them.
+  uint32 max_notifications   = 9;
+}
+
+// One status line while a turn is still running; sent with is_final=false.
+message Progress {
+  string text     = 1;   // what to show, already phrased for a human
+  string kind     = 2;   // "thinking" | "tool" | "say" | "answering"
+  string tool_id  = 3;   // which tool, when kind == "tool"; empty otherwise
+  bool   speakable = 4;  // TRUE means read it out loud, not just display it
+}
+
+message DeviceResponse {
+  uint32 status          = 1;
+  Speech speech          = 2;       // optional; a view-only reply is valid
+  ViewSpec view          = 3;       // optional declarative UI
+  repeated Action actions= 4;
+  bool   is_final        = 5;
+  ConfirmRequest confirm = 6;
+  string tool_id         = 7;
+  string request_id      = 8;
+  // Set only on a streamed status frame with is_final=false.
+  Progress progress = 24;
+  LocationRequest location_request = 9;   // set when the cached fix is too stale/imprecise
+  MediaCommand media = 10;                // play/pause/seek/etc. for the device's audio player
+  NavCommand nav = 11;                    // destination + route summary the device navigates
+  AlarmCommand alarm = 12;                // arm/cancel a backend-owned absolute ALARM
+  TimerCommand timer = 13;                // start/cancel a device-run relative TIMER
+  StopwatchCommand stopwatch = 14;        // start/stop/reset the device-run STOPWATCH
+  repeated Attachment attachments = 15;   // long text / images / blobs: DISPLAYED, NEVER SPOKEN
+  CommsCommand comms = 16;                // place a call / send a text
+
+  // The reply ends on a question; a cue only — never opens the microphone.
+  bool expects_reply = 17;
+
+  // Expect an inbound call the backend placed; must be sent before leg A rings.
+  BridgeCorrelation bridge = 18;
+
+  // Ids from `inbound_sms` the backend durably holds.
+  repeated string sms_ack = 19;
+  // Correlation ids from `comms_results` the backend durably holds.
+  repeated string comms_results_ack = 20;
+  // New or changed voicemails; resent until acked.
+  repeated Voicemail voicemails = 21;
+  // Unheard total for the badge; sent every turn.
+  uint32 voicemail_count = 22;
+
+  // Change device settings and/or read them; a request — `settings_state` is the fact.
+  SettingsCommand settings = 23;
+
+  // Complete set of fences to hold; absent = no change, present-but-empty = hold none.
+  GeofenceArm geofences = 25;
+
+  // Crossing ids from `geofence_events` the backend durably holds.
+  repeated string geofence_ack = 26;
+
+  reserved 27;
+  // Notifications queued for this device; resent until acked.
+  repeated Notification notifications = 28;
+
+  // Unread mail count for the badge; sent every turn including zero.
+  uint32 mail_unread = 29;
+}
+
+// One inert notification; no command fields.
+message Notification {
+  // Server-minted opaque id; the device dedupes on it.
+  string id      = 1;
+
+  // Which feature produced it; treat an unknown kind as a generic notice.
+  string kind    = 2;
+
+  // Display text already phrased for a human; never a message body or subject.
+  string title   = 3;
+
+  // "passive" | "active" | "time_sensitive" | "critical"; governs order.
+  string urgency = 4;
+
+  // When the backend decided it, unix seconds.
+  uint64 created_at_epoch_s = 5;
+}
+
+// Reserved for a future transport; not used by this client.
+message WakeSignal {
+  uint32 status = 1;
+
+  // Queued notifications; same queue and ack as `DeviceResponse.notifications`.
+  repeated Notification notifications = 2;
+
+  // Badge counts; always set, including zero.
+  uint32 mail_unread       = 3;
+  uint32 voicemail_unheard = 4;
+
+  // Notifications still queued beyond what this signal carries.
+  uint32 pending = 5;
+
+  // Server clock, unix ms.
+  uint64 server_time_ms = 6;
+
+  // Seconds to wait before polling again; 0 = reconnect immediately.
+  uint32 poll_after_s = 7;
+}
+
+// One text that arrived on the SIM.
+message InboundSms {
+  // Opaque device-derived id; the backend compares it and never recomputes it.
+  string id         = 1;
+  string from       = 2;   // E.164 where the carrier gives it, raw otherwise
+  string body       = 3;   // multipart parts already concatenated by the device
+  // The carrier's timestamp, unix ms.
+  int64  sent_at_ms = 4;
+}
+
+// Tells the device that a specific inbound call is one the backend placed on its behalf.
+message BridgeCorrelation {
+  // Single-use; consumed before answering.
+  string correlation_id = 1;
+  string expect_from    = 2;   // E.164 of the leg-A caller — necessary, NOT sufficient, to match
+  uint32 valid_for_ms   = 3;   // window in ms; keep tight
+}
+
+// Backend -> device telephony; `number` must come from a resolved contact record.
+message CommsCommand {
+  // "call" dial now | "dial" open dialer prefilled | "send_sms" send now | "sms" open composer prefilled
+  string action       = 1;
+  string number       = 2;   // dialable; E.164 preferred
+  string display_name = 3;   // who this resolved to ("Mom"); shown on screen while dialling
+  string body         = 4;   // send_sms | sms only: the message text
+  // Echoed back in CommsResult and acknowledged in comms_results_ack.
+  string correlation_id = 5;
+}
+
+// What the handset did with a CommsCommand; resent until acked.
+message CommsResult {
+  string correlation_id = 1;   // echoes CommsCommand.correlation_id
+  string action         = 2;   // the action as dispatched: call | dial | send_sms | sms
+
+  // Meaning depends on action: call = placed; send_sms = radio accepted; dial/sms = handed to the user.
+  bool   performed      = 3;
+  string error          = 4;   // short reason when performed is false; empty otherwise
+}
+
+// A voicemail the assistant took; same shape for screened and direct callers.
+message Voicemail {
+  string id             = 1;   // opaque and stable; the device dedups and acks on it
+  string from_number    = 2;   // E.164. The forwarded leg carries the ORIGINAL caller, not the SIM
+  string display_name   = 3;   // resolved contact name, empty when nobody matches
+  int64  received_at_ms = 4;
+  uint32 duration_s     = 5;
+  string transcript     = 6;
+  // Fetched through the backend's authenticated endpoint; empty when no audio is available.
+  string audio_url      = 7;
+  bool   screened       = 8;   // Rist declined them, vs the user simply missed it
+  // Backend-owned read state.
+  bool   heard          = 9;
+
+  // True when the message lives in the carrier's mailbox; `transcript` says how to reach it.
+  bool   carrier_held   = 10;
+}
+
+// Payload that rides with a response and is never sent to TTS.
+message Attachment {
+  string kind    = 1;   // text | image | data
+  string mime    = 2;   // "text/markdown", "image/png", "application/json"
+  string title   = 3;   // short label for the UI; NOT spoken
+  string text    = 4;   // kind=text
+  bytes  data    = 5;   // kind=image|data — inline bytes (base64 over the JSON transport)
+  string uri     = 6;   // alternative to inline; the device fetches it
+  string tool_id = 7;   // provenance
+}
+
+// Backend -> device audio-player control; `playlist` = upcoming URLs for local advance.
+message MediaCommand {
+  string action           = 1;   // play | pause | resume | stop | seek | set_speed | next | previous
+  string stream_url       = 2;
+  uint32 start_position_s = 3;   // where to begin (resume point)
+  string item_id          = 4;
+  uint32 section          = 5;   // chapter / episode number
+  string title            = 6;
+  string author           = 7;
+  repeated string playlist= 8;
+  int32  seek_to_s        = 9;
+  int32  seek_by_s        = 10;
+  float  rate             = 11;  // playback speed for set_speed
+}
+
+// Backend -> device navigation control.
+message NavCommand {
+  string action     = 1;   // navigate | stop
+  double dest_lat   = 2;
+  double dest_lon   = 3;
+  string label      = 4;   // human-readable destination name
+  uint32 distance_m = 5;   // route distance in meters (0 if unknown)
+  uint32 duration_s = 6;   // route duration in seconds (0 if unknown)
+  string mode       = 7;   // driving | walking
+
+  Corridor corridor = 8;   // pre-rendered route strip; may be absent
+  repeated Maneuver turns = 9;  // turn-by-turn list — device speaks/paints these from local GPS
+  string route_id   = 10;  // opaque id for this route; echo on an off-corridor reroute
+
+  // Georeferenced static frames (Follow / Maneuver views); all ship in the initial reply.
+  repeated NavFrame frames = 11;
+
+  // Route line as an encoded polyline, precision 6.
+  string shape = 12;
+
+  // Slippy XYZ 256x256 tiles, coarse-to-fine order.
+  repeated MapTile tiles = 13;
+}
+
+message MapTile {
+  uint32 z     = 1;
+  uint32 x     = 2;
+  uint32 y     = 3;
+  bytes  image = 4;   // 256x256 indexed PNG, same palette as the frames
+}
+
+// A pre-rendered view of the route.
+enum FrameRole {
+  FRAME_OVERVIEW = 0;   // whole route — same as the `corridor` field
+  FRAME_FOLLOW   = 1;   // zoomed strip centred on one route SEGMENT
+  FRAME_MANEUVER = 2;   // zoomed to a single upcoming TURN
+}
+
+message NavFrame {
+  FrameRole role          = 1;
+  Corridor  strip         = 2;   // georeferenced raster (tiles + min/max lat/lon + zoom + palette)
+  sint32    segment_index = 3;   // FOLLOW: which route segment (0..N) this covers; -1 if n/a
+  sint32    turn_index    = 4;   // MANEUVER: which turns[] index this frame is for; -1 if n/a
+}
+
+// Georeferenced route raster, palette-reduced.
+message Corridor {
+  repeated Tile tiles = 1;
+  uint32 tile_px      = 2;   // tile WIDTH in pixels
+  uint32 tile_px_h    = 13;  // tile HEIGHT in pixels
+  uint32 zoom         = 3;   // slippy-map zoom the tiles were rendered at
+  double min_lat      = 4;   // corridor bbox — south
+  double min_lon      = 5;   //                 west
+  double max_lat      = 6;   //                 north
+  double max_lon      = 7;   //                 east
+  uint32 palette      = 8;   // color count baked in
+
+  // Track-up when bearing_deg != 0: offset from centre in metres -> rotate by +bearing_deg -> / m_per_px.
+  double center_lat   = 9;
+  double center_lon   = 10;
+  double bearing_deg  = 11;  // 0 = north-up
+  double m_per_px     = 12;  // ground metres per pixel at the centre
+}
+
+message Tile {
+  sint32 x     = 1;   // slippy x at `zoom`
+  sint32 y     = 2;   // slippy y at `zoom`
+  bytes  image = 3;   // palette-reduced indexed PNG; base64 on the JSON mirror
+}
+
+// One turn-by-turn maneuver; the device fires `instruction` as its GPS nears lat/lon.
+message Maneuver {
+  string instruction = 1;   // "Turn right on Beacon St"
+  string street      = 2;   // "Beacon St"
+  uint32 type        = 3;   // 0 continue,1 left,2 right,3 slight-left,4 slight-right,5 sharp-left,
+                            //   6 sharp-right,7 uturn,8 merge,9 roundabout,10 arrive
+  uint32 distance_m  = 4;   // distance from the previous maneuver to this one
+  double lat         = 5;
+  double lon         = 6;
+  // Verb only, for the banner; `instruction` is what is spoken.
+  string short_instruction = 7;
+
+  // Exit signage text; empty for an ordinary turn.
+  string exit_number = 8;   // "168B"
+  string exit_branch = 9;   // the route being joined — "WA 520", "I 405 North"
+  string exit_toward = 10;  // destinations, " / "-joined — "Bellevue / Kirkland"
+}
+
+// Backend -> device alarm control; alarms are absolute and armed locally.
+message AlarmCommand {
+  string action           = 1;   // arm | cancel | snooze
+  string alarm_id         = 2;   // backend-assigned id (echo on cancel/snooze/events)
+  string kind             = 3;   // always "alarm"
+  uint64 fire_at_epoch_s  = 4;   // absolute fire time (unix seconds)
+  string label            = 5;   // "wake up"
+  string recurrence       = 6;   // passthrough ("", "daily", "weekdays") — device handles re-arm
+  bool   sound            = 7;
+  bool   vibrate          = 8;
+}
+
+// Backend -> device timer control; relative and device-run.
+message TimerCommand {
+  string action     = 1;   // start | cancel | pause | resume | extend
+  uint32 duration_s = 2;   // countdown length for action=start (seconds)
+  string label      = 3;   // "eggs", "pasta" (optional; disambiguates multiple device timers)
+  uint32 extend_s   = 4;   // for action=extend: add this many seconds to the running timer
+}
+
+// Device-run stopwatch; stop holds the elapsed, reset zeroes it and preserves run state.
+message StopwatchCommand {
+  string action = 1;   // start | stop | reset
+}
+
+// Device -> backend alarm sync.
+message AlarmEvent {
+  string alarm_id  = 1;
+  string event     = 2;   // fired | dismissed | snoozed
+  uint64 timestamp = 3;   // unix ms
+}
+
+// Device -> backend playback progress (POST /v1/media/progress).
+message MediaProgress {
+  string user_id    = 1;
+  string session_id = 2;
+  string item_id    = 3;
+  uint32 position_s = 4;
+  uint32 section    = 5;
+  string action     = 6;   // play | pause | end | seek | stop
+  uint64 timestamp  = 7;
+  // Display title of what is playing; optional.
+  string title      = 8;
+}
+
+// The device acquires a fix meeting these bounds and re-sends the request.
+message LocationRequest { uint32 max_age_s = 1; float min_accuracy_m = 2; string reason = 3; }
+
+// One fence the device should watch.
+message Geofence {
+  // Backend-assigned, stable; echoed in `geofence_state` and `GeofenceEvent.fence_id`.
+  string id                 = 1;
+  double lat                = 2;   // WGS84, the centre
+  double lon                = 3;
+  // Never smaller than the backend's floor.
+  uint32 radius_m           = 4;
+  string direction          = 5;   // "enter" | "exit" — which crossing the user asked for
+  // Seconds the user must stay inside before the crossing counts.
+  uint32 dwell_s            = 6;
+  // Poll interval hint; the device may lengthen it, never shorten.
+  uint32 poll_s             = 7;
+  // Drop the fence after this, unix seconds.
+  uint64 expires_epoch_s    = 8;
+  // Set on an enter fence armed while already inside: a real exit must precede an entry.
+  bool   require_exit_first = 9;
+  // Display label only; the coordinates decide.
+  string label              = 10;
+}
+
+// The complete armed set; a message so that empty and absent differ.
+message GeofenceArm {
+  repeated Geofence fences = 1;
+}
+
+// One crossing the device observed.
+message GeofenceEvent {
+  // Device-generated, unique per crossing, opaque; the dedupe key.
+  string   id        = 1;
+  string   fence_id  = 2;   // which fence, by the id we sent in `Geofence.id`
+  string   direction = 3;   // "enter" | "exit" — what actually happened, not what was asked for
+  // When the crossing happened on the device clock, unix ms; read relative to `DeviceRequest.timestamp`.
+  uint64   at_ms     = 4;
+  // The fix that triggered it; `accuracy_m` is required.
+  Location fix       = 5;
+}
+
+message Speech { string text = 1; string ssml = 2; bytes audio = 3; string audio_codec = 4; }
+                     // audio: "" / "pcm_s16le" = raw PCM16/24kHz/mono, NO WAV header; "opus" = Ogg-Opus
+message ViewSpec { Component root = 1; uint32 schema_version = 2; }
+message Component {
+  string type            = 1;
+  map<string,string> props = 2;
+  map<string,string> style = 3;
+  repeated Component children = 4;
+  string fallback_text   = 5;
+  Action action          = 6;
+}
+message Action {
+  string kind            = 1;   // request | tool_call | confirm | dismiss | open_view
+  string request_text    = 2;
+  string tool_id         = 3;
+  map<string,string> args= 4;
+  string action_id       = 5;
+}
+message ConfirmRequest { string action_id = 1; string prompt = 2; }
+
+// Change one or more device settings, and/or read them back.
+message SettingsCommand {
+  // Correlates with the answering `SettingsState`; the device must copy it back.
+  string command_id = 1;
+
+  repeated SettingsWrite writes = 2;
+
+  // Registry keys to report without changing.
+  repeated string read = 3;
+}
+
+message SettingsWrite {
+  // Rist registry key (e.g. `display.brightness`), not the AOSP key.
+  string key = 1;
+
+  // Absolute when the current value is known, relative otherwise.
+  oneof change {
+    // Rendered in the registry's units for the key's type.
+    string value = 2;
+    // Signed steps; the device clamps.
+    sint32 delta = 3;
+  }
+}
+
+// The device's actual settings, including refusals.
+message SettingsState {
+  // The `SettingsCommand.command_id` this answers; empty = unsolicited.
+  string command_id = 1;
+  repeated SettingsValue values = 2;
+}
+
+message SettingsValue {
+  string key = 1;
+
+  // The value the device holds now, after a write or a refusal.
+  string value = 2;
+
+  Outcome outcome = 3;
+
+  enum Outcome {
+    // Not a write result: a snapshot, or a key named in `SettingsCommand.read`.
+    REPORTED = 0;
+    // A write was requested and took effect.
+    APPLIED = 1;
+    // The write did not take effect; `detail` says why.
+    REFUSED = 2;
+    // This build does not implement the key.
+    UNKNOWN_KEY = 3;
+    // The key exists but the value is invalid.
+    INVALID_VALUE = 4;
+  }
+
+  // Diagnostic reason for REFUSED / UNKNOWN_KEY / INVALID_VALUE; never spoken verbatim.
+  string detail = 4;
+}

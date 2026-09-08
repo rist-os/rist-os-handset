@@ -1,0 +1,71 @@
+From 7157000000000000000000000000000000000001 Mon Sep 17 00:00:00 2001
+From: RistOS Build <build@ristos.org>
+Date: Thu, 9 Jul 2026 00:00:00 -0600
+Subject: [PATCH] rist: VOICE_ASSIST hold-to-talk key handler + protected broadcasts
+
+A hold-to-talk key mapped to KEYCODE_VOICE_ASSIST (see rist-record.kl).
+Intercept that keycode in PhoneWindowManager.interceptKeyBeforeQueueing(),
+before the method's own switch(keyCode), so it fires from the lock screen /
+any foreground app / screen off:
+
+  * key DOWN -> broadcast watch.rist.assistant.action.RECORD_DOWN
+  * key UP   -> broadcast watch.rist.assistant.action.RECORD_UP
+  * return 0 -> consume the key
+
+Both actions are registered as <protected-broadcast> so only the system uid
+can send them. The stock KEYCODE_VOICE_ASSIST case is intentionally shadowed.
+
+Apply from the frameworks/base git project with `git am`; the @@ line numbers
+are for android-16.0.0_r4 and may drift on other tags (use `patch -p1 --fuzz=3`).
+---
+ core/res/AndroidManifest.xml                                |  5 +++++
+ .../android/server/policy/PhoneWindowManager.java           | 19 +++++++++++++++++++
+ 2 files changed, 24 insertions(+)
+
+diff --git a/core/res/AndroidManifest.xml b/core/res/AndroidManifest.xml
+--- a/core/res/AndroidManifest.xml
++++ b/core/res/AndroidManifest.xml
+@@ -631,6 +631,11 @@
+     <protected-broadcast android:name="android.permission.CLEAR_APP_GRANTED_URI_PERMISSIONS" />
+
+     <protected-broadcast android:name="android.intent.action.DYNAMIC_SENSOR_CHANGED" />
++
++    <!-- RIST record-anytime button (framework -> watch.rist.assistant; hold-to-talk).
++         Only the system uid may send these; the app receiver listens for them. -->
++    <protected-broadcast android:name="watch.rist.assistant.action.RECORD_DOWN" />
++    <protected-broadcast android:name="watch.rist.assistant.action.RECORD_UP" />
+
+     <protected-broadcast android:name="android.accounts.LOGIN_ACCOUNTS_CHANGED" />
+     <protected-broadcast android:name="android.accounts.action.ACCOUNT_REMOVED" />
+diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.java b/services/core/java/com/android/server/policy/PhoneWindowManager.java
+--- a/services/core/java/com/android/server/policy/PhoneWindowManager.java
++++ b/services/core/java/com/android/server/policy/PhoneWindowManager.java
+@@ -4425,7 +4425,26 @@ public class PhoneWindowManager implements WindowManagerPolicy {
+         final boolean interactive = (policyFlags & FLAG_INTERACTIVE) != 0;
+         final boolean canceled = event.isCanceled();
+         final int displayId = event.getDisplayId();
+         final boolean isInjected = (policyFlags & WindowManagerPolicy.FLAG_INJECTED) != 0;
++
++        // --- RIST record-anytime button (hold-to-talk) ---------------------------
++        // Scancode is mapped to KEYCODE_VOICE_ASSIST in rist-record.kl. Intercept it
++        // HERE, before this method's switch(keyCode) dispatch, so it fires from the
++        // lock screen / any app / screen off and the stock VOICE_ASSIST case never
++        // runs (return 0 consumes it). Intent / UserHandle / KeyEvent already
++        // imported; mContext is an existing field; keyCode/down/isInjected already
++        // declared above.
++        if (keyCode == KeyEvent.KEYCODE_VOICE_ASSIST && !isInjected) {
++            final String ristAction = down
++                    ? "watch.rist.assistant.action.RECORD_DOWN"
++                    : "watch.rist.assistant.action.RECORD_UP";
++            final Intent ristIntent = new Intent(ristAction)
++                    .setPackage("watch.rist.assistant")
++                    .addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
++            mContext.sendBroadcastAsUser(ristIntent, UserHandle.CURRENT);
++            return 0; // consume: nothing else should see the record button
++        }
++        // --- end RIST ------------------------------------------------------------
+
+         if (DEBUG_INPUT) {
+             // If screen is off then we treat the case where the keyguard is open but hidden
+--
+2.43.0

@@ -1,0 +1,6 @@
+# Optional key layout for a hold-to-talk key
+#
+# Maps a scancode to VOICE_ASSIST (231). This keycode MUST match
+# aosp/patches/0001-rist-record-button-keyhandler.patch.
+# Use exactly ONE mapping for 0x2fb.
+key 0x2fb   VOICE_ASSIST

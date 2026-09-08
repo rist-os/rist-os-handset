@@ -1,0 +1,23 @@
+{
+  "build": "2026072400",
+  "channel": "stable",
+  "device": "stallion",
+  "expires": 1789284853,
+  "filename": "stallion-ota_update-2026072400.zip",
+  "fingerprint": "rist/stallion/stallion:16/RISTOS/2026072400:user/release-keys",
+  "incremental_from": null,
+  "payload_offset": 4443,
+  "payload_properties": [
+    "FILE_HASH=lURPCIkIAjtMOyB/EjQcl8zDzqtD6Ta3tJef6G/+z2k=",
+    "FILE_SIZE=1662712935",
+    "METADATA_HASH=tBvj43QOB0Jn++JojcpVdbRLz0qdAuL+uTkSy7hokaw=",
+    "METADATA_SIZE=70604"
+  ],
+  "payload_size": 1662712935,
+  "sdk_level": "36",
+  "security_patch": "2026-07-05",
+  "timestamp": 1784851200,
+  "url": "https://ota.example.com/pkg/stallion-ota_update-2026072400.zip",
+  "zip_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "zip_size": 1662717378
+}

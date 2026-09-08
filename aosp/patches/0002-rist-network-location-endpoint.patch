@@ -1,0 +1,82 @@
+From 7157000000000000000000000000000000000002 Mon Sep 17 00:00:00 2001
+From: RistOS Build <build@ristos.org>
+Date: Sat, 29 Aug 2026 00:00:00 -0600
+Subject: [PATCH] rist: point network location at the Rist relay (root pins kept)
+
+Move NETWORK_LOCATION_GRAPHENEOS_APPLE_PROXY (setting value 2, the ONLY value
+RistOS ever writes -- see NetworkLocationConsent.VALUE_PROXY) from GrapheneOS's
+relay to ours:
+
+    https://gs-loc.apple.grapheneos.org/clls/wloc   ->   https://loc.ristos.org/clls/wloc
+
+Nothing else about the exchange changes. Same POST, same request bytes, same
+four forwarded headers (Accept / Accept-Language / Content-Type /
+User-Agent, all already set by fetch() above getServerUrl()), same 10 s connect
+and 10 s read timeouts, and the response comes back byte-for-byte as Apple sent
+it, so the "skip 10 bytes, protobuf-decode the rest" path in fetch() is
+untouched. No authentication is added, deliberately: authenticating the device
+would identify it, which is the whole thing this relay exists to prevent. No
+X-Forwarded-For / Via / proxy header is added either.
+
+Values 1 (NETWORK_LOCATION_APPLE) and 3 (NETWORK_LOCATION_APPLE_CHINA) are left
+pointing at Apple. They are honest as they stand, they are not what RistOS
+writes, and the Settings labels for them ("Apple server", "Apple China server")
+stay true. Only the proxy row becomes ours.
+
+Pins are ISRG roots only; never pin the leaf (Let's Encrypt rotates it).
+
+============ SHIPS WITH ========================================================
+This patch makes the Settings radio label "GrapheneOS Apple proxy" wrong. It
+must land in the same image as aosp/rro/RistSettingsStrings, which renames that
+one string to "Rist Apple proxy", and as the reworded prompt in
+app/src/main/java/watch/rist/assistant/NetworkLocationPromptActivity.kt, whose
+refusal screen tells the user to pick that exact label by name. Landing any one
+of the three without the other two leaves an instruction on screen that names a
+control the user cannot find.
+---
+ res/xml/network_security_config.xml                             | 13 ++++++++++++-
+ .../app/grapheneos/networklocation/ApplePositioningService.kt   |  6 +++++-
+ 2 files changed, 17 insertions(+), 2 deletions(-)
+
+diff --git a/res/xml/network_security_config.xml b/res/xml/network_security_config.xml
+--- a/res/xml/network_security_config.xml
++++ b/res/xml/network_security_config.xml
+@@ -2,8 +2,19 @@
+ <network-security-config>
+     <base-config cleartextTrafficPermitted="false"/>
+     <domain-config>
+-        <domain includeSubdomains="true">gs-loc.apple.grapheneos.org</domain>
++        <domain includeSubdomains="true">loc.ristos.org</domain>
+         <!-- no expiry since the app is expected to be kept relatively up-to-date to use the services -->
++        <!-- RistOS: these are ISRG *ROOT* pins, and they must stay that way. loc.ristos.org uses
++             Let's Encrypt with ~90-day auto-renewal, so pinning the leaf certificate or its
++             public key would break positioning on every shipped handset at the first renewal,
++             in the field, with no recovery path. The
++             served chain is loc.ristos.org -> Let's Encrypt YE2 -> ISRG Root YE -> ISRG Root X2
++             (cross-signed by ISRG Root X1), and the SHA-256 SPKI hashes of ISRG Root YE and
++             ISRG Root X2 in that chain match the two pins below byte for byte. The leaf's own
++             SPKI hash (SEIKiCw+Vid+afQQ79R5UDHUYL257SuG513uuIXAqfg=) is deliberately ABSENT.
++             Failure here is graceful (ApplePositioningService throws IOException and the
++             platform falls back to satellite positioning silently), but it would be a silent
++             field-wide accuracy regression, so do not narrow this set. -->
+         <pin-set>
+             <!-- ISRG Root X1 -->
+             <pin digest="SHA-256">C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M=</pin>
+diff --git a/src/app/grapheneos/networklocation/ApplePositioningService.kt b/src/app/grapheneos/networklocation/ApplePositioningService.kt
+--- a/src/app/grapheneos/networklocation/ApplePositioningService.kt
++++ b/src/app/grapheneos/networklocation/ApplePositioningService.kt
+@@ -97,7 +97,11 @@
+             NETWORK_LOCATION_APPLE_CHINA ->
+                 "https://gs-loc-cn.apple.com/clls/wloc"
+             NETWORK_LOCATION_GRAPHENEOS_APPLE_PROXY ->
+-                "https://gs-loc.apple.grapheneos.org/clls/wloc"
++                // RistOS: the same Apple endpoint, relayed by Rist instead of GrapheneOS. The
++                // request bytes, the response bytes and the 10-byte-skip decode are unchanged;
++                // only the host that forwards them differs. Pinning for this host lives in
++                // res/xml/network_security_config.xml -- ISRG ROOTS ONLY, never the leaf.
++                "https://loc.ristos.org/clls/wloc"
+             NETWORK_LOCATION_APPLE ->
+                 "https://gs-loc.apple.com/clls/wloc"
+             NETWORK_LOCATION_DISABLED ->
+--
+2.43.0

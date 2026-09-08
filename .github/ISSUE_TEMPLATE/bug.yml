@@ -1,0 +1,69 @@
+name: Bug report
+description: Something in RistOS does not work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Not for security or emergency-calling problems.** Those go through private
+        vulnerability reporting, not a public issue — see `SECURITY.md`.
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device
+      description: RistOS is built and validated for one device only.
+      options:
+        - Pixel 10a (stallion)
+        - Something else
+    validations:
+      required: true
+  - type: input
+    id: build
+    attributes:
+      label: Build string
+      description: The exact value from Settings → About. Not "latest".
+      placeholder: "2026083005"
+    validations:
+      required: true
+  - type: dropdown
+    id: bootloader
+    attributes:
+      label: Bootloader state
+      description: The boot screen colour tells you this.
+      options:
+        - Locked on the RistOS AVB key (yellow boot screen)
+        - Unlocked (orange boot screen)
+        - Locked on Google's key (green boot screen)
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: came_from
+    attributes:
+      label: What was on the phone before this build
+      options:
+        - Google stock
+        - An earlier RistOS build
+        - GrapheneOS or another AOSP-based OS
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Verbatim output
+      description: >-
+        Any fastboot, adb or logcat output, pasted as text rather than a screenshot.
+        For a boot failure, say which screen it stops on and attach a photo.
+      render: shell
+  - type: checkboxes
+    id: ack
+    attributes:
+      label: Before filing
+      options:
+        - label: I read the "this erases your phone" section of image/INSTALL.md
+          required: true

@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Rist</string>
+
+    <string name="home_title">Rist</string>
+    <string name="home_subtitle">hold the talk button · settings from the app drawer</string>
+    <string name="record_label">Hold to talk</string>
+    <string name="recording_label">Listening…</string>
+    <string name="camera_icon_desc">Camera button</string>
+    <string name="torch_desc">Flashlight</string>
+    <string name="torch_brightness_fmt">🔦 brightness %1$d/%2$d</string>
+    <string name="status_idle">status: idle</string>
+    <string name="clear_label">[ CLEAR ]</string>
+    <string name="clear_desc">Clear the reply and delete the photo</string>
+
+    <string name="app_phone">PHONE</string>
+    <string name="app_phone_desc">Open the phone dialer</string>
+    <string name="app_msg">MSG</string>
+    <string name="app_msg_desc">Open messaging</string>
+    <string name="app_cam">CAM</string>
+    <string name="app_cam_desc">Open the camera app</string>
+    <string name="app_pics">PICS</string>
+    <string name="app_pics_desc">Open the gallery</string>
+    <string name="app_set">Phone\nSettings</string>
+    <string name="app_set_desc">Open settings</string>
+    <string name="app_maps">MAPS</string>
+    <string name="app_maps_desc">Open Organic Maps</string>
+
+    <string name="text_input_hint">Type a message</string>
+    <string name="send_icon_desc">Send button</string>
+    <string name="text_sending">✎ sending — awaiting reply</string>
+
+    <string name="camera_capture">CAPTURE</string>
+    <string name="camera_cancel">CANCEL</string>
+    <string name="camera_unavailable">Camera unavailable on this device</string>
+    <string name="camera_permission_denied">Camera permission denied</string>
+    <string name="photo_captured">photo captured (grayscale)</string>
+    <string name="camera_switch">FLIP</string>
+    <string name="camera_switch_desc">Switch between front and back camera</string>
+    <string name="camera_flash_off">FLASH OFF</string>
+    <string name="camera_flash_auto">FLASH AUTO</string>
+    <string name="camera_flash_on">FLASH ON</string>
+    <string name="camera_flash_desc">Toggle flash off, auto, or on</string>
+    <string name="camera_discard">X</string>
+    <string name="camera_discard_desc">Discard this photo and take another</string>
+    <string name="camera_use">[ USE ]</string>
+    <string name="camera_use_desc">Use this photo and send it</string>
+    <string name="camera_review_desc">Captured photo, pending review</string>
+
+    <string name="np_prev">|&lt;</string>
+    <string name="np_next">&gt;|</string>
+    <string name="np_back10">-10</string>
+    <string name="np_forward10">+10</string>
+    <string name="np_play">&gt;</string>
+    <string name="np_pause">||</string>
+    <string name="np_prev_desc">Previous chapter or section</string>
+    <string name="np_next_desc">Next chapter or section</string>
+    <string name="np_back10_desc">Skip back 10 seconds</string>
+    <string name="np_forward10_desc">Skip forward 10 seconds</string>
+    <string name="np_playpause_desc">Play or pause</string>
+    <string name="np_chapter_fmt">Chapter %1$d</string>
+    <string name="np_episode_fmt">Episode %1$d</string>
+
+    <string name="nav_minimize">[ MIN ]</string>
+    <string name="nav_minimize_desc">Minimize navigation to a pill</string>
+    <string name="nav_close">[ X ]</string>
+    <string name="nav_close_desc">Close navigation</string>
+    <string name="nav_pill_fmt">NAV &gt; %1$s</string>
+    <string name="nav_pill_desc">Expand navigation</string>
+    <string name="nav_routing_unavailable">routing unavailable</string>
+    <string name="nav_eta_fmt">%1$.1f mi · about %2$d min</string>
+    <string name="nav_dest_fmt">DEST %1$.5f, %2$.5f</string>
+    <string name="nav_here_fmt">HERE %1$.5f, %2$.5f · ±%3$dm</string>
+    <string name="nav_here_locating">HERE locating…</string>
+    <string name="nav_mode_fmt">MODE %1$s</string>
+    <string name="nav_banner_fmt">%1$s · %2$s</string>
+    <string name="nav_eta_local_fmt">%1$.1f mi · about %2$d min</string>
+    <string name="nav_no_basemap">NO BASEMAP · HEADING ONLY</string>
+    <string name="nav_rerouting">off route — rerouting…</string>
+    <string name="nav_arrived">Arrived.</string>
+
+    <string name="setup_title">Settings</string>
+    <string name="settings_back">[ &lt; BACK ]</string>
+    <string name="settings_back_desc">Return to the home screen</string>
+
+    <string name="consent_body">Rist listens only while you hold the talk button. It never listens on its own. What you say is sent over the internet to Rist to be answered, so please do not record other people without telling them.</string>
+    <string name="consent_checkbox">I understand and consent to push-to-talk recording</string>
+
+    <string name="reply_voice_checkbox">Read replies aloud</string>
+
+    <string name="device_info_fmt">device: %1$s\nversion: %2$s</string>
+    <string name="backend_section_heading">Assistant service</string>
+    <string name="backend_endpoint_label">Endpoint (advanced)</string>
+    <string name="backend_hint">https://host/v1/device</string>
+    <string name="backend_save">Save endpoint</string>
+    <string name="backend_reset">Reset to default</string>
+
+    <string name="backend_change_title">Change assistant service?</string>
+    <string name="backend_change_body">Changing the assistant service will disconnect this device from the current one. You will need a new pairing code to connect it again.</string>
+    <string name="backend_change_confirm">Change assistant service</string>
+    <string name="backend_change_reset_confirm">Reset assistant service</string>
+    <string name="backend_change_cancel">Cancel</string>
+
+    <string name="pair_label">Connect this device</string>
+    <string name="pair_hint">Pairing code</string>
+    <string name="pair_submit">Connect</string>
+    <string name="pair_code_desc">Pairing code from your Rist account</string>
+    <string name="pair_submit_desc">Connect this device using the code you typed</string>
+    <string name="pair_prompt">Enter your pairing code. Codes may be temporary, so if yours has expired, you may need to request a new one.</string>
+    <string name="pair_connected">Your device is connected.</string>
+    <string name="pair_revoked">This device\'s access was turned off. Connecting it again will not restore it — contact support.</string>
+    <string name="pair_working">Connecting…</string>
+
+    <string name="status_never_connected">Not connected yet. Tap here to connect this device.</string>
+    <string name="status_connection_lost">This device is no longer connected. Tap here to reconnect.</string>
+    <string name="status_revoked">This device\'s access was turned off. Tap here to find out what to do.</string>
+    <string name="mail_unread_one">You have an unread email.</string>
+    <string name="mail_unread_many">You have %1$d unread emails.</string>
+    <string name="apps_label">Apps</string>
+    <string name="release_to_cancel">Release to cancel</string>
+    <string name="settings_gear_desc">Settings</string>
+    <string name="app_settings_short">SETTINGS</string>
+    <string name="app_drawer_desc">Apps</string>
+    <string name="app_drawer_close_desc">Close apps</string>
+    <string name="app_torch">TORCH</string>
+    <string name="alarm_dismiss">Dismiss</string>
+    <string name="talk_button_desc">Hold to talk to the assistant</string>
+    <string name="talk_button_a11y_action">Start or stop recording</string>
+    <string name="torch_on_desc">Flashlight, on</string>
+    <string name="torch_off_desc">Flashlight, off</string>
+    <string name="record_label_answer">ANSWER</string>
+    <string name="app_voicemail">Voicemail</string>
+    <string name="phone_settings_hint">Wi-Fi, Bluetooth, display and the rest of Android.</string>
+
+    <string name="ota_offer_started">Update starting. It will install in the background, and the phone will ask you to restart when it is ready.</string>
+    <string name="ota_offer_refused">That update could not be started. It may have been replaced by a newer one. Please try again later.</string>
+    <string name="ota_metered_title">Use mobile data?</string>
+    <string name="ota_metered_body">This update is about %1$s. Downloading it on mobile data may use your allowance or cost money. Wi\u2011Fi is recommended.</string>
+    <string name="ota_metered_yes">Use mobile data</string>
+    <string name="ota_metered_wait">Wait for Wi\u2011Fi</string>
+    <string name="ota_offline_title">Not connected</string>
+    <string name="ota_offline_body">Connect to Wi\u2011Fi and the update will be ready to install.</string>
+    <string name="ota_ok">OK</string>
+
+    <string name="ota_ready_body">The update is downloaded and ready. Hold the power button and choose Restart when it suits you. Nothing is lost by waiting.</string>
+
+    <string name="ota_wifi_hint">We recommend connecting to Wi\u2011Fi before downloading because the file is large.</string>
+
+    <string name="ota_section_heading">System updates</string>
+    <string name="ota_update_button">Update</string>
+    <string name="ota_progress_caption">This is a large download and can take a while. You can keep using the phone normally while it runs. When it has finished, this screen will ask you to restart \u2014 the phone will wait for you, however long that takes.</string>
+
+    <string name="attach_kind_image">IMAGE</string>
+    <string name="attach_kind_note">NOTE</string>
+    <string name="attach_kind_file">FILE</string>
+
+    <string name="attach_untitled_image">Picture</string>
+    <string name="attach_untitled_note">Note</string>
+    <string name="attach_untitled_file">File</string>
+
+    <string name="attach_image_desc">Picture sent with this reply</string>
+
+    <string name="attach_meta_fmt">%1$s \u00b7 %2$s</string>
+    <string name="attach_unknown_type">unknown type</string>
+
+    <string name="attach_size_unknown">size unknown</string>
+    <string name="attach_size_one_byte">1 byte</string>
+    <string name="attach_size_bytes">%1$d bytes</string>
+    <string name="attach_size_kb">%1$s KB</string>
+    <string name="attach_size_mb">%1$s MB</string>
+    <string name="attach_size_gb">%1$s GB</string>
+
+    <string name="attach_no_bytes">Could not be shown: the picture did not arrive with this reply.</string>
+    <string name="attach_bad_format">Could not be shown: this picture is in a format this phone cannot read (%1$s).</string>
+    <string name="attach_empty_note">Could not be shown: this note arrived empty.</string>
+
+    <string name="attach_show_all">Show all</string>
+    <string name="attach_show_all_desc">Show the whole note</string>
+
+    <string name="attach_cannot_open">This file cannot be opened on this phone.</string>
+
+    <string name="attach_reason_too_big">This was too big to show.</string>
+    <string name="attach_reason_unreadable">This picture could not be read.</string>
+    <string name="attach_reason_unknown">This could not be shown.</string>
+    <string name="attach_reason_absent">This did not arrive.</string>
+
+    <string name="attach_card_failed">%1$s \u2014 could not be shown: this card would not draw.</string>
+
+    <string name="attach_announce_failed">%1$s. %2$s</string>
+
+    <string name="ota_downloading_title">Update in progress</string>
+    <string name="ota_downloading_body">The phone is fetching the update in the background. It can take a while, and it will ask you to restart when it is ready.\n\nIf nothing seems to be happening, you can stop waiting and choose it again later.</string>
+    <string name="ota_downloading_stop">Stop waiting</string>
+    <string name="ota_downloading_keep">Keep waiting</string>
+    <string name="ota_downloading_stopped">Stopped. The update will be offered again the next time the phone checks.</string>
+</resources>

@@ -1,0 +1,302 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- No clipToPadding="false" here: SettingsActivity applies the status-bar inset as padding on this ScrollView. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/settingsScroll"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_lcd_screen"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <TextView
+            android:id="@+id/settingsBack"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/settings_back"
+            android:contentDescription="@string/settings_back_desc"
+            android:textColor="@color/ink"
+            android:textSize="16sp"
+            android:fontFamily="@font/pixel"
+            android:background="?attr/selectableItemBackground"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:paddingEnd="8dp"
+            android:paddingStart="0dp"
+            android:minHeight="44dp"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/setup_title"
+            android:textColor="@color/ink"
+            android:textSize="18sp"
+            android:fontFamily="@font/pixel"
+            android:textStyle="bold"
+            android:paddingBottom="16dp" />
+
+        <TextView
+            android:id="@+id/openPhoneSettings"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="PHONE SETTINGS  \u203a"
+            android:textColor="@color/ink"
+            android:textSize="14sp"
+            android:fontFamily="@font/pixel"
+            android:textAllCaps="true"
+            android:letterSpacing="0.06"
+            android:minHeight="56dp"
+            android:gravity="center"
+            android:paddingTop="14dp"
+            android:paddingBottom="14dp"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="4dp"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/phone_settings_hint"
+            android:textColor="@color/ink_muted"
+            android:textSize="11sp"
+            android:paddingBottom="18dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/consent_body"
+            android:textColor="@color/ink"
+            android:textSize="12sp"
+            android:fontFamily="@font/pixel"
+            android:lineSpacingMultiplier="1.15"
+            android:paddingBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="4dp"
+            android:textColor="@color/ink"
+            android:textSize="12sp"
+            android:fontFamily="@font/pixel"
+            android:id="@+id/appsHeading"
+            android:text="@string/apps_label" />
+
+        <LinearLayout
+            android:id="@+id/appsRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:baselineAligned="false"
+            android:gravity="center"
+            android:layout_marginBottom="16dp">
+            <FrameLayout android:id="@+id/appPhone" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:layout_margin="3dp" android:background="@drawable/bg_app_card" android:clickable="true" android:focusable="true"><LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="center" android:orientation="vertical" android:gravity="center" android:paddingTop="10dp" android:paddingBottom="8dp"><ImageView android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_app_phone" android:tint="@color/ink" android:importantForAccessibility="no" /><TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/app_phone" android:textColor="@color/ink" android:textSize="8sp" android:fontFamily="@font/pixel" android:textAllCaps="true" android:paddingTop="5dp" /></LinearLayout><TextView android:id="@+id/badgePhone" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="top|end" android:minWidth="22dp" android:minHeight="22dp" android:gravity="center" android:paddingStart="6dp" android:paddingEnd="6dp" android:background="@drawable/bg_badge" android:textColor="#FFFFFF" android:textSize="12sp" android:textStyle="bold" android:translationZ="6dp" android:visibility="gone" /></FrameLayout>
+            <FrameLayout android:id="@+id/appMsg" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:layout_margin="3dp" android:background="@drawable/bg_app_card" android:clickable="true" android:focusable="true"><LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="center" android:orientation="vertical" android:gravity="center" android:paddingTop="10dp" android:paddingBottom="8dp"><ImageView android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_app_msg" android:tint="@color/ink" android:importantForAccessibility="no" /><TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/app_msg" android:textColor="@color/ink" android:textSize="8sp" android:fontFamily="@font/pixel" android:textAllCaps="true" android:paddingTop="5dp" /></LinearLayout><TextView android:id="@+id/badgeMsg" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="top|end" android:minWidth="22dp" android:minHeight="22dp" android:gravity="center" android:paddingStart="6dp" android:paddingEnd="6dp" android:background="@drawable/bg_badge" android:textColor="#FFFFFF" android:textSize="12sp" android:textStyle="bold" android:translationZ="6dp" android:visibility="gone" /></FrameLayout>
+            <FrameLayout android:id="@+id/appCameraApp" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:layout_margin="3dp" android:background="@drawable/bg_app_card" android:clickable="true" android:focusable="true"><LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="center" android:orientation="vertical" android:gravity="center" android:paddingTop="10dp" android:paddingBottom="8dp"><ImageView android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_app_cam" android:tint="@color/ink" android:importantForAccessibility="no" /><TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/app_cam" android:textColor="@color/ink" android:textSize="8sp" android:fontFamily="@font/pixel" android:textAllCaps="true" android:paddingTop="5dp" /></LinearLayout><TextView android:id="@+id/badgeCam" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="top|end" android:minWidth="22dp" android:minHeight="22dp" android:gravity="center" android:paddingStart="6dp" android:paddingEnd="6dp" android:background="@drawable/bg_badge" android:textColor="#FFFFFF" android:textSize="12sp" android:textStyle="bold" android:translationZ="6dp" android:visibility="gone" /></FrameLayout>
+            <FrameLayout android:id="@+id/appGallery" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:layout_margin="3dp" android:background="@drawable/bg_app_card" android:clickable="true" android:focusable="true"><LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="center" android:orientation="vertical" android:gravity="center" android:paddingTop="10dp" android:paddingBottom="8dp"><ImageView android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_app_pics" android:tint="@color/ink" android:importantForAccessibility="no" /><TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/app_pics" android:textColor="@color/ink" android:textSize="8sp" android:fontFamily="@font/pixel" android:textAllCaps="true" android:paddingTop="5dp" /></LinearLayout><TextView android:id="@+id/badgePics" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="top|end" android:minWidth="22dp" android:minHeight="22dp" android:gravity="center" android:paddingStart="6dp" android:paddingEnd="6dp" android:background="@drawable/bg_badge" android:textColor="#FFFFFF" android:textSize="12sp" android:textStyle="bold" android:translationZ="6dp" android:visibility="gone" /></FrameLayout>
+            <FrameLayout android:id="@+id/appMaps" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:layout_margin="3dp" android:background="@drawable/bg_app_card" android:clickable="true" android:focusable="true"><LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="center" android:orientation="vertical" android:gravity="center" android:paddingTop="10dp" android:paddingBottom="8dp"><ImageView android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_app_maps" android:tint="@color/ink" android:importantForAccessibility="no" /><TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/app_maps" android:textColor="@color/ink" android:textSize="8sp" android:fontFamily="@font/pixel" android:textAllCaps="true" android:paddingTop="5dp" /></LinearLayout><TextView android:id="@+id/badgeMaps" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="top|end" android:minWidth="22dp" android:minHeight="22dp" android:gravity="center" android:paddingStart="6dp" android:paddingEnd="6dp" android:background="@drawable/bg_badge" android:textColor="#FFFFFF" android:textSize="12sp" android:textStyle="bold" android:translationZ="6dp" android:visibility="gone" /></FrameLayout>
+            <FrameLayout android:id="@+id/appSettings" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:layout_margin="3dp" android:background="@drawable/bg_app_card" android:clickable="true" android:focusable="true"><LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="center" android:orientation="vertical" android:gravity="center" android:paddingTop="4dp" android:paddingBottom="4dp"><ImageView android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_settings_gear" android:tint="@color/ink" android:importantForAccessibility="no" /><TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/app_set" android:textColor="@color/ink" android:textSize="8sp" android:fontFamily="@font/pixel" android:textAllCaps="true" android:gravity="center" android:lineSpacingMultiplier="0.9" android:paddingTop="2dp" /></LinearLayout><TextView android:id="@+id/badgeSet" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="top|end" android:minWidth="22dp" android:minHeight="22dp" android:gravity="center" android:paddingStart="6dp" android:paddingEnd="6dp" android:background="@drawable/bg_badge" android:textColor="#FFFFFF" android:textSize="12sp" android:textStyle="bold" android:translationZ="6dp" android:visibility="gone" /></FrameLayout>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/brightnessLabel"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="BRIGHTNESS" android:textColor="@color/ink" android:textSize="11sp"
+            android:fontFamily="@font/pixel" android:textAllCaps="true"
+            android:letterSpacing="0.10" android:paddingTop="22dp" android:paddingBottom="4dp" />
+        <SeekBar
+            android:id="@+id/brightnessBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="100"
+            android:paddingBottom="8dp" />
+
+        <TextView
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:id="@+id/themesHeading"
+            android:text="THEMES" android:textColor="@color/ink" android:textSize="14sp"
+            android:fontFamily="@font/pixel" android:textAllCaps="true"
+            android:paddingTop="22dp" android:paddingBottom="4dp" />
+        <LinearLayout
+            android:id="@+id/themePicker"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
+        <!-- Code-built sections insert at indexOfChild(sectionsAnchor); it must stay a direct child of this LinearLayout. -->
+        <View
+            android:id="@+id/sectionsAnchor"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:importantForAccessibility="no" />
+
+        <LinearLayout
+            android:id="@+id/backendGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/border"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:id="@+id/backendHeading"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/backend_section_heading"
+                android:textColor="@color/ink"
+                android:textSize="14sp"
+                android:fontFamily="@font/pixel"
+                android:textAllCaps="true"
+                android:paddingTop="6dp"
+                android:paddingBottom="4dp" />
+
+            <LinearLayout
+                android:id="@+id/backendSection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/ink"
+                    android:textSize="12sp"
+                    android:fontFamily="@font/pixel"
+                    android:text="@string/backend_endpoint_label" />
+
+                <EditText
+                    android:id="@+id/backendUrlInput"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:textColor="@color/ink"
+                    android:textColorHint="@color/ink_muted"
+                    android:textSize="11sp"
+                    android:fontFamily="@font/pixel"
+                    android:inputType="textUri"
+                    android:hint="@string/backend_hint"
+                    android:singleLine="true" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="8dp">
+
+                    <TextView
+                        android:id="@+id/backendSave"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:padding="8dp"
+                        android:textColor="@color/ink"
+                        android:textSize="12sp"
+                        android:fontFamily="@font/pixel"
+                        android:text="@string/backend_save" />
+
+                    <TextView
+                        android:id="@+id/backendReset"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="24dp"
+                        android:padding="8dp"
+                        android:textColor="@color/ink_muted"
+                        android:textSize="12sp"
+                        android:fontFamily="@font/pixel"
+                        android:text="@string/backend_reset" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/pairSection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="28dp">
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:id="@+id/pairLabel"
+                    android:textColor="@color/ink"
+                    android:textSize="12sp"
+                    android:fontFamily="@font/pixel"
+                    android:text="@string/pair_label" />
+
+                <TextView
+                    android:id="@+id/pairStatus"
+                    android:accessibilityLiveRegion="polite"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:textColor="@color/ink_muted"
+                    android:textSize="11sp"
+                    android:fontFamily="@font/pixel"
+                    android:lineSpacingMultiplier="1.15" />
+
+                <EditText
+                    android:id="@+id/pairCodeInput"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textColor="@color/ink"
+                    android:textColorHint="@color/ink_muted"
+                    android:textSize="14sp"
+                    android:fontFamily="@font/pixel"
+                    android:inputType="textNoSuggestions"
+                    android:importantForAutofill="no"
+                    android:letterSpacing="0.15"
+                    android:maxLength="16"
+                    android:hint="@string/pair_hint"
+                    android:contentDescription="@string/pair_code_desc"
+                    android:imeOptions="actionDone"
+                    android:singleLine="true" />
+
+                <TextView
+                    android:id="@+id/pairSubmit"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:paddingTop="8dp"
+                    android:paddingBottom="8dp"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:minHeight="48dp"
+                    android:gravity="center"
+                    android:textColor="@color/ink"
+                    android:textSize="12sp"
+                    android:fontFamily="@font/pixel"
+                    android:contentDescription="@string/pair_submit_desc"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:text="@string/pair_submit" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/border"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:id="@+id/deviceInfo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/ink_muted"
+            android:textSize="11sp"
+            android:fontFamily="@font/pixel" />
+
+    </LinearLayout>
+</ScrollView>

@@ -1,0 +1,109 @@
+// Organic Maps — bundled offline OSM maps app (standalone; NOT wired into the Rist assistant's
+// nav). Launched from the Rist home MAPS button (AppLauncher.launchMaps).
+//
+// Package app.organicmaps.web, targetSdk 36. The APK is NOT committed;
+// image/scripts/fetch-organicmaps.sh fetches the pinned official release.
+//
+// ---------------------------------------------------------------------------------------------
+// SIGNING: default_dev_cert, which the release step maps to OUR RELEASE KEY. NOT `platform`.
+// ---------------------------------------------------------------------------------------------
+//
+// This line used to read `certificate: "platform"`, with a comment asserting that the
+// generate-release re-sign would swap it for the release key and that the platform cert was
+// therefore inert. That assertion was FALSE and it shipped. `sign_target_files_apks -d keys/stallion`
+// maps keys BY NAME, one for one:
+//
+//     build/make/target/product/security/testkey   ->  keys/stallion/releasekey
+//     build/make/target/product/security/platform  ->  keys/stallion/platform
+//
+// so an apkcerts.txt entry naming `platform` comes out of the re-sign holding our REAL platform key,
+// not the release key. Verified on the 2026082904 release: the shipped
+// PRODUCT/app/OrganicMaps/OrganicMaps.apk is signed by 96:5F:6B:F2:… , which is
+// keys/stallion/platform.x509.pem. A ~100 MB third-party binary fetched over the internet was
+// carrying the signing identity of the OS itself. Organic Maps requests no signature-level
+// permission today and shares no UID, so nothing was exploitable — but any future version that did
+// would have been granted them silently, and that identity should never have been on it.
+//
+// `default_dev_cert: true` puts PRODUCT_DEFAULT_DEV_CERTIFICATE (unset here, so AOSP's testkey) in
+// apkcerts.txt, which the mapping above turns into keys/stallion/releasekey — the app-signing key
+// every ordinary bundled app already uses. Proven in this exact pipeline, not reasoned about:
+// external/talkback/Android.bp is `default_dev_cert: true`, and the shipped talkback.apk on
+// 2026082904 is signed by 38:9A:D2:0E:… = keys/stallion/releasekey.
+//
+// WHAT WAS REJECTED, AND WHY (read it before revisiting these):
+//
+//   certificate: "releasekey"   BREAKS THE BUILD. Soong resolves a bare cert name as
+//                               <dir of PRODUCT_DEFAULT_DEV_CERTIFICATE>/<name>.{pk8,x509.pem},
+//                               i.e. build/make/target/product/security/releasekey.pk8 — which does
+//                               not exist (that dir holds testkey, platform, shared, media,
+//                               networkstack, bluetooth, nfc, sdk_sandbox, gmscompat_lib, cts_uicc).
+//                               "releasekey" is a name that exists only in keys/stallion, i.e. only
+//                               on the far side of the re-sign.
+//
+//   a dedicated maps cert       The cleanest end state, and NOT doable from this repo alone. It needs
+//                               new key material generated in the same ceremony as the others AND a
+//                               matching `--extra_apks OrganicMaps.apk=$KEY_DIR/<name>` line in
+//                               GrapheneOS's script/generate-release.sh, which lives in the AOSP
+//                               tree, not here. Ship one without the other and the re-sign leaves the
+//                               APK on whatever in-tree key the name resolved to — i.e. a key
+//                               committed to a public repo. Worth doing at the next key ceremony;
+//                               not on the last image before distribution.
+//
+//   presigned / preprocessed    Superficially the most honest option for a third-party app — keep
+//                               upstream's own signature — and it is the ONE option that would
+//                               actually break the app. Two independent reasons:
+//                                 1. build/soong/scripts/check_prebuilt_presigned_apk.py rejects
+//                                    presigned targetSdk >= 30 unless `preprocessed: true`; and
+//                                 2. `preprocessed` copies the APK BYTE FOR BYTE, which skips
+//                                    Soong's uncompressEmbeddedJniLibs + align — see the JNI section
+//                                    below, which is the only reason the MAPS button works. The
+//                                    check script would reject it anyway ("Contains compressed JNI
+//                                    libraries") unless silenced with skip_preprocessed_apk_checks.
+//                               Camera/Auditor/Trichrome* get away with `preprocessed: true` because
+//                               their upstream APKs already ship stored, page-aligned libs. The
+//                               Organic Maps web release does not.
+//
+// ---------------------------------------------------------------------------------------------
+// JNI: the libs load FROM INSIDE THE APK. There is deliberately no lib/ directory. Do not "fix" it.
+// ---------------------------------------------------------------------------------------------
+//
+// The manifest says android:extractNativeLibs="true" and /product/app/OrganicMaps/ holds only the
+// APK — no lib/arm64/ beside it — which reads like a guaranteed UnsatisfiedLinkError. It is not, and
+// the reason matters, because the obvious "fix" (presigned/preprocessed) is what would cause one.
+//
+//   * android_app_import CANNOT install a lib dir. build/soong/java/app_import.go carries a literal
+//     "TODO: Install or embed JNI libraries" and has no jni_libs property. The eight /product/app
+//     modules that DO have lib/ dirs (Gallery2, LatinIME, PrintSpooler, …) are source-built
+//     android_app modules with jni_libs — a different mechanism, not one available to a prebuilt.
+//   * What android_app_import does instead, for every non-preprocessed import, is run
+//     uncompressEmbeddedJniLibs and then sign+align, leaving lib/**/*.so STORED and page-aligned in
+//     the APK. Bionic mmaps them in place through the `<apk>!/lib/<abi>` entry that
+//     LoadedApk.makePaths appends unconditionally whenever primaryCpuAbi is set.
+//   * extractNativeLibs is INERT for a bundled system app: PackageAbiHelperImpl.shouldExtractLibs
+//     forces extractLibs=false for any non-updated system app, so PMS only runs findSupportedAbi.
+//     No framework code consults the flag at library-load time.
+//   * Verified on the shipped 2026082904 image: all four lib/*/liborganicmaps.so are method=0
+//     (Stored) at 16384-aligned offsets, and the arm64 ELF's LOAD segments are p_align 0x4000, so it
+//     is correct on a 16 KB-page device. Same configuration as TrichromeChrome, Camera, Auditor,
+//     talkback, Messaging, ANGLE and NetworkStack in this image — twelve /product apps ship JNI this
+//     way and not one of them has a lib/ dir.
+//
+// So: no lib/ directory is expected, and `preprocessed: true` would remove the uncompress step that
+// makes this work. tools/check_organicmaps_apk.py asserts both invariants (signer, stored+aligned
+// libs) against a built target_files.zip — run it before shipping an image.
+android_app_import {
+    name: "OrganicMaps",
+    apk: "OrganicMaps.apk",
+
+    // Signed with PRODUCT_DEFAULT_DEV_CERTIFICATE in-tree; re-signed to keys/stallion/releasekey by
+    // generate-release.sh. Never `certificate: "platform"` — see the block above.
+    default_dev_cert: true,
+
+    product_specific: true,   // installs to /product/app (regular app, not privileged)
+
+    // Left OFF deliberately. The dex payload is ~6.2 MB (classes.dex 5.7 + classes2.dex 0.47), so
+    // first-launch compilation costs seconds, once, against minutes of build time and ~6 MB of
+    // /product on every image. Turning it on would also flip shouldUncompressDex, growing the APK by
+    // the uncompressed dex on top of the .odex/.vdex it adds. Not worth it for one bundled app.
+    dex_preopt: { enabled: false },
+}

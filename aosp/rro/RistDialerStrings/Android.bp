@@ -1,0 +1,9 @@
+runtime_resource_overlay {
+    name: "RistDialerStrings",
+
+    // Must match the target app's certificate; the AOSP Dialer is signed with the shared key.
+    certificate: "shared",
+
+    // /product/overlay/, the same partition as the Dialer it targets.
+    product_specific: true,
+}

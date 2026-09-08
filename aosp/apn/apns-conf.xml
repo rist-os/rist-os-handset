@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<apns version="8">
+
+  <apn carrier="T-Mobile US"
+       mcc="310" mnc="260"
+       apn="fast.t-mobile.com"
+       type="default,supl"
+       protocol="IPV6" roaming_protocol="IPV6" />
+
+  <apn carrier="T-Mobile IMS"
+       mcc="310" mnc="260"
+       apn="ims"
+       type="ims"
+       protocol="IPV6" roaming_protocol="IPV4" />
+
+  <apn carrier="T-Mobile MMS"
+       mcc="310" mnc="260"
+       apn="fast.t-mobile.com"
+       mmsc="http://mms.msg.eng.t-mobile.com/mms/wapenc"
+       type="mms"
+       protocol="IPV6" roaming_protocol="IPV6" />
+
+  <apn carrier="T-Mobile MVNO"
+       mcc="310" mnc="240"
+       apn="fast.t-mobile.com"
+       type="default,supl"
+       protocol="IPV6" roaming_protocol="IPV6" />
+
+  <apn carrier="T-Mobile MVNO IMS"
+       mcc="310" mnc="240"
+       apn="ims"
+       type="ims"
+       protocol="IPV6" roaming_protocol="IPV4" />
+
+  <apn carrier="T-Mobile MVNO MMS"
+       mcc="310" mnc="240"
+       apn="fast.t-mobile.com"
+       mmsc="http://mms.msg.eng.t-mobile.com/mms/wapenc"
+       type="mms"
+       protocol="IPV6" roaming_protocol="IPV6" />
+
+</apns>

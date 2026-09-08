@@ -1,0 +1,152 @@
+{
+  "releases": [
+    {
+      "acknowledged_spl_change": null,
+      "build": "2026083005",
+      "published": {
+        "artefacts": {
+          "kernel-source-stallion-2026083005.tar.gz": {
+            "branch": "17-stallion",
+            "bytes": 7768025685,
+            "revision": "1ddf9d7ed576c83c929c4622941a634ab299c948",
+            "sha256": "c6c8d351788a48e33a33c0918f0e734aa601c21856cf1847426bbaacb9d9811e",
+            "verified_over_public_url": true
+          },
+          "stallion-factory-2026083005.zip": {
+            "bytes": 2104531376,
+            "sha256": "2f3f285e6cb94972f3d16dfe23e2482b57a10abb7a322515c831bbd8b97c795f"
+          },
+          "stallion-ota_update-2026083005.zip": {
+            "bytes": 1555355054,
+            "sha256": "e69a8367f381f4e1960c73c6db52cd5039a8f6b6b7410a95dde51f8a7b87884a"
+          }
+        },
+        "base_url": "https://dl.ristos.org/2026083005/",
+        "index": "https://dl.ristos.org/index.html",
+        "signing_key_published_at": "https://github.com/rist-os/rist-os-handset (README) -- never in the bucket"
+      },
+      "recorded_utc": "2026-08-31T07:18:55Z",
+      "rollback_index": null,
+      "spl": "2026-08-05",
+      "spl_month": "2026-08",
+      "target_files": {
+        "bytes": 4543983979,
+        "entries": 9323,
+        "path": "",
+        "sha256": "274d7d522e7268cdfc05ff7f45d4c3bf4cf2c19993ada425c2db6d516ad5053b"
+      },
+      "variant": "public"
+    },
+    {
+      "acknowledged_spl_change": null,
+      "build": "2026083110",
+      "published": {
+        "artefacts": {
+          "INSTALL.md": {
+            "bytes": 30185,
+            "sha256": "0a4bb03f8dd205e5b1e6344ac9deeb3c638cd5a63aa91e44bed610b4f72db515",
+            "source": "signed SHA256SUMS + Content-Length over the public URL"
+          },
+          "stallion-factory-2026083110.zip": {
+            "bytes": 2104602490,
+            "sha256": "a52d8897c60b6e1235baebb4b45a20856113682c218afe3a048569685b0e3ea9",
+            "source": "signed SHA256SUMS + Content-Length over the public URL"
+          },
+          "stallion-ota_update-2026083110.zip": {
+            "bytes": 1555417340,
+            "sha256": "bb9aee3e424be152777001ba255bd657d26c748095caf5fb26ff173c813b11b8",
+            "source": "signed SHA256SUMS + Content-Length over the public URL"
+          }
+        },
+        "base_url": "https://dl.ristos.org/2026083110/",
+        "index": "https://dl.ristos.org/index.html",
+        "signing_key_published_at": "https://github.com/rist-os/rist-os-handset (SECURITY.md) -- never in the bucket"
+      },
+      "recorded_utc": "2026-09-02T00:00:00Z",
+      "rollback_index": null,
+      "spl": "2026-08-05",
+      "spl_month": "2026-08",
+      "target_files": {
+        "path": ""
+      },
+      "variant": "public"
+    },
+    {
+      "build": "2026090600",
+      "published": {
+        "artefacts": {
+          "./INSTALL.md": {
+            "bytes": 21576,
+            "sha256": "d3683022012c9c01bf668e25fc37a70191a68823a08ef9c04357bc49d5e923b6"
+          },
+          "./PARTITIONS.txt": {
+            "bytes": 2485,
+            "sha256": "02cc993fe388c61d2b0337731dc27d4fe588ff150275b33e1d53ece260e629de"
+          },
+          "./REQUIRED_STOCK.txt": {
+            "bytes": 1486,
+            "sha256": "4d347478d1339f9a418ce2b8e52f58e264dcfcde999380ba385591c02b4fd393"
+          },
+          "./flash_rist.sh": {
+            "bytes": 62343,
+            "sha256": "057d613aa098438af17c8efe6750b2d224c7da632b1ba6ef2af27b23ce7de871"
+          },
+          "./stallion-factory-2026090600.zip": {
+            "bytes": 3760318883,
+            "sha256": "a7106b89b15e409e8ae6686ff3d417ced2f25f67279bcaa09501094e7095bea1"
+          },
+          "./stallion-img-2026090600.zip": {
+            "bytes": 1954087713,
+            "sha256": "271413f97205e372513b5e1a634c5ee57544ed60a9ce799038c148aca01b4ba5"
+          },
+          "./stallion-install-2026090600.zip": {
+            "bytes": 1950558233,
+            "sha256": "9ca891f2a597d9819dfb045f1d5b59acf2fff6261f530f216f6a6dff5d9c244e"
+          },
+          "./stallion-ota_update-2026090600.zip": {
+            "bytes": 1418238672,
+            "sha256": "4b2397a75f07955d010706e00a4a453604648028ba91dcdfe85f710ba9e6c8be"
+          },
+          "./stallion-stable": {
+            "bytes": 43,
+            "sha256": "193d8eea4820e7bb7a25ca2dd98885585b24a4e70368e14388611ce50eb9c747"
+          },
+          "kernel-source-stallion-2026090600.tar.gz": {
+            "bytes": 7541254215,
+            "sha256": "1bb4a63d94b36afe8d691a969b6b9c40754a6e253aaa81f76ec1a7c9f510b966"
+          }
+        },
+        "base_url": "https://dl.ristos.org/2026090600"
+      },
+      "spl": "2026-08-05",
+      "spl_month": "2026-08",
+      "target_files": {
+        "bytes": 4547511364,
+        "entries": 9322,
+        "path": "",
+        "sha256": "d4c5682b7360921ecb56d9646c373a00ba5c42298b4d69313f0af429758ed144"
+      },
+      "variant": "public"
+    },
+    {
+      "build": "2026090701",
+      "variant": "public",
+      "spl": "2026-08-05",
+      "spl_month": "2026-08",
+      "target_files": {
+        "path": "",
+        "bytes": 0,
+        "sha256": ""
+      },
+      "published": {
+        "base_url": "https://dl.ristos.org/2026090701/",
+        "artefacts": {
+          "stallion-factory-2026090701.zip": {
+            "bytes": 2105928542,
+            "sha256": "be6f4250ce709b3c23fa833b4efda4f2eb68e8988f90b7884d662d273e9f1a7e"
+          }
+        }
+      }
+    }
+  ]
+}

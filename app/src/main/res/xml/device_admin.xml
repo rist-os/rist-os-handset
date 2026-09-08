@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android"
+    android:visible="false">
+    <uses-policies>
+        <disable-keyguard-features />
+        <!-- Imposes no password policy; declared so ACTION_PASSWORD_CHANGED is delivered to this admin.
+             The framework parses this file once per boot: reboot after changing it. -->
+        <limit-password />
+    </uses-policies>
+</device-admin>

@@ -1,0 +1,8 @@
+# Rist Assistant -> rist_app domain.
+#
+# seinfo=platform is the certificate half of the match (mac_permissions.xml maps the platform cert to it).
+# name= outranks the AOSP platform_app entry; type/levelFrom kept identical to it.
+# Scoped to the :ota process; the main process stays platform_app.
+# name= matches the process nice name, so ":ota" selects only that process.
+
+user=_app seinfo=platform isPrivApp=true name=watch.rist.assistant:ota domain=rist_app type=app_data_file levelFrom=user

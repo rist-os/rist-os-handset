@@ -1,0 +1,64 @@
+# Build outputs
+.gradle/
+build/
+build-out/
+app/build/
+*.apk
+*.idsig
+.kotlin/
+
+# Local machine config — carries deployment endpoints and SDK paths; never commit
+local.properties
+
+# Signing material — generate your own, keep them OUT of the repo
+*.pk8
+*.pem
+*.jks
+*.keystore
+*.key
+*.jceks
+*.der
+id_rsa
+id_ed25519
+
+# IDE / OS
+.idea/
+*.iml
+.DS_Store
+captures/
+
+# Native build intermediates
+app/.cxx/
+
+# Your personal adb public key (baked into non-public images) — never commit
+aosp/adb_keys
+
+# Bundled Organic Maps APK — fetched at build time, not committed (60MB)
+aosp/prebuilts/apps/OrganicMaps/OrganicMaps.apk
+
+# Local scratch
+.claude/
+
+# Secrets by extension
+.env
+.env.*
+*.p12
+*.pfx
+*.crt
+*.tgz
+*.tar.gz
+
+# Captured device state -- never commit
+*.wav
+recordings/
+window_dump.xml
+
+# Real values for tools/preflight_publish.sh. Never commit -- see the .example files.
+.publish-denylist
+.publish-never-ship
+
+# Python bytecode caches
+__pycache__/
+*.pyc
+
+# Maintainer-local notes

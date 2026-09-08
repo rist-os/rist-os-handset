@@ -1,0 +1,53 @@
+// Anything added to app/build.gradle.kts dependencies must be mirrored in static_libs here.
+// Soong forbids ".." in globs, so this file must sit at the app module root.
+
+android_app {
+    name: "RistAssistant",
+
+    srcs: [
+        "src/main/java/**/*.kt",
+        "src/main/proto/**/*.proto",
+    ],
+    manifest: "src/main/AndroidManifest.xml",
+    resource_dirs: ["src/main/res"],
+
+    // type: "lite" matches the Gradle option("lite"); links the no-reflection runtime.
+    proto: {
+        type: "lite",
+        canonical_path_from_root: false,
+    },
+
+    // Required for the sysconfig privapp-permissions grants to take effect.
+    privileged: true,
+
+    // sdk_version and platform_apis are mutually exclusive; any @hide API needs platform_apis: true.
+    sdk_version: "system_current",
+
+    certificate: "platform",
+
+    static_libs: [
+        // Must be the _android variant: the Main dispatcher lives only in the android artifact.
+        "kotlinx_coroutines_android",
+
+        "androidx.appcompat_appcompat",
+        "androidx.core_core-ktx",
+        // Hyphen after androidx: that is the name the prebuilt declares; the dotted form does not exist.
+        "androidx-constraintlayout_constraintlayout",
+        "androidx.activity_activity-ktx",
+        "com.google.android.material_material",
+
+        "rist-okhttp3-prebuilt",          // pulls okio3
+        "rist-security-crypto",           // EncryptedSharedPreferences (Config.kt); pulls tink
+        "rist-localbroadcastmanager",     // MainActivity.kt, PushService.kt
+        "rist-media3-exoplayer",          // PlaybackService.kt; pulls common/container/database/
+        "rist-media3-session",            //   decoder/datasource/extractor
+
+        "libprotobuf-java-lite",
+    ],
+
+    optimize: {
+        // R8 off: the manifest names component classes that shrinking would rename or drop.
+        enabled: false,
+    },
+
+}

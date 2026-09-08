@@ -1,0 +1,126 @@
+// Android.bp — vendored AndroidX Media3 (ExoPlayer) 1.4.1 as Soong prebuilts.
+//
+// The app (Executor.kt / media services) uses androidx.media3 exoplayer+session+
+// common, which are NOT present in the platform androidx m2repository. We vendor
+// the exact Maven artifacts the Gradle build resolves (androidx.media3:*:1.4.1
+// from dl.google.com maven2) as android_library_import modules (they ship
+// Android resources + R classes, so java_import would be wrong).
+//
+// Provenance (coordinate -> file, SHA-256 in README/report):
+//   androidx.media3:media3-common:1.4.1      media3-common-1.4.1.aar
+//   androidx.media3:media3-exoplayer:1.4.1   media3-exoplayer-1.4.1.aar
+//   androidx.media3:media3-session:1.4.1     media3-session-1.4.1.aar
+//   androidx.media3:media3-container:1.4.1   media3-container-1.4.1.aar
+//   androidx.media3:media3-database:1.4.1    media3-database-1.4.1.aar
+//   androidx.media3:media3-datasource:1.4.1  media3-datasource-1.4.1.aar
+//   androidx.media3:media3-decoder:1.4.1     media3-decoder-1.4.1.aar
+//   androidx.media3:media3-extractor:1.4.1   media3-extractor-1.4.1.aar
+//
+// The internal media3 dependency graph (from each artifact's POM) is chained via
+// static_libs; leaf androidx deps (annotation, annotation-experimental, collection,
+// core, exifinterface, media) and guava resolve to in-tree platform modules.
+// min_sdk_version follows the app (minSdk=34).
+
+android_library_import {
+    name: "rist-media3-common",
+    aars: ["media3-common-1.4.1.aar"],
+    sdk_version: "current",
+    min_sdk_version: "34",
+    static_libs: [
+        "guava",
+        "androidx.annotation_annotation",
+        "androidx.annotation_annotation-experimental",
+    ],
+}
+
+android_library_import {
+    name: "rist-media3-container",
+    aars: ["media3-container-1.4.1.aar"],
+    sdk_version: "current",
+    min_sdk_version: "34",
+    static_libs: [
+        "rist-media3-common",
+        "androidx.annotation_annotation",
+    ],
+}
+
+android_library_import {
+    name: "rist-media3-database",
+    aars: ["media3-database-1.4.1.aar"],
+    sdk_version: "current",
+    min_sdk_version: "34",
+    static_libs: [
+        "rist-media3-common",
+        "androidx.annotation_annotation",
+    ],
+}
+
+android_library_import {
+    name: "rist-media3-decoder",
+    aars: ["media3-decoder-1.4.1.aar"],
+    sdk_version: "current",
+    min_sdk_version: "34",
+    static_libs: [
+        "rist-media3-common",
+        "androidx.annotation_annotation",
+    ],
+}
+
+android_library_import {
+    name: "rist-media3-datasource",
+    aars: ["media3-datasource-1.4.1.aar"],
+    sdk_version: "current",
+    min_sdk_version: "34",
+    static_libs: [
+        "rist-media3-common",
+        "rist-media3-database",
+        "androidx.annotation_annotation",
+        "androidx.exifinterface_exifinterface",
+    ],
+}
+
+android_library_import {
+    name: "rist-media3-extractor",
+    aars: ["media3-extractor-1.4.1.aar"],
+    sdk_version: "current",
+    min_sdk_version: "34",
+    static_libs: [
+        "rist-media3-common",
+        "rist-media3-container",
+        "rist-media3-decoder",
+        "androidx.annotation_annotation",
+    ],
+}
+
+android_library_import {
+    name: "rist-media3-exoplayer",
+    aars: ["media3-exoplayer-1.4.1.aar"],
+    sdk_version: "current",
+    min_sdk_version: "34",
+    static_libs: [
+        "rist-media3-common",
+        "rist-media3-container",
+        "rist-media3-datasource",
+        "rist-media3-decoder",
+        "rist-media3-extractor",
+        "rist-media3-database",
+        "androidx.annotation_annotation",
+        "androidx.collection_collection",
+        "androidx.core_core",
+        "androidx.exifinterface_exifinterface",
+    ],
+}
+
+android_library_import {
+    name: "rist-media3-session",
+    aars: ["media3-session-1.4.1.aar"],
+    sdk_version: "current",
+    min_sdk_version: "34",
+    static_libs: [
+        "rist-media3-common",
+        "rist-media3-datasource",
+        "androidx.collection_collection",
+        "androidx.media_media",
+        "androidx.core_core",
+    ],
+}

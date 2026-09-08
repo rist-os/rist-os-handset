@@ -1,0 +1,13 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security or safety report
+    url: https://github.com/rist-os/rist-os-handset/security/advisories/new
+    about: >-
+      Do NOT open a public issue. Vulnerabilities, and anything touching emergency
+      calling, go through private vulnerability reporting. See SECURITY.md.
+  - name: Read SAFETY.md first
+    url: https://github.com/rist-os/rist-os-handset/blob/main/SAFETY.md
+    about: >-
+      Emergency calling is not validated on this build, applying an update
+      automatically is unproven, and flashing erases the phone. Please read
+      before filing.

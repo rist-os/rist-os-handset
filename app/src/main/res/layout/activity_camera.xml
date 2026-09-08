@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/cameraRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_lcd_screen"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:id="@+id/liveLayout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:baselineAligned="false"
+            android:gravity="end"
+            android:paddingBottom="12dp">
+
+            <TextView
+                android:id="@+id/flashButton"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:minWidth="88dp"
+                android:layout_marginEnd="8dp"
+                android:gravity="center"
+                android:paddingHorizontal="12dp"
+                android:background="@drawable/bg_ereader_button"
+                android:clickable="true"
+                android:focusable="true"
+                android:text="@string/camera_flash_off"
+                android:textColor="@color/ink"
+                android:textSize="11sp"
+                android:fontFamily="@font/pixel"
+                android:letterSpacing="0.04"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/switchButton"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:minWidth="72dp"
+                android:gravity="center"
+                android:paddingHorizontal="12dp"
+                android:background="@drawable/bg_ereader_button"
+                android:clickable="true"
+                android:focusable="true"
+                android:contentDescription="@string/camera_switch_desc"
+                android:text="@string/camera_switch"
+                android:textColor="@color/ink"
+                android:textSize="11sp"
+                android:fontFamily="@font/pixel"
+                android:letterSpacing="0.04"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <TextureView
+            android:id="@+id/viewfinder"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:baselineAligned="false"
+            android:paddingTop="16dp">
+
+            <TextView
+                android:id="@+id/cancelButton"
+                android:layout_width="0dp"
+                android:layout_height="64dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="8dp"
+                android:gravity="center"
+                android:background="@drawable/bg_ereader_button"
+                android:clickable="true"
+                android:focusable="true"
+                android:text="@string/camera_cancel"
+                android:textColor="@color/ink"
+                android:textSize="13sp"
+                android:fontFamily="@font/pixel"
+                android:letterSpacing="0.06" />
+
+            <TextView
+                android:id="@+id/shutterButton"
+                android:layout_width="0dp"
+                android:layout_height="64dp"
+                android:layout_weight="2"
+                android:layout_marginStart="8dp"
+                android:gravity="center"
+                android:background="@drawable/bg_ereader_button"
+                android:clickable="true"
+                android:focusable="true"
+                android:text="@string/camera_capture"
+                android:textColor="@color/ink"
+                android:textSize="14sp"
+                android:fontFamily="@font/pixel"
+                android:textStyle="bold"
+                android:letterSpacing="0.06" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <FrameLayout
+        android:id="@+id/reviewOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/paper"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/reviewImage"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@string/camera_review_desc"
+            android:scaleType="fitCenter" />
+
+        <TextView
+            android:id="@+id/discardButton"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_gravity="top|end"
+            android:gravity="center"
+            android:background="@drawable/bg_ereader_button"
+            android:clickable="true"
+            android:focusable="true"
+            android:contentDescription="@string/camera_discard_desc"
+            android:text="@string/camera_discard"
+            android:textColor="@color/ink"
+            android:textSize="16sp"
+            android:fontFamily="@font/pixel"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/useButton"
+            android:layout_width="wrap_content"
+            android:layout_height="64dp"
+            android:minWidth="180dp"
+            android:layout_gravity="bottom|center_horizontal"
+            android:gravity="center"
+            android:background="@drawable/bg_ereader_button"
+            android:clickable="true"
+            android:focusable="true"
+            android:contentDescription="@string/camera_use_desc"
+            android:text="@string/camera_use"
+            android:textColor="@color/ink"
+            android:textSize="14sp"
+            android:fontFamily="@font/pixel"
+            android:textStyle="bold"
+            android:letterSpacing="0.06" />
+    </FrameLayout>
+</FrameLayout>

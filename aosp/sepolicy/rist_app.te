@@ -1,0 +1,36 @@
+type rist_app, domain;
+typeattribute rist_app coredomain;
+
+app_domain(rist_app)
+net_domain(rist_app)
+
+allow rist_app update_engine_service:service_manager find;
+
+binder_call(rist_app, update_engine)
+
+# Required for update_engine to call back into IUpdateEngineCallback; binder_call(A,B) does not grant it.
+binder_call(update_engine, rist_app)
+
+allow rist_app app_api_service:service_manager find;
+
+# window_service is system_api_service, not app_api_service.
+allow rist_app system_api_service:service_manager find;
+
+allow rist_app radio_service:service_manager find;
+
+allow rist_app audioserver_service:service_manager find;
+
+allow rist_app cameraserver_service:service_manager find;
+
+allow rist_app mediaserver_service:service_manager find;
+allow rist_app mediaextractor_service:service_manager find;
+allow rist_app mediametrics_service:service_manager find;
+allow rist_app mediadrmserver_service:service_manager find;
+
+get_prop(rist_app, radio_cdma_ecm_prop)
+get_prop(rist_app, keyguard_config_prop)
+get_prop(rist_app, last_boot_reason_prop)
+
+allow rist_app app_data_file:lnk_file create_file_perms;
+
+dontaudit rist_app debugfs_tracing:file rw_file_perms;

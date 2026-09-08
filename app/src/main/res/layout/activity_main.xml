@@ -1,0 +1,969 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_lcd_screen"
+    android:paddingTop="24dp"
+    android:paddingBottom="24dp">
+
+    <ImageView
+        android:id="@+id/titleText"
+        android:visibility="gone"
+        android:layout_marginStart="24dp"
+        android:layout_marginEnd="24dp"
+        android:layout_width="wrap_content"
+        android:layout_height="26dp"
+        android:adjustViewBounds="true"
+        android:src="@drawable/ic_wordmark_rist"
+        android:contentDescription="@string/home_title"
+        android:longClickable="true"
+        android:focusable="true"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
+
+
+
+    <LinearLayout
+        android:id="@+id/glance"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginStart="24dp"
+        android:layout_marginEnd="24dp"
+        android:layout_marginTop="10dp"
+        android:paddingBottom="7dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toStartOf="@id/settingsGear">
+
+        <TextView
+            android:id="@+id/clockText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="48sp"
+            android:includeFontPadding="false"
+            android:letterSpacing="-0.02"
+            android:textColor="@color/ink" />
+
+        <TextView
+            android:id="@+id/dateText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="16sp"
+            android:letterSpacing="0.05"
+            android:layout_marginTop="5dp"
+            android:textColor="@color/ink_muted" />
+    </LinearLayout>
+
+    <ScrollView
+        android:id="@+id/replyScroll"
+        android:layout_marginStart="24dp"
+        android:layout_marginEnd="24dp"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:fillViewport="false"
+        android:layout_marginTop="@dimen/gap"
+        android:layout_marginBottom="@dimen/gap"
+        android:clipToPadding="false"
+        app:layout_constraintTop_toBottomOf="@id/commandStrip"
+        app:layout_goneMarginTop="0dp"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/talkButton">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@null"
+            android:paddingTop="3dp">
+
+            <LinearLayout
+                android:id="@+id/nowPlayingCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone"
+                android:paddingBottom="14dp"
+                android:paddingTop="2dp">
+
+                <TextView
+                    android:id="@+id/npClose"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="end"
+                    android:text="✕"
+                    android:contentDescription="Close player"
+                    android:textSize="16sp"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="2dp"
+                    android:paddingTop="2dp"
+                    android:paddingBottom="6dp"
+                    android:clickable="true"
+                    android:focusable="true" />
+
+                <TextView
+                    android:id="@+id/npTitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/ink"
+                    android:textSize="15sp"
+                    android:fontFamily="@font/pixel"
+                    android:letterSpacing="0.02"
+                    android:maxLines="2"
+                    android:ellipsize="end"
+                    tools:text="Pride and Prejudice" />
+
+                <TextView
+                    android:id="@+id/npAuthor"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/ink_muted"
+                    android:textSize="11sp"
+                    android:fontFamily="@font/pixel"
+                    android:letterSpacing="0.02"
+                    android:paddingTop="2dp"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    tools:text="Jane Austen" />
+
+                <TextView
+                    android:id="@+id/npSection"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/ink_faint"
+                    android:textSize="10sp"
+                    android:fontFamily="@font/pixel"
+                    android:textAllCaps="true"
+                    android:letterSpacing="0.06"
+                    android:paddingTop="4dp"
+                    tools:text="Chapter 3" />
+
+                <SeekBar
+                    android:id="@+id/npProgress"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:max="0"
+                    android:progress="0"
+                    android:progressTint="@color/ink"
+                    android:progressBackgroundTint="@color/ink_faint"
+                    android:thumbTint="@color/ink" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:baselineAligned="false"
+                    android:paddingTop="4dp">
+
+                    <TextView
+                        android:id="@+id/npElapsed"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/ink_muted"
+                        android:textSize="10sp"
+                        android:fontFamily="@font/pixel"
+                        android:letterSpacing="0.04"
+                        tools:text="30:00" />
+
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1" />
+
+                    <TextView
+                        android:id="@+id/npDuration"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/ink_muted"
+                        android:textSize="10sp"
+                        android:fontFamily="@font/pixel"
+                        android:letterSpacing="0.04"
+                        tools:text="52:10" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center"
+                    android:baselineAligned="false"
+                    android:paddingTop="10dp">
+
+                    <TextView
+                        android:id="@+id/npPrev"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:gravity="center"
+                        android:text="@string/np_prev"
+                        android:contentDescription="@string/np_prev_desc"
+                        android:textColor="@color/ink"
+                        android:textSize="12sp"
+                        android:fontFamily="@font/pixel"
+                        android:letterSpacing="0.06"
+                        android:paddingTop="10dp"
+                        android:paddingBottom="10dp"
+                        android:clickable="true"
+                        android:focusable="true" />
+
+                    <TextView
+                        android:id="@+id/npBack10"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:gravity="center"
+                        android:text="@string/np_back10"
+                        android:contentDescription="@string/np_back10_desc"
+                        android:textColor="@color/ink"
+                        android:textSize="12sp"
+                        android:fontFamily="@font/pixel"
+                        android:letterSpacing="0.06"
+                        android:paddingTop="10dp"
+                        android:paddingBottom="10dp"
+                        android:clickable="true"
+                        android:focusable="true" />
+
+                    <ImageView
+                        android:id="@+id/npPlayPause"
+                        android:layout_width="0dp"
+                        android:layout_height="36dp"
+                        android:layout_weight="1"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_play"
+                        android:tint="@color/ink"
+                        android:contentDescription="@string/np_playpause_desc"
+                        android:paddingTop="8dp"
+                        android:paddingBottom="8dp"
+                        android:clickable="true"
+                        android:focusable="true" />
+
+                    <TextView
+                        android:id="@+id/npForward10"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:gravity="center"
+                        android:text="@string/np_forward10"
+                        android:contentDescription="@string/np_forward10_desc"
+                        android:textColor="@color/ink"
+                        android:textSize="12sp"
+                        android:fontFamily="@font/pixel"
+                        android:letterSpacing="0.06"
+                        android:paddingTop="10dp"
+                        android:paddingBottom="10dp"
+                        android:clickable="true"
+                        android:focusable="true" />
+
+                    <TextView
+                        android:id="@+id/npNext"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:gravity="center"
+                        android:text="@string/np_next"
+                        android:contentDescription="@string/np_next_desc"
+                        android:textColor="@color/ink"
+                        android:textSize="12sp"
+                        android:fontFamily="@font/pixel"
+                        android:letterSpacing="0.06"
+                        android:paddingTop="10dp"
+                        android:paddingBottom="10dp"
+                        android:clickable="true"
+                        android:focusable="true" />
+                </LinearLayout>
+            </LinearLayout>
+
+
+            <LinearLayout
+                android:id="@+id/commsFeed"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone"
+                android:paddingTop="4dp"
+                android:paddingBottom="8dp" />
+
+            <TextView
+                android:id="@+id/statusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone"
+                android:text="@string/status_idle"
+                android:textColor="@color/ink_muted"
+                android:textSize="10sp"
+                android:fontFamily="@font/pixel"
+                android:textAllCaps="true"
+                android:letterSpacing="0.04" />
+
+            <LinearLayout
+                android:id="@+id/replyContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingTop="12dp" />
+
+            <TextView
+                android:id="@+id/clearButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:text="@string/clear_label"
+                android:contentDescription="@string/clear_desc"
+                android:textColor="@color/ink"
+                android:textSize="10sp"
+                android:fontFamily="@font/pixel"
+                android:letterSpacing="0.06"
+                android:padding="6dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:visibility="gone" />
+
+        </LinearLayout>
+    </ScrollView>
+
+    <LinearLayout
+        android:id="@+id/commandStrip"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center_vertical"
+        android:layout_marginStart="24dp"
+        android:layout_marginEnd="8dp"
+        android:visibility="gone"
+        app:layout_constraintTop_toBottomOf="@id/glance"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toStartOf="@id/settingsGear"
+        app:layout_constraintBottom_toTopOf="@id/replyScroll"
+        app:layout_constraintVertical_bias="0">
+
+        <TextView
+            android:id="@+id/commandText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="14sp" />
+
+        <LinearLayout
+            android:id="@+id/commandButtons"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/talkButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="@null"
+        android:padding="12dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:layout_marginStart="0dp"
+        android:layout_marginEnd="0dp"
+        android:layout_marginBottom="16dp"
+        app:layout_constraintBottom_toTopOf="@id/inputRow"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <ImageView
+            android:id="@+id/recordGlyph"
+            android:layout_width="120dp"
+            android:layout_height="120dp"
+            android:importantForAccessibility="no" />
+
+        <TextView
+            android:id="@+id/recordCancel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="✕ cancel"
+            android:contentDescription="Cancel recording"
+            android:textSize="14sp"
+            android:padding="10dp"
+            android:visibility="invisible"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <TextView
+            android:id="@+id/recordLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/record_label"
+            android:layout_marginTop="16dp"
+            android:textSize="15sp"
+            android:textAllCaps="true"
+            android:letterSpacing="0.2"
+            android:textColor="@color/ink_muted" />
+    </LinearLayout>
+
+
+
+    <FrameLayout
+        android:id="@+id/torchSlider"
+        android:layout_marginStart="24dp"
+        android:layout_marginEnd="24dp"
+        android:layout_width="44dp"
+        android:layout_height="170dp"
+        android:visibility="gone"
+        android:elevation="16dp"
+        android:translationZ="16dp"
+        android:layout_marginBottom="6dp"
+        app:layout_constraintTop_toTopOf="@id/appDrawer"
+        app:layout_constraintBottom_toBottomOf="@id/appDrawer"
+        app:layout_constraintEnd_toStartOf="@id/appDrawer">
+
+        <View
+            android:layout_width="12dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="center_horizontal"
+            android:background="@color/ink_faint" />
+
+        <View
+            android:id="@+id/torchSliderFill"
+            android:layout_width="12dp"
+            android:layout_height="0dp"
+            android:layout_gravity="bottom|center_horizontal"
+            android:background="@color/ink" />
+
+        <View
+            android:id="@+id/torchSliderThumb"
+            android:layout_width="32dp"
+            android:layout_height="3dp"
+            android:layout_gravity="bottom|center_horizontal"
+            android:background="@color/ink" />
+    </FrameLayout>
+
+    <LinearLayout
+        android:id="@+id/inputRow"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:baselineAligned="false"
+        android:gravity="center_vertical"
+        android:layout_marginStart="@dimen/gap"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <EditText
+            android:id="@+id/textInput"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="24dp"
+            android:layout_marginEnd="@dimen/gap"
+            android:background="@drawable/bg_lcd_field"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="14dp"
+            android:paddingBottom="14dp"
+            android:hint="@string/text_input_hint"
+            android:textColor="@color/ink"
+            android:textColorHint="@color/ink_faint"
+            android:fontFamily="@font/pixel"
+            android:letterSpacing="0.04"
+            android:textSize="15sp"
+            android:inputType="textMultiLine|textCapSentences"
+            android:minLines="3"
+            android:maxLines="8"
+            android:imeOptions="actionSend"
+            android:importantForAutofill="no" />
+
+        <ImageView
+            android:id="@+id/sendButton"
+            android:layout_width="40dp"
+            android:layout_height="48dp"
+            android:layout_marginEnd="14dp"
+            android:padding="6dp"
+            android:scaleType="fitCenter"
+            android:background="@null"
+            android:src="@drawable/ic_send"
+            android:tint="@color/record_active"
+            android:contentDescription="@string/send_icon_desc"
+            android:clickable="true"
+            android:focusable="true" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/navBox"
+        android:layout_marginStart="24dp"
+        android:layout_marginEnd="24dp"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:background="@drawable/bg_lcd_field"
+        android:padding="14dp"
+        android:layout_marginTop="@dimen/gap"
+        android:layout_marginBottom="@dimen/gap"
+        app:layout_constraintTop_toBottomOf="@id/titleText"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/inputRow">
+
+        <TextView
+            android:id="@+id/navMinimize"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="start"
+            android:text="@string/nav_minimize"
+            android:contentDescription="@string/nav_minimize_desc"
+            android:textColor="@color/ink"
+            android:textSize="10sp"
+            android:fontFamily="@font/pixel"
+            android:letterSpacing="0.06"
+            android:padding="4dp"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <watch.rist.assistant.CorridorMapView
+            android:id="@+id/navMap"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:visibility="gone"
+            android:layout_marginTop="6dp"
+            android:background="@color/paper" />
+
+        <TextView
+            android:id="@+id/navBanner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:visibility="gone"
+            android:textColor="@color/ink"
+            android:textSize="12sp"
+            android:fontFamily="@font/pixel"
+            android:letterSpacing="0.02"
+            android:paddingTop="8dp"
+            android:maxLines="3"
+            android:ellipsize="end"
+            tools:text="I-70 E · Merge onto I-70 E" />
+
+        <TextView
+            android:id="@+id/navLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/ink"
+            android:textSize="15sp"
+            android:fontFamily="@font/pixel"
+            android:letterSpacing="0.02"
+            android:paddingTop="6dp"
+            android:maxLines="2"
+            android:ellipsize="end"
+            tools:text="Denver International Airport" />
+
+        <TextView
+            android:id="@+id/navEta"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/ink_muted"
+            android:textSize="11sp"
+            android:fontFamily="@font/pixel"
+            android:letterSpacing="0.02"
+            android:paddingTop="6dp"
+            tools:text="26.5 mi · about 38 min" />
+
+        <TextView
+            android:id="@+id/navDest"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/ink_faint"
+            android:textSize="10sp"
+            android:fontFamily="@font/pixel"
+            android:textAllCaps="true"
+            android:letterSpacing="0.04"
+            android:paddingTop="8dp"
+            tools:text="DEST 39.85610, -104.67370" />
+
+        <TextView
+            android:id="@+id/navHere"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/ink_faint"
+            android:textSize="10sp"
+            android:fontFamily="@font/pixel"
+            android:textAllCaps="true"
+            android:letterSpacing="0.04"
+            android:paddingTop="2dp"
+            tools:text="HERE 39.73920, -104.99030 · ±15m" />
+
+        <TextView
+            android:id="@+id/navMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/ink_faint"
+            android:textSize="10sp"
+            android:fontFamily="@font/pixel"
+            android:textAllCaps="true"
+            android:letterSpacing="0.04"
+            android:paddingTop="2dp"
+            tools:text="MODE driving" />
+
+        <TextView
+            android:id="@+id/navClose"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="start"
+            android:text="@string/nav_close"
+            android:contentDescription="@string/nav_close_desc"
+            android:textColor="@color/ink"
+            android:textSize="10sp"
+            android:fontFamily="@font/pixel"
+            android:letterSpacing="0.06"
+            android:paddingTop="12dp"
+            android:padding="4dp"
+            android:clickable="true"
+            android:focusable="true" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/navPill"
+        android:layout_marginStart="24dp"
+        android:layout_marginEnd="24dp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:visibility="gone"
+        android:background="@drawable/bg_lcd_field"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:layout_marginTop="@dimen/gap"
+        android:contentDescription="@string/nav_pill_desc"
+        android:textColor="@color/ink"
+        android:textSize="11sp"
+        android:fontFamily="@font/pixel"
+        android:letterSpacing="0.04"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:clickable="true"
+        android:focusable="true"
+        app:layout_constraintTop_toBottomOf="@id/titleText"
+        app:layout_constraintStart_toStartOf="parent"
+        tools:text="NAV &gt; Denver International Airport" />
+
+    <View
+        android:id="@+id/maintenanceHotspot"
+        android:layout_marginStart="24dp"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="@android:color/transparent"
+        android:clickable="true"
+        android:focusable="false"
+        android:importantForAccessibility="no"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <ImageView
+        android:id="@+id/settingsGear"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:translationZ="12dp"
+        android:layout_marginTop="0dp"
+        android:layout_marginEnd="11dp"
+        android:padding="10dp"
+        android:src="@drawable/ic_settings_gear"
+        android:contentDescription="@string/settings_gear_desc"
+        android:clickable="true"
+        android:focusable="true"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <TextView
+        android:id="@+id/gearBadge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:minWidth="20dp"
+        android:minHeight="20dp"
+        android:gravity="center"
+        android:paddingStart="5dp"
+        android:paddingEnd="5dp"
+        android:background="@drawable/bg_badge"
+        android:textColor="#FFFFFF"
+        android:textSize="12sp"
+        android:textStyle="bold"
+        android:visibility="gone"
+        android:translationZ="14dp"
+        app:layout_constraintTop_toTopOf="@id/settingsGear"
+        app:layout_constraintEnd_toEndOf="@id/settingsGear"
+        android:layout_marginTop="0dp"
+        android:layout_marginEnd="0dp" />
+
+    <View
+        android:id="@+id/appDrawerScrim"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="#66000000"
+        android:clickable="true"
+        android:focusable="false"
+        android:visibility="gone"
+        android:contentDescription="@string/app_drawer_close_desc"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <ScrollView
+        android:id="@+id/appDrawer"
+        android:layout_width="76dp"
+        android:layout_height="0dp"
+        android:background="@color/paper"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
+        android:clipToPadding="false"
+        android:scrollbars="none"
+        android:visibility="gone"
+        android:contentDescription="@string/app_drawer_desc"
+        android:layout_marginEnd="8dp"
+        android:layout_marginTop="4dp"
+        app:layout_constraintHeight_default="wrap"
+        app:layout_constraintTop_toBottomOf="@id/settingsGear"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintVertical_bias="0"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <LinearLayout
+            android:id="@+id/appDrawerList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:clipChildren="false"
+            android:clipToPadding="false">
+
+            <FrameLayout android:id="@+id/drawerVoicemail"
+                android:layout_width="match_parent" android:layout_height="64dp"
+                android:layout_marginTop="0dp" android:layout_marginBottom="3dp"
+                android:background="@drawable/bg_app_card"
+                android:clickable="true" android:focusable="true">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:orientation="vertical" android:gravity="center"
+                    android:paddingTop="6dp" android:paddingBottom="6dp">
+                    <ImageView android:layout_width="24dp" android:layout_height="24dp"
+                        android:src="@drawable/ic_app_voicemail" android:tint="@color/ink"
+                        android:importantForAccessibility="no" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="@string/app_voicemail" android:textColor="@color/ink"
+                        android:textSize="10sp" android:fontFamily="@font/pixel"
+                        android:textAllCaps="true" android:gravity="center"
+                        android:lineSpacingMultiplier="0.9" android:paddingTop="5dp" />
+                </LinearLayout>
+                <TextView android:id="@+id/drawerBadgeVoicemail"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_gravity="top|end" android:minWidth="20dp" android:minHeight="20dp"
+                    android:layout_marginTop="3dp" android:layout_marginEnd="3dp"
+                    android:gravity="center" android:paddingStart="5dp" android:paddingEnd="5dp"
+                    android:background="@drawable/bg_badge" android:textColor="#FFFFFF"
+                    android:textSize="11sp" android:textStyle="bold" android:translationZ="6dp"
+                    android:visibility="gone" />
+            </FrameLayout>
+
+            <FrameLayout android:id="@+id/drawerPhone"
+                android:layout_width="match_parent" android:layout_height="64dp"
+                android:layout_marginTop="0dp" android:layout_marginBottom="3dp"
+                android:background="@drawable/bg_app_card"
+                android:clickable="true" android:focusable="true">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:orientation="vertical" android:gravity="center"
+                    android:paddingTop="6dp" android:paddingBottom="6dp">
+                    <ImageView android:layout_width="24dp" android:layout_height="24dp"
+                        android:src="@drawable/ic_app_phone" android:tint="@color/ink"
+                        android:importantForAccessibility="no" />
+                    <TextView android:id="@+id/drawerPhoneLabel"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="@string/app_phone" android:textColor="@color/ink"
+                        android:textSize="10sp" android:fontFamily="@font/pixel"
+                        android:textAllCaps="true" android:gravity="center"
+                        android:lineSpacingMultiplier="0.9" android:paddingTop="5dp" />
+                </LinearLayout>
+                <TextView android:id="@+id/drawerBadgePhone"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_gravity="top|end" android:minWidth="20dp" android:minHeight="20dp"
+                    android:layout_marginTop="3dp" android:layout_marginEnd="3dp"
+                    android:gravity="center" android:paddingStart="5dp" android:paddingEnd="5dp"
+                    android:background="@drawable/bg_badge" android:textColor="#FFFFFF"
+                    android:textSize="11sp" android:textStyle="bold" android:translationZ="6dp"
+                    android:visibility="gone" />
+            </FrameLayout>
+
+            <FrameLayout android:id="@+id/drawerMsg"
+                android:layout_width="match_parent" android:layout_height="64dp"
+                android:layout_marginTop="3dp" android:layout_marginBottom="3dp"
+                android:background="@drawable/bg_app_card"
+                android:clickable="true" android:focusable="true">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:orientation="vertical" android:gravity="center"
+                    android:paddingTop="6dp" android:paddingBottom="6dp">
+                    <ImageView android:layout_width="24dp" android:layout_height="24dp"
+                        android:src="@drawable/ic_app_msg" android:tint="@color/ink"
+                        android:importantForAccessibility="no" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="@string/app_msg" android:textColor="@color/ink"
+                        android:textSize="10sp" android:fontFamily="@font/pixel"
+                        android:textAllCaps="true" android:gravity="center"
+                        android:lineSpacingMultiplier="0.9" android:paddingTop="5dp" />
+                </LinearLayout>
+                <TextView android:id="@+id/drawerBadgeMsg"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_gravity="top|end" android:minWidth="20dp" android:minHeight="20dp"
+                    android:layout_marginTop="3dp" android:layout_marginEnd="3dp"
+                    android:gravity="center" android:paddingStart="5dp" android:paddingEnd="5dp"
+                    android:background="@drawable/bg_badge" android:textColor="#FFFFFF"
+                    android:textSize="11sp" android:textStyle="bold" android:translationZ="6dp"
+                    android:visibility="gone" />
+            </FrameLayout>
+
+            <FrameLayout android:id="@+id/drawerCam"
+                android:layout_width="match_parent" android:layout_height="64dp"
+                android:layout_marginTop="3dp" android:layout_marginBottom="3dp"
+                android:background="@drawable/bg_app_card"
+                android:clickable="true" android:focusable="true">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:orientation="vertical" android:gravity="center"
+                    android:paddingTop="6dp" android:paddingBottom="6dp">
+                    <ImageView android:layout_width="24dp" android:layout_height="24dp"
+                        android:src="@drawable/ic_app_cam" android:tint="@color/ink"
+                        android:importantForAccessibility="no" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="@string/app_cam" android:textColor="@color/ink"
+                        android:textSize="10sp" android:fontFamily="@font/pixel"
+                        android:textAllCaps="true" android:gravity="center"
+                        android:lineSpacingMultiplier="0.9" android:paddingTop="5dp" />
+                </LinearLayout>
+                <TextView android:id="@+id/drawerBadgeCam"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_gravity="top|end" android:minWidth="20dp" android:minHeight="20dp"
+                    android:layout_marginTop="3dp" android:layout_marginEnd="3dp"
+                    android:gravity="center" android:paddingStart="5dp" android:paddingEnd="5dp"
+                    android:background="@drawable/bg_badge" android:textColor="#FFFFFF"
+                    android:textSize="11sp" android:textStyle="bold" android:translationZ="6dp"
+                    android:visibility="gone" />
+            </FrameLayout>
+
+            <FrameLayout android:id="@+id/drawerPics"
+                android:layout_width="match_parent" android:layout_height="64dp"
+                android:layout_marginTop="3dp" android:layout_marginBottom="3dp"
+                android:background="@drawable/bg_app_card"
+                android:clickable="true" android:focusable="true">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:orientation="vertical" android:gravity="center"
+                    android:paddingTop="6dp" android:paddingBottom="6dp">
+                    <ImageView android:layout_width="24dp" android:layout_height="24dp"
+                        android:src="@drawable/ic_app_pics" android:tint="@color/ink"
+                        android:importantForAccessibility="no" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="@string/app_pics" android:textColor="@color/ink"
+                        android:textSize="10sp" android:fontFamily="@font/pixel"
+                        android:textAllCaps="true" android:gravity="center"
+                        android:lineSpacingMultiplier="0.9" android:paddingTop="5dp" />
+                </LinearLayout>
+                <TextView android:id="@+id/drawerBadgePics"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_gravity="top|end" android:minWidth="20dp" android:minHeight="20dp"
+                    android:layout_marginTop="3dp" android:layout_marginEnd="3dp"
+                    android:gravity="center" android:paddingStart="5dp" android:paddingEnd="5dp"
+                    android:background="@drawable/bg_badge" android:textColor="#FFFFFF"
+                    android:textSize="11sp" android:textStyle="bold" android:translationZ="6dp"
+                    android:visibility="gone" />
+            </FrameLayout>
+
+            <FrameLayout android:id="@+id/drawerMaps"
+                android:layout_width="match_parent" android:layout_height="64dp"
+                android:layout_marginTop="3dp" android:layout_marginBottom="3dp"
+                android:background="@drawable/bg_app_card"
+                android:clickable="true" android:focusable="true">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:orientation="vertical" android:gravity="center"
+                    android:paddingTop="6dp" android:paddingBottom="6dp">
+                    <ImageView android:layout_width="24dp" android:layout_height="24dp"
+                        android:src="@drawable/ic_app_maps" android:tint="@color/ink"
+                        android:importantForAccessibility="no" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="@string/app_maps" android:textColor="@color/ink"
+                        android:textSize="10sp" android:fontFamily="@font/pixel"
+                        android:textAllCaps="true" android:gravity="center"
+                        android:lineSpacingMultiplier="0.9" android:paddingTop="5dp" />
+                </LinearLayout>
+                <TextView android:id="@+id/drawerBadgeMaps"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_gravity="top|end" android:minWidth="20dp" android:minHeight="20dp"
+                    android:layout_marginTop="3dp" android:layout_marginEnd="3dp"
+                    android:gravity="center" android:paddingStart="5dp" android:paddingEnd="5dp"
+                    android:background="@drawable/bg_badge" android:textColor="#FFFFFF"
+                    android:textSize="11sp" android:textStyle="bold" android:translationZ="6dp"
+                    android:visibility="gone" />
+            </FrameLayout>
+
+
+
+            <FrameLayout android:id="@+id/torchButton"
+                android:layout_width="match_parent" android:layout_height="64dp"
+                android:layout_marginTop="3dp" android:layout_marginBottom="3dp"
+                android:background="@drawable/bg_app_card"
+                android:clickable="true" android:focusable="true"
+                android:contentDescription="@string/torch_desc">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_gravity="center" android:orientation="vertical"
+                    android:gravity="center" android:paddingTop="6dp" android:paddingBottom="6dp">
+                    <ImageView android:id="@+id/torchIcon"
+                        android:layout_width="24dp" android:layout_height="24dp"
+                        android:src="@drawable/ic_flashlight" android:tint="@color/ink"
+                        android:importantForAccessibility="no" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="@string/app_torch" android:textColor="@color/ink"
+                        android:textSize="10sp" android:fontFamily="@font/pixel"
+                        android:textAllCaps="true" android:gravity="center"
+                        android:paddingTop="5dp" />
+                </LinearLayout>
+            </FrameLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:layout_marginTop="8dp" android:layout_marginBottom="5dp"
+                android:background="@color/border" />
+
+            <FrameLayout android:id="@+id/drawerSettings"
+                android:layout_width="match_parent" android:layout_height="64dp"
+                android:layout_marginTop="0dp" android:layout_marginBottom="3dp"
+                android:background="@drawable/bg_app_card"
+                android:clickable="true" android:focusable="true">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:orientation="vertical" android:gravity="center"
+                    android:paddingTop="6dp" android:paddingBottom="6dp">
+                    <ImageView android:layout_width="24dp" android:layout_height="24dp"
+                        android:src="@drawable/ic_settings_gear" android:tint="@color/ink"
+                        android:importantForAccessibility="no" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="@string/app_settings_short" android:textColor="@color/ink"
+                        android:textSize="10sp" android:fontFamily="@font/pixel"
+                        android:textAllCaps="true" android:gravity="center"
+                        android:lineSpacingMultiplier="0.9" android:paddingTop="5dp" />
+                </LinearLayout>
+                <TextView android:id="@+id/drawerBadgeSet"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_gravity="top|end" android:minWidth="20dp" android:minHeight="20dp"
+                    android:layout_marginTop="3dp" android:layout_marginEnd="3dp"
+                    android:gravity="center" android:paddingStart="5dp" android:paddingEnd="5dp"
+                    android:background="@drawable/bg_badge" android:textColor="#FFFFFF"
+                    android:textSize="11sp" android:textStyle="bold" android:translationZ="6dp"
+                    android:visibility="gone" />
+            </FrameLayout>
+        </LinearLayout>
+    </ScrollView>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

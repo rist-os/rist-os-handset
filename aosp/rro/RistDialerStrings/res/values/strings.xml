@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Overridden Dialer strings for RistOS.
+
+  Wording only; an RRO cannot remove Dialer views. DO NOT override voicemail_action_call_voicemail.
+-->
+<resources>
+
+    <!-- The empty state, and the ONLY text on this screen that is always present.
+         The stock string is "Your voicemail inbox is empty.", which is false here: Visual Voicemail
+         cannot sync on this build, so this list is permanently empty while the user's messages sit
+         on the carrier's server. -->
+    <string name="call_log_voicemail_empty">Your carrier keeps your messages. Hold the 1 key on the keypad to hear them.</string>
+
+    <!-- Permanent state on this build; TRY AGAIN cannot succeed. -->
+    <string name="voicemail_error_activation_failed_title">Voicemail</string>
+    <string name="voicemail_error_activation_failed_message">Your carrier keeps your messages. Tap Call voicemail to listen.</string>
+
+    <!-- All sibling card states overridden; which one appears is not predictable. -->
+    <string name="voicemail_error_bad_config_title">Voicemail</string>
+    <string name="voicemail_error_bad_config_message">Your carrier keeps your messages. Tap Call voicemail to listen.</string>
+    <string name="voicemail_error_communication_title">Voicemail</string>
+    <string name="voicemail_error_communication_message">Your carrier keeps your messages. Tap Call voicemail to listen.</string>
+    <string name="voicemail_error_server_title">Voicemail</string>
+    <string name="voicemail_error_server_message">Your carrier keeps your messages. Tap Call voicemail to listen.</string>
+    <string name="voicemail_error_server_connection_title">Voicemail</string>
+    <string name="voicemail_error_server_connection_message">Your carrier keeps your messages. Tap Call voicemail to listen.</string>
+
+    <string name="voicemail_error_no_signal_title">No service</string>
+    <string name="voicemail_error_no_signal_message">Voicemail needs a mobile signal. Try again once you have service.</string>
+    <string name="voicemail_error_not_activate_no_signal_title">No service</string>
+    <string name="voicemail_error_not_activate_no_signal_message">Voicemail needs a mobile signal. Try again once you have service.</string>
+
+    <!-- Playback cannot succeed on this build; all three overridden together. -->
+    <string name="voicemail_fetching_content">Hold 1 on the dialpad to listen to voicemail</string>
+    <string name="voicemail_fetching_timout">Hold 1 on the dialpad to listen to voicemail</string>
+    <string name="voicemail_playback_error">Hold 1 on the dialpad to listen to voicemail</string>
+
+    <!-- Not blanked: a blank label leaves an invisible tappable button. -->
+    <string name="voicemail_action_retry">Refresh</string>
+
+</resources>
