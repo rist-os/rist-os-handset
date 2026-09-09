@@ -6,8 +6,8 @@
 ## What it is
 
 A de-Googled phone OS built on GrapheneOS for Google Pixel 10a. It is a minimalist, assistant-first OS
-designed to work with your own backend. A small fixed set of local apps — phone, messages, camera,
-gallery, offline maps, flashlight and settings — and nothing else: no app store, no browser, no feed,
+designed to work with your own backend. It has a small fixed set of local apps including the phone, messages, camera,
+gallery, offline maps, flashlight and settings, and nothing else. No app store, no browser, no feed,
 no Google account, and no way to add anything.
 
 Rist sells no phones and no service. If you already own a Pixel 10a, you flash this yourself.
