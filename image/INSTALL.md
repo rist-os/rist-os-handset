@@ -21,26 +21,14 @@ eSIM, ask your carrier what re-issuing involves before you wipe.
 **Step 1 - Plug the phone into the computer.** Leave the cable connected throughout. Every step
 below assumes it is still in.
 
-**Step 2 - Install platform-tools** — one download from Google containing both `fastboot`, which does the
-install, and `adb`, which you need later for updates. Click on one of the links appropriate for your operating system:
+**Step 2 - Install `fastboot` and `adb` from Google.** Click on one of the links appropriate for your operating system:
 [macOS](https://dl.google.com/android/repository/platform-tools-latest-darwin.zip) ·
 [Windows](https://dl.google.com/android/repository/platform-tools-latest-windows.zip) ·
 [Linux](https://dl.google.com/android/repository/platform-tools-latest-linux.zip), or from the
 [release-notes page](https://developer.android.com/tools/releases/platform-tools), which is where
 those three links come from.
 
-**If you already have Android Studio, you already have these** — check the version, then use that
-folder instead of downloading anything:
-`~/Library/Android/sdk/platform-tools` (macOS) ·
-`%LOCALAPPDATA%\Android\Sdk\platform-tools` (Windows) ·
-`~/Android/Sdk/platform-tools` (Linux).
-
-Any current download works. (This project needs 35.0.1 at minimum) The floor exists because an older
-`fastboot` fails on modern Pixels in ways that look like hardware faults; the usual source of one is
-a Linux distribution package rather than Google.
-
-It arrives as a zip that unzips to a folder called **`platform-tools`**. Unzipping does **not** make
-`fastboot` a command you can type — you have to point the terminal at that folder.
+Any current download works. (This project needs 35.0.1 at minimum) 
 
 **macOS or Linux** - open **Terminal**. Type `cd ` (with a space after it), then drag the
 `platform-tools` folder onto the Terminal window, which fills in its location. Press Enter. Now
@@ -52,8 +40,8 @@ fastboot --version
 adb --version
 ```
 
-Both should print a version. **Nothing in those lines needs editing**: `$PWD` is "the folder I am
-in" and `$PATH` is "everything already there" — neither is a placeholder.
+> Both should print a version. **Nothing in those lines needs editing**: `$PWD` is "the folder I am
+> in" and `$PATH` is "everything already there" — neither is a placeholder.
 
 On macOS the first run may say *"cannot be opened because the developer cannot be verified"*.
 **System Settings → Privacy & Security** has an **Allow Anyway** button underneath.
@@ -67,11 +55,11 @@ $env:Path = "$PWD;$env:Path"
 fastboot --version
 ```
 
-You should get back a version line, `fastboot version 37.0.1` or similar. If you get `command not
-found`, the `cd` did not land in the right folder — check you dragged the folder that directly
-contains the `fastboot` file.
+> You should get back a version line, `fastboot version 37.0.1` or similar. If you get `command not
+> found`, the `cd` did not land in the right folder — check you dragged the folder that directly
+> contains the `fastboot` file.
 
-Either way, this applies to that terminal window only. Run every step below in the same window. On
+Run every step below in the same window. On
 macOS or Linux you can make it permanent with `echo 'export
 PATH="$HOME/Downloads/platform-tools:$PATH"' >> ~/.zshrc`. On Windows the permanent setting lives
 under **Environment Variables** (Start menu: *Edit the system environment variables*).
