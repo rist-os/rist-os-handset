@@ -197,6 +197,22 @@ class AlarmRebootTest {
     }
 
     @Test
+    fun `installing a new APK re-arms the alarms`() {
+        // Installing an APK cancels every PendingIntent the package holds, so an app update
+        // disarms alarms exactly the way a reboot does. This is the dev loop, so it happens often.
+        val at = nowS() + 3600
+        DeviceCommands.alarm(app, armCommand("a1", at))
+        val am = app.getSystemService(android.app.AlarmManager::class.java)
+        shadowOf(am).scheduledAlarms.toList().forEach { am.cancel(it.operation) }
+        assertTrue(scheduled().isEmpty())
+
+        AlarmReceiver().onReceive(app, Intent(Intent.ACTION_MY_PACKAGE_REPLACED))
+
+        assertEquals("the alarm should be back after the update", 1, scheduled().size)
+        assertEquals(at, Alarms.held(app).single().fireAtEpochS)
+    }
+
+    @Test
     fun `an unrelated broadcast does not touch the alarms`() {
         DeviceCommands.alarm(app, armCommand("a1", nowS() + 600))
         BootReceiver().onReceive(app, Intent(Intent.ACTION_TIME_CHANGED))

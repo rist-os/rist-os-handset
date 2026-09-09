@@ -238,7 +238,11 @@
             android:showWhenLocked="true"
             android:theme="@style/Theme.AppCompat.NoActionBar" />
 
-        <receiver android:name=".AlarmReceiver" android:exported="false" />
+        <receiver android:name=".AlarmReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <receiver android:name=".GeofenceAlarmReceiver" android:exported="false">
             <intent-filter>
