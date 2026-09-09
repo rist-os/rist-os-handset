@@ -18,10 +18,10 @@ eSIM, ask your carrier what re-issuing involves before you wipe.
 
 ## How to Install
 
-**Step 1** - Plug the phone into the computer now and
-leave the cable connected throughout. Every step below assumes it is still in.
+**Step 1 - Plug the phone into the computer.** Leave the cable connected throughout. Every step
+below assumes it is still in.
 
-**Step 2. Install platform-tools** — one download from Google containing both `fastboot`, which does the
+**Step 2 - Install platform-tools** — one download from Google containing both `fastboot`, which does the
 install, and `adb`, which you need later for updates. Click on one of the links appropriate for your operating system:
 [macOS](https://dl.google.com/android/repository/platform-tools-latest-darwin.zip) ·
 [Windows](https://dl.google.com/android/repository/platform-tools-latest-windows.zip) ·
@@ -67,6 +67,9 @@ macOS or Linux you can make it permanent with `echo 'export
 PATH="$HOME/Downloads/platform-tools:$PATH"' >> ~/.zshrc`. On Windows the permanent setting lives
 under **Environment Variables** (Start menu: *Edit the system environment variables*).
 
+<details>
+<summary><strong>Windows: install Google's USB Driver</strong> — and what usually goes wrong here</summary>
+
 Windows also needs [Google's USB Driver](https://developer.android.com/studio/run/win-usb), or the
 phone is not detected. Google states it is required for `adb` with its own devices, and a Pixel in
 the bootloader commonly is not listed by `fastboot devices` until it is installed. To install it:
@@ -76,20 +79,22 @@ than when booted, so a driver bound while the phone is booted does not help.
 2. Open **Device Manager** and find the unrecognised device.
 3. Right-click it → **Update driver** → point it at the unzipped driver folder.
 
-> **`zsh: command not found: fastboot`** is the most common thing to go wrong here, and it means the
-> `PATH` line above has not been run in this window — not that anything is broken. Step 3 needs it
-> too: `flash-all.sh` calls `fastboot` by name and stops with `fastboot not found` without it.
->
-> On macOS you may also get *"cannot be opened because the developer cannot be verified"* the first
-> time. **System Settings → Privacy & Security** has an **Allow Anyway** button underneath.
+**`zsh: command not found: fastboot`** is the most common thing to go wrong here, and it means the
+`PATH` line above has not been run in this window — not that anything is broken. Step 4 needs it
+too: `flash-all.sh` calls `fastboot` by name and stops with `fastboot not found` without it.
+
+On macOS you may also get *"cannot be opened because the developer cannot be verified"* the first
+time. **System Settings → Privacy & Security** has an **Allow Anyway** button underneath.
 
 Once `PATH` is set, steps 3 and 5 are typed exactly the same on Windows; step 4 differs, and says
 how.
 
+</details>
+
 If you already have Android Studio, you have these at `~/Library/Android/sdk/platform-tools` (macOS)
 — check the version, and use that path above.
 
-**Step 3. Unlock the bootloader. This erases the phone.**
+**Step 3 - Unlock the bootloader. This erases the phone.**
 - On the phone, go to Settings > About phone > Build number, and tap **Build number** seven times. It should tell you that you are now a developer.
 - Go to Settings > System > Developer options, and ensure "OEM unlocking" is enabled.
 - Power off, then hold **Volume Down + Power** for the bootloader.
@@ -111,7 +116,7 @@ The phone wipes and comes back to a screen reading **Fastboot Mode**, which shou
 state: unlocked** near the bottom. Leave it there and press nothing on it — step 4 drives it from
 the computer.
 
-**Step 4. Flash.** On macOS or Linux, in the same terminal, navigate to the directory with your
+**Step 4 - Flash.** On macOS or Linux, in the same terminal, navigate to the directory with your
 stallion-factory downloads and run:
 
 ```sh
@@ -127,7 +132,7 @@ This will take some time. You can follow the progress on the terminal. Do not pr
 phone during this process. Ten minutes and several reboots. **fastbootd** on the screen is normal.
 Do not interrupt it — if it stops, run it again, the flash is safe to repeat.
 
-**Step 5. Boot it, then re-lock.** If it is still on **Fastboot Mode** after the process has stopped
+**Step 5 - Boot it, then re-lock.** If it is still on **Fastboot Mode** after the process has stopped
 running in your terminal, press **Power** on `Start`, or run `fastboot reboot` in your terminal. If
 it is already booting, skip that command — it is only for a phone still sitting in the bootloader,
 and on a booted phone it waits forever on `< waiting for any device >`.
@@ -178,7 +183,7 @@ not touch.
 
 </details>
 
-**Step 6. Point it at a backend.** A public build has **no endpoint compiled in**, so the assistant has
+**Step 6 - Point it at a backend.** A public build has **no endpoint compiled in**, so the assistant has
 nowhere to send anything until you give it one — open the app drawer on the phone (the gear on the
 home screen), choose **Settings**, and set the endpoint. If your backend needs a token, there is a
 field for it there too — see
