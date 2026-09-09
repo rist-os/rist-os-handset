@@ -29,6 +29,12 @@ install, and `adb`, which you need later for updates. Click on one of the links 
 [release-notes page](https://developer.android.com/tools/releases/platform-tools), which is where
 those three links come from.
 
+**If you already have Android Studio, you already have these** — check the version, then use that
+folder instead of downloading anything:
+`~/Library/Android/sdk/platform-tools` (macOS) ·
+`%LOCALAPPDATA%\Android\Sdk\platform-tools` (Windows) ·
+`~/Android/Sdk/platform-tools` (Linux).
+
 Any current download works. (This project needs 35.0.1 at minimum) The floor exists because an older
 `fastboot` fails on modern Pixels in ways that look like hardware faults; the usual source of one is
 a Linux distribution package rather than Google.
@@ -90,9 +96,6 @@ Once `PATH` is set, steps 3 and 5 are typed exactly the same on Windows; step 4 
 how.
 
 </details>
-
-If you already have Android Studio, you have these at `~/Library/Android/sdk/platform-tools` (macOS)
-— check the version, and use that path above.
 
 **Step 3 - Unlock the bootloader. This erases the phone.**
 - On the phone, go to Settings > About phone > Build number, and tap **Build number** seven times. It should tell you that you are now a developer.
