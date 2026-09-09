@@ -30,6 +30,8 @@ those three links come from.
 
 Any current download works. (This project needs 35.0.1 at minimum) 
 
+Unzip the download
+
 **macOS or Linux** - open **Terminal**. Type `cd ` (with a space after it), then drag the
 `platform-tools` folder onto the Terminal window, which fills in its location. Press Enter. Now
 paste these two lines:
@@ -40,8 +42,8 @@ fastboot --version
 adb --version
 ```
 
-> Both should print a version. **Nothing in those lines needs editing**: `$PWD` is "the folder I am
-> in" and `$PATH` is "everything already there" — neither is a placeholder.
+Both should print a version. **Nothing in those lines needs editing**: `$PWD` is "the folder I am
+in" and `$PATH` is "everything already there" — neither is a placeholder.
 
 On macOS the first run may say *"cannot be opened because the developer cannot be verified"*.
 **System Settings → Privacy & Security** has an **Allow Anyway** button underneath.
@@ -55,14 +57,9 @@ $env:Path = "$PWD;$env:Path"
 fastboot --version
 ```
 
-> You should get back a version line, `fastboot version 37.0.1` or similar. If you get `command not
-> found`, the `cd` did not land in the right folder — check you dragged the folder that directly
-> contains the `fastboot` file.
-
-Run every step below in the same window. On
-macOS or Linux you can make it permanent with `echo 'export
-PATH="$HOME/Downloads/platform-tools:$PATH"' >> ~/.zshrc`. On Windows the permanent setting lives
-under **Environment Variables** (Start menu: *Edit the system environment variables*).
+You should get back a version line, `fastboot version 37.0.1` or similar. If you get `command not
+found`, the `cd` did not land in the right folder — check you dragged the folder that directly
+contains the `fastboot` file.
 
 <details>
 <summary><strong>Windows: install Google's USB Driver</strong> — and what usually goes wrong here</summary>
@@ -80,9 +77,6 @@ than when booted, so a driver bound while the phone is booted does not help.
 `PATH` line above has not been run in this window — not that anything is broken. Step 4 needs it
 too: `flash-all.sh` calls `fastboot` by name and stops with `fastboot not found` without it.
 
-Once `PATH` is set, steps 3 and 5 are typed exactly the same on Windows; step 4 differs, and says
-how.
-
 </details>
 
 **Step 3 - Unlock the bootloader. This erases the phone.**
@@ -96,16 +90,14 @@ fastboot flashing unlock    # confirm on the phone's screen
 ```
 
 The bootloader screen has its own menu (Start / Restart bootloader / …). Ignore it and run the two
-commands above from the computer. Pressing **Power** on the default entry boots the phone normally,
+commands above from the computer. Do not press **Power** on the default entry. This boots the phone normally,
 which is not what you want here.
 
-The second command makes the phone show a confirmation prompt. The touchscreen does nothing there:
-press **Volume Up/Down** to change the selection to "Unlock the bootloader", then **Power** to
-accept. That is what erases the phone.
+The second command makes the phone show a confirmation prompt. Press **Volume Up/Down** buttons to change the selection to "Unlock the bootloader", then **Power** to
+accept.
 
 The phone wipes and comes back to a screen reading **Fastboot Mode**, which should now say **Device
-state: unlocked** near the bottom. Leave it there and press nothing on it — step 4 drives it from
-the computer.
+state: unlocked** near the bottom. Leave it there and press nothing on it.
 
 **Step 4 - Flash.** On macOS or Linux, in the same terminal, navigate to the directory with your
 stallion-factory downloads and run:
@@ -121,7 +113,7 @@ On Windows, unzip it in Explorer, then run `flash-all.bat` from the same PowerSh
 
 This will take some time. You can follow the progress on the terminal. Do not press anything on the
 phone during this process. Ten minutes and several reboots. **fastbootd** on the screen is normal.
-Do not interrupt it — if it stops, run it again, the flash is safe to repeat.
+Do not interrupt it. If it stops, run it again, the flash is safe to repeat.
 
 **Step 5 - Boot it, then re-lock.** If it is still on **Fastboot Mode** after the process has stopped
 running in your terminal, press **Power** on `Start`, or run `fastboot reboot` in your terminal. If
