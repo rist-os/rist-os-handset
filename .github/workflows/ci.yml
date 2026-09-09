@@ -22,17 +22,45 @@ jobs:
         with:
           fetch-depth: 0
 
+      # A markdown-only change cannot break the app, so the Gradle half is skipped for one.
+      # The job still succeeds, which is what the branch rule requires. Anything outside *.md
+      # and the issue forms -- code, scripts, resources, build files -- runs the full build.
+      - name: Decide whether this is a docs-only change
+        id: scope
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"; head="${{ github.event.pull_request.head.sha }}"
+          else
+            base="${{ github.event.before }}"; head="${{ github.sha }}"
+          fi
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "base commit unavailable -- running the full build"
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          changed=$(git diff --name-only "$base" "$head")
+          echo "changed files:"; printf '%s\n' "$changed" | sed 's/^/  /'
+          if [ -z "$changed" ] || printf '%s\n' "$changed" | grep -qvE '(\.md$|^\.github/ISSUE_TEMPLATE/)'; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "docs-only: skipping the Gradle build"
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up JDK 21
+        if: steps.scope.outputs.docs_only != 'true'
         uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Set up Gradle
+        if: steps.scope.outputs.docs_only != 'true'
         uses: gradle/actions/setup-gradle@v6
 
       # rist.releaseVariant is required: testReleaseUnitTest depends on genDeployAssetsRelease.
       - name: Write a placeholder local.properties
+        if: steps.scope.outputs.docs_only != 'true'
         run: |
           {
             echo "rist.backendUrl=https://example.test/v1/device"
@@ -104,6 +132,7 @@ jobs:
           exit $rc
 
       - name: Build and test
+        if: steps.scope.outputs.docs_only != 'true'
         timeout-minutes: 12
         run: ./gradlew :app:assembleDebug test --no-daemon --stacktrace
 
