@@ -5,25 +5,24 @@
 
 ### [⬇ Download RistOS for Pixel 10a (3.5 GB)](https://dl.ristos.org/2026090701/stallion-factory-2026090701.zip)
 
-- This works on the **Pixel 10a (`stallion`) only** for now.
+## Before you Install
+
+- This works on the **Pixel 10a (`stallion`) only** that is not carrier-locked for now
 - Before downloading, check the phone can be unlocked at all: tap **Settings → About phone → Build number** seven times, then look at **Settings → System → Developer
 options → OEM unlocking**. If it is greyed out, which is usual on a carrier-locked handset, stop
 here.
 - **Flashing erases the phone.** Back it up first and open the backup to check it. If you use an
 eSIM, ask your carrier what re-issuing involves before you wipe.
+- You need a **USB cable that carries data**
+- This should take around half an hour
 
-**Before you start you need:** a **Pixel 10a (`stallion`)** that is not carrier-locked, a computer
-with Google's **platform-tools**, a **USB cable that carries data**, and half an hour.
+## How to Install
 
-## Do it
-
-About half an hour. Steps 2, 3 and 4 each erase the phone.
-
-- Plug the phone into the computer now and
+**Step 1** - Plug the phone into the computer now and
 leave the cable connected throughout. Every step below assumes it is still in.
 
-**1. Install platform-tools** — one download from Google containing both `fastboot`, which does the
-install, and `adb`, which you need later for updates:
+**Step 2. Install platform-tools** — one download from Google containing both `fastboot`, which does the
+install, and `adb`, which you need later for updates. Click on one of the links appropriate for your operating system:
 [macOS](https://dl.google.com/android/repository/platform-tools-latest-darwin.zip) ·
 [Windows](https://dl.google.com/android/repository/platform-tools-latest-windows.zip) ·
 [Linux](https://dl.google.com/android/repository/platform-tools-latest-linux.zip), or from the
@@ -72,7 +71,7 @@ Windows also needs [Google's USB Driver](https://developer.android.com/studio/ru
 phone is not detected. Google states it is required for `adb` with its own devices, and a Pixel in
 the bootloader commonly is not listed by `fastboot devices` until it is installed. To install it:
 
-1. Put the phone in the bootloader first (step 2). A Pixel presents a different USB interface there
+1. Put the phone in the bootloader first (step 3). A Pixel presents a different USB interface there
 than when booted, so a driver bound while the phone is booted does not help.
 2. Open **Device Manager** and find the unrecognised device.
 3. Right-click it → **Update driver** → point it at the unzipped driver folder.
@@ -84,13 +83,13 @@ than when booted, so a driver bound while the phone is booted does not help.
 > On macOS you may also get *"cannot be opened because the developer cannot be verified"* the first
 > time. **System Settings → Privacy & Security** has an **Allow Anyway** button underneath.
 
-Once `PATH` is set, steps 2 and 4 are typed exactly the same on Windows; step 3 differs, and says
+Once `PATH` is set, steps 3 and 5 are typed exactly the same on Windows; step 4 differs, and says
 how.
 
 If you already have Android Studio, you have these at `~/Library/Android/sdk/platform-tools` (macOS)
 — check the version, and use that path above.
 
-**2. Unlock the bootloader. This erases the phone.**
+**Step 3. Unlock the bootloader. This erases the phone.**
 - On the phone, go to Settings > About phone > Build number, and tap **Build number** seven times. It should tell you that you are now a developer.
 - Go to Settings > System > Developer options, and ensure "OEM unlocking" is enabled.
 - Power off, then hold **Volume Down + Power** for the bootloader.
@@ -109,10 +108,10 @@ press **Volume Up/Down** to change the selection to "Unlock the bootloader", the
 accept. That is what erases the phone.
 
 The phone wipes and comes back to a screen reading **Fastboot Mode**, which should now say **Device
-state: unlocked** near the bottom. Leave it there and press nothing on it — step 3 drives it from
+state: unlocked** near the bottom. Leave it there and press nothing on it — step 4 drives it from
 the computer.
 
-**3. Flash.** On macOS or Linux, in the same terminal, navigate to the directory with your
+**Step 4. Flash.** On macOS or Linux, in the same terminal, navigate to the directory with your
 stallion-factory downloads and run:
 
 ```sh
@@ -128,7 +127,7 @@ This will take some time. You can follow the progress on the terminal. Do not pr
 phone during this process. Ten minutes and several reboots. **fastbootd** on the screen is normal.
 Do not interrupt it — if it stops, run it again, the flash is safe to repeat.
 
-**4. Boot it, then re-lock.** If it is still on **Fastboot Mode** after the process has stopped
+**Step 5. Boot it, then re-lock.** If it is still on **Fastboot Mode** after the process has stopped
 running in your terminal, press **Power** on `Start`, or run `fastboot reboot` in your terminal. If
 it is already booting, skip that command — it is only for a phone still sitting in the bootloader,
 and on a booted phone it waits forever on `< waiting for any device >`.
@@ -166,7 +165,7 @@ not take, orange that the bootloader is still unlocked.
 <details> <summary>Why re-lock, and what the yellow screen means</summary>
 
 Unlocked, the bootloader boots anything anyone puts on the phone. Re-locking onto the RistOS AVB key
-installed in step 3 is what makes the phone boot only firmware signed by that key.
+installed in step 4 is what makes the phone boot only firmware signed by that key.
 
 `get_unlock_ability` decides whether a locked phone can ever be unlocked again. At `1`, a device
 that fails verified boot can be rescued. At `0`, it cannot be, by anyone.
@@ -179,7 +178,7 @@ not touch.
 
 </details>
 
-**5. Point it at a backend.** A public build has **no endpoint compiled in**, so the assistant has
+**Step 6. Point it at a backend.** A public build has **no endpoint compiled in**, so the assistant has
 nowhere to send anything until you give it one — open the app drawer on the phone (the gear on the
 home screen), choose **Settings**, and set the endpoint. If your backend needs a token, there is a
 field for it there too — see
@@ -281,7 +280,7 @@ affiliated with, sponsored by, or endorsed by Google.
 
 The bootloader and modem are checked against a Google key fused into the chip, which flashing and
 re-locking do not touch. Everything RistOS builds is verified against the RistOS key, which is what
-step 4 locks the phone onto.
+step 5 locks the phone onto.
 
 ## If something goes wrong
 
@@ -304,7 +303,7 @@ On Windows the same fault reads `'fastboot' is not recognized as an internal or 
 
 Try a different cable first — a charge-only cable is the most common cause by a wide margin. Then
 try a different USB port, preferably one directly on the computer rather than through a hub. On
-Linux you may need udev rules. On Windows, install Google's USB Driver (step 1) — without it a Pixel
+Linux you may need udev rules. On Windows, install Google's USB Driver (step 2) — without it a Pixel
 in the bootloader is not recognised and `fastboot devices` prints nothing. On any platform, use
 Google's platform-tools rather than a packaged `fastboot`.
 
@@ -357,7 +356,7 @@ physical SIM that was not reseated.
 
 ### It does not boot, and you already re-locked
 
-If `get_unlock_ability` printed `1` when you checked it in step 4, unlocking still works:
+If `get_unlock_ability` printed `1` when you checked it in step 5, unlocking still works:
 
 ```sh
 fastboot flashing unlock      # erases the phone
@@ -376,7 +375,7 @@ booted.
 
 ### The yellow screen shows a fingerprint
 
-That is expected, and there is currently nothing to compare it against — see step 4. The fingerprint
+That is expected, and there is currently nothing to compare it against — see step 5. The fingerprint
 identifies the key your bootloader is locked to, not the image, and we do not yet publish the value.
 
 What *would* mean something is wrong: a **green** screen (you are on Google's key, so our image did
@@ -396,7 +395,7 @@ cd <Google's unzipped factory image>
 bash flash-all.sh                   # Google's image, Google's script
 ```
 
-**Then boot Android and check it comes all the way up**, exactly as in step 4 — Google's
+**Then boot Android and check it comes all the way up**, exactly as in step 5 — Google's
 `flash-all.sh` reboots the phone into the OS when it finishes, so the phone is not in the bootloader
 at this point. Only once it has booted, put it back into the bootloader (**Volume Down + Power**)
 and lock:
@@ -406,7 +405,7 @@ fastboot flashing get_unlock_ability   # must print 1 -- if it prints 0, DO NOT 
 fastboot flashing lock                 # erases the phone; boot state returns to GREEN
 ```
 
-Locking blind here bricks a phone the same way locking blind in step 4 does; the fact that it is
+Locking blind here bricks a phone the same way locking blind in step 5 does; the fact that it is
 Google's image rather than ours changes nothing.
 
 Erase the key **before** you re-lock. Locking to Google's image with our key still installed leaves
