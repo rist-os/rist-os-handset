@@ -17,9 +17,10 @@ class AlarmReceiver : BroadcastReceiver() {
         if (isTimer) runCatching {
             DeviceCommands.clearTimer(context, intent.getStringExtra(EXTRA_TIMER_KEY).orEmpty())
         } else runCatching {
-            // It has gone off, so it is no longer armed. Without this the store would grow
-            // forever and a snooze would be re-armed from the original time after a reboot.
-            Alarms.forget(context, id)
+            // It has gone off, so this one is no longer armed. A repeating alarm is moved on to
+            // its next occurrence here; a one-shot is forgotten, which also stops the store
+            // growing without bound.
+            Alarms.onFired(context, id)
         }
 
         runCatching {
