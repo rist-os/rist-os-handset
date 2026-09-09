@@ -42,7 +42,7 @@ a Linux distribution package rather than Google.
 It arrives as a zip that unzips to a folder called **`platform-tools`**. Unzipping does **not** make
 `fastboot` a command you can type — you have to point the terminal at that folder.
 
-**macOS or Linux**: open **Terminal**. Type `cd ` (with a space after it), then drag the
+**macOS or Linux** - open **Terminal**. Type `cd ` (with a space after it), then drag the
 `platform-tools` folder onto the Terminal window, which fills in its location. Press Enter. Now
 paste these two lines:
 
@@ -55,7 +55,10 @@ adb --version
 Both should print a version. **Nothing in those lines needs editing**: `$PWD` is "the folder I am
 in" and `$PATH` is "everything already there" — neither is a placeholder.
 
-**Windows** — the download is `platform-tools-latest-windows.zip`. Open **PowerShell**. Type `cd `
+On macOS the first run may say *"cannot be opened because the developer cannot be verified"*.
+**System Settings → Privacy & Security** has an **Allow Anyway** button underneath.
+
+**Windows** - the download is `platform-tools-latest-windows.zip`. Open **PowerShell**. Type `cd `
 (with a space), then drag the `platform-tools` folder onto the window and press Enter. Now paste
 these two lines:
 
@@ -88,9 +91,6 @@ than when booted, so a driver bound while the phone is booted does not help.
 **`zsh: command not found: fastboot`** is the most common thing to go wrong here, and it means the
 `PATH` line above has not been run in this window — not that anything is broken. Step 4 needs it
 too: `flash-all.sh` calls `fastboot` by name and stops with `fastboot not found` without it.
-
-On macOS you may also get *"cannot be opened because the developer cannot be verified"* the first
-time. **System Settings → Privacy & Security** has an **Allow Anyway** button underneath.
 
 Once `PATH` is set, steps 3 and 5 are typed exactly the same on Windows; step 4 differs, and says
 how.
