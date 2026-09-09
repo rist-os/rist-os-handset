@@ -14,10 +14,13 @@ class BootReceiver : BroadcastReceiver() {
                 val svc = Intent(ctx, PushService::class.java)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(svc)
                 else ctx.startService(svc)
-                // Only on BOOT_COMPLETED: the fence store is in credential-encrypted prefs and
-                // is unreadable before first unlock.
+                // Only on BOOT_COMPLETED: the fence and alarm stores are in credential-encrypted
+                // prefs and are unreadable before first unlock.
                 if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
                     runCatching { GeofenceWatcher.reschedule(ctx.applicationContext) }
+                    // A reboot wipes every AlarmManager alarm, so anything the user set is gone
+                    // until this puts it back.
+                    runCatching { Alarms.reschedule(ctx.applicationContext) }
                 }
             }
         }

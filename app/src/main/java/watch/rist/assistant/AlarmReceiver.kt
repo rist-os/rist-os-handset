@@ -16,6 +16,10 @@ class AlarmReceiver : BroadcastReceiver() {
 
         if (isTimer) runCatching {
             DeviceCommands.clearTimer(context, intent.getStringExtra(EXTRA_TIMER_KEY).orEmpty())
+        } else runCatching {
+            // It has gone off, so it is no longer armed. Without this the store would grow
+            // forever and a snooze would be re-armed from the original time after a reboot.
+            Alarms.forget(context, id)
         }
 
         runCatching {

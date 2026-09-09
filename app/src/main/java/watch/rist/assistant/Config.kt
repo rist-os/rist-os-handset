@@ -47,6 +47,7 @@ object Config {
     private const val KEY_NOTIFICATIONS = "notification_queue"
     private const val KEY_MAIL_UNREAD = "mail_unread"
     private const val KEY_MAIL_ACK = "mail_acknowledged"
+    private const val KEY_ALARMS = "alarms"
     private const val KEY_GEOFENCES = "geofences"
     private const val KEY_GEOFENCE_QUEUE = "geofence_queue"
     private const val KEY_GEOFENCE_LAST_FIX = "geofence_last_fix"
@@ -315,6 +316,9 @@ object Config {
     fun commsResults(ctx: Context): String = prefs(ctx).getString(KEY_COMMS_RESULTS, "") ?: ""
     fun setCommsResults(ctx: Context, json: String) { prefs(ctx).edit().putString(KEY_COMMS_RESULTS, json).apply() }
 
+    fun alarms(ctx: Context): String = prefs(ctx).getString(KEY_ALARMS, "") ?: ""
+    fun setAlarms(ctx: Context, json: String) { prefs(ctx).edit().putString(KEY_ALARMS, json).apply() }
+
     fun geofences(ctx: Context): String = prefs(ctx).getString(KEY_GEOFENCES, "") ?: ""
     fun setGeofences(ctx: Context, json: String) { prefs(ctx).edit().putString(KEY_GEOFENCES, json).apply() }
 
@@ -464,6 +468,7 @@ object Config {
         KEY_SMS_QUEUE,
         KEY_VOICEMAILS,
         KEY_COMMS_RESULTS,
+        KEY_ALARMS,
         KEY_GEOFENCES,
         KEY_GEOFENCE_QUEUE,
         KEY_GEOFENCE_LAST_FIX,

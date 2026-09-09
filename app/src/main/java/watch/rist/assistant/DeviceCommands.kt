@@ -375,23 +375,71 @@ object DeviceCommands {
 
     fun anythingRunning(): Boolean = timers.isNotEmpty() || stopwatchText().isNotBlank()
 
-    private fun alarm(ctx: Context, c: AlarmCommand) {
+    internal fun alarm(ctx: Context, c: AlarmCommand) {
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val pi = alarmPendingIntent(ctx, c.alarmId, c.label, c.sound, c.vibrate)
         when (c.action) {
             "arm" -> runCatching {
                 val atMs = c.fireAtEpochS * 1000L
                 am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi)
+                // Record it before logging success: AlarmManager forgets across a reboot, so
+                // this store is the only thing that can bring the alarm back.
+                Alarms.remember(
+                    ctx,
+                    Alarms.Armed(
+                        id = c.alarmId,
+                        fireAtEpochS = c.fireAtEpochS,
+                        label = c.label,
+                        sound = c.sound,
+                        vibrate = c.vibrate,
+                        recurrence = c.recurrence,
+                    ),
+                )
                 Log.i(TAG, "alarm armed id='${c.alarmId}' at=${c.fireAtEpochS} label='${c.label}'")
             }.onFailure { Log.w(TAG, "alarm arm failed", it) }
-            "cancel" -> { runCatching { am.cancel(pi) }; Log.i(TAG, "alarm cancelled id='${c.alarmId}'") }
+            "cancel" -> {
+                runCatching { am.cancel(pi) }
+                Alarms.forget(ctx, c.alarmId)
+                Log.i(TAG, "alarm cancelled id='${c.alarmId}'")
+            }
             "snooze" -> runCatching {
                 val atMs = System.currentTimeMillis() + 9 * 60_000L
                 am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi)
+                // The store has to follow the snooze, or a reboot during those nine minutes
+                // would re-arm the original time, which has already passed, and drop it.
+                Alarms.remember(
+                    ctx,
+                    Alarms.Armed(
+                        id = c.alarmId,
+                        fireAtEpochS = atMs / 1000L,
+                        label = c.label,
+                        sound = c.sound,
+                        vibrate = c.vibrate,
+                        recurrence = c.recurrence,
+                    ),
+                )
                 Log.i(TAG, "alarm snoozed id='${c.alarmId}' 9m")
             }.onFailure { Log.w(TAG, "alarm snooze failed", it) }
             else -> Log.w(TAG, "unknown alarm action '${c.action}'")
         }
+    }
+
+    /**
+     * Re-arms one stored alarm after a reboot.
+     *
+     * Goes through [alarmPendingIntent] rather than rebuilding the intent so the request code
+     * matches the original exactly; a later "cancel" for this id has to find this alarm.
+     */
+    internal fun rearm(ctx: Context, a: Alarms.Armed) {
+        runCatching {
+            val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            am.setExactAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                a.fireAtEpochS * 1000L,
+                alarmPendingIntent(ctx, a.id, a.label, a.sound, a.vibrate),
+            )
+            Log.i(TAG, "alarm re-armed after boot id='${a.id}' at=${a.fireAtEpochS}")
+        }.onFailure { Log.w(TAG, "alarm re-arm failed id='${a.id}'", it) }
     }
 
     private fun alarmPendingIntent(ctx: Context, id: String, label: String, sound: Boolean, vibrate: Boolean) =
