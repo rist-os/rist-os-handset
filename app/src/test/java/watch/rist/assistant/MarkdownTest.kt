@@ -319,4 +319,54 @@ class MarkdownTest {
         assertEquals("hi 😀 bold 😀", s.toString())
         assertSpans<StyleSpan>(s, "bold", Typeface.BOLD)
     }
+
+    // ---- tables ----
+
+    @Test
+    fun `a table becomes an aligned monospace grid`() {
+        val s = render("| Name | Qty |\n|---|---|\n| apple | 3 |\n| fig | 12 |")
+        assertEquals("Name  │ Qty\n──────┼────\napple │ 3\nfig   │ 12", s.toString())
+        assertSpans<TypefaceSpan>(s, s.toString())
+        assertSpans<StyleSpan>(s, "Name  │ Qty", Typeface.BOLD)
+    }
+
+    @Test
+    fun `table cell markdown is rendered and does not throw off the padding`() {
+        // The width must come from the RENDERED cell, not the source, or "**bold**"
+        // reserves four columns it does not use.
+        val s = render("| a | b |\n|---|---|\n| **bold** | x |")
+        assertEquals("a    │ b\n─────┼──\nbold │ x", s.toString())
+        assertSpans<StyleSpan>(s, "bold", Typeface.BOLD)
+    }
+
+    @Test
+    fun `right and centre alignment markers are accepted`() {
+        val s = render("| a | b |\n|---:|:---:|\n| 1 | 2 |")
+        assertEquals("a │ b\n──┼──\n1 │ 2", s.toString())
+    }
+
+    @Test
+    fun `a ragged row loses no cells`() {
+        val s = render("| a | b |\n|---|---|\n| 1 |\n| 2 | 3 |")
+        assertTrue(s.toString(), s.toString().contains("3"))
+    }
+
+    @Test
+    fun `pipes without a delimiter row are not a table`() {
+        assertEquals("a | b | c", render("a | b | c").toString())
+    }
+
+    @Test
+    fun `text after a table is separated by one newline`() {
+        val s = render("| a | b |\n|---|---|\n| 1 | 2 |\nafter")
+        assertTrue(s.toString(), s.toString().endsWith("\nafter"))
+    }
+
+    @Test
+    fun `a table inside a code fence stays literal`() {
+        assertEquals(
+            "| a | b |\n|---|---|",
+            render("```\n| a | b |\n|---|---|\n```").toString(),
+        )
+    }
 }

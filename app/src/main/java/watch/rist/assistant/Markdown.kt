@@ -9,6 +9,7 @@ import android.text.style.StrikethroughSpan
 import android.text.style.StyleSpan
 import android.text.style.TypefaceSpan
 import android.text.style.UnderlineSpan
+import android.util.Log
 
 // Markdown -> styled text for the reply pane.
 //
@@ -26,6 +27,8 @@ import android.text.style.UnderlineSpan
 //      every repaint, so no input may make it quadratic.
 object Markdown {
 
+    private const val TAG = "RistMarkdown"
+
     private const val SPAN = Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
 
     // Guards a pathological reply; well past any real answer.
@@ -38,16 +41,32 @@ object Markdown {
     private const val MAX_LINK_LABEL = 256
     private const val MAX_LINK_TARGET = 1024
 
+    /**
+     * Never throws. renderTranscript() clears the reply pane before it repaints, so an
+     * exception raised here would leave the user staring at an empty screen with every
+     * message gone — a far worse outcome than an unstyled one.
+     */
     fun render(src: String): CharSequence {
+        if (src.isEmpty()) return SpannableStringBuilder()
+        return runCatching { build(src) }.getOrElse {
+            Log.w(TAG, "markdown render failed; showing raw text", it)
+            SpannableStringBuilder(src)
+        }
+    }
+
+    private fun build(src: String): CharSequence {
         val out = SpannableStringBuilder()
-        if (src.isEmpty()) return out
         val text = clip(src)
 
         var fenced = false
         var fenceStart = -1
         var wrote = false
 
-        for (line in text.split("\n")) {
+        val lines = text.split("\n")
+        var i = 0
+        while (i < lines.size) {
+            val line = lines[i]
+
             if (line.trimStart().startsWith("```")) {
                 if (!fenced) {
                     fenced = true
@@ -56,8 +75,29 @@ object Markdown {
                     fenced = false
                     if (fenceStart >= 0) styleFence(out, fenceStart, out.length)
                 }
+                i++
                 continue
             }
+
+            // A table is the one construct that needs lookahead: a header row is only a
+            // header if the next line is its delimiter.
+            if (!fenced && i + 1 < lines.size && line.contains('|') &&
+                isDelimiterRow(lines[i + 1]) && cells(line).size >= 2
+            ) {
+                val rows = ArrayList<List<String>>()
+                rows += cells(line)
+                var j = i + 2
+                while (j < lines.size && lines[j].contains('|') && lines[j].isNotBlank()) {
+                    rows += cells(lines[j])
+                    j++
+                }
+                if (wrote) out.append("\n")
+                wrote = true
+                emitTable(out, rows, alignments(lines[i + 1]))
+                i = j
+                continue
+            }
+
             // The separator goes before the line, not after it, so a closing fence
             // cannot leave a dangling newline behind.
             if (wrote) out.append("\n")
@@ -68,6 +108,7 @@ object Markdown {
             } else {
                 emitBlock(out, line)
             }
+            i++
         }
 
         // An unterminated fence still gets its styling, so a code block that is still
@@ -84,6 +125,95 @@ object Markdown {
         if (src.length <= MAX_CHARS) return src
         val end = if (Character.isHighSurrogate(src[MAX_CHARS - 1])) MAX_CHARS - 1 else MAX_CHARS
         return src.substring(0, end)
+    }
+
+    // ---- tables ----
+    //
+    // Rendered as a padded monospace grid. A proportional font cannot align columns at all,
+    // and this screen is grayscale with no colour to separate cells, so the fixed-width grid
+    // is the only layout that stays readable. A table wider than the screen wraps rather than
+    // being truncated: losing a cell would break rule 2.
+
+    private const val ALIGN_LEFT = -1
+    private const val ALIGN_CENTER = 0
+    private const val ALIGN_RIGHT = 1
+
+    /** `|---|:--:|---:|` and friends — the row that makes the line above it a header. */
+    private fun isDelimiterRow(line: String): Boolean {
+        val parts = cells(line)
+        if (parts.size < 2) return false
+        return parts.all { c ->
+            c.isNotEmpty() && c.contains('-') && c.all { it == '-' || it == ':' }
+        }
+    }
+
+    private fun cells(line: String): List<String> {
+        var t = line.trim()
+        if (t.startsWith("|")) t = t.substring(1)
+        if (t.endsWith("|")) t = t.dropLast(1)
+        return t.split('|').map { it.trim() }
+    }
+
+    private fun alignments(delimiter: String): List<Int> = cells(delimiter).map { c ->
+        val left = c.startsWith(":")
+        val right = c.endsWith(":")
+        when {
+            left && right -> ALIGN_CENTER
+            right -> ALIGN_RIGHT
+            else -> ALIGN_LEFT
+        }
+    }
+
+    private fun emitTable(
+        out: SpannableStringBuilder,
+        rows: List<List<String>>,
+        aligns: List<Int>,
+    ) {
+        val cols = rows.maxOf { it.size }
+
+        // Render each cell first: a cell's padded width depends on its RENDERED length,
+        // not its source length, or "**Name**" would pad four characters too wide.
+        val grid = rows.map { row ->
+            (0 until cols).map { c ->
+                SpannableStringBuilder().also { inline(it, row.getOrElse(c) { "" }, 0) }
+            }
+        }
+        val widths = IntArray(cols) { c -> grid.maxOf { it[c].length } }
+
+        val start = out.length
+        for ((rowIndex, row) in grid.withIndex()) {
+            if (rowIndex > 0) out.append("\n")
+            val rowStart = out.length
+            for (c in 0 until cols) {
+                if (c > 0) out.append(" │ ")
+                pad(out, row[c], widths[c], aligns.getOrElse(c) { ALIGN_LEFT }, c == cols - 1)
+            }
+            if (rowIndex == 0) {
+                out.setSpan(StyleSpan(Typeface.BOLD), rowStart, out.length, SPAN)
+                out.append("\n")
+                out.append(widths.joinToString("─┼─") { "─".repeat(it) })
+            }
+        }
+        out.setSpan(TypefaceSpan("monospace"), start, out.length, SPAN)
+    }
+
+    /** Trailing padding on the final column is invisible, so [last] suppresses it. */
+    private fun pad(
+        out: SpannableStringBuilder,
+        cell: CharSequence,
+        width: Int,
+        align: Int,
+        last: Boolean,
+    ) {
+        val slack = width - cell.length
+        val lead = when (align) {
+            ALIGN_RIGHT -> slack
+            ALIGN_CENTER -> slack / 2
+            else -> 0
+        }
+        out.append(" ".repeat(lead))
+        out.append(cell)
+        if (!last) out.append(" ".repeat(slack - lead))
     }
 
     private fun styleFence(out: SpannableStringBuilder, start: Int, end: Int) {
@@ -136,7 +266,9 @@ object Markdown {
             val start = out.length
             out.append(" ".repeat(indent)).append("• ")
             inline(out, trimmed.substring(2), 0)
-            out.setSpan(LeadingMarginSpan.Standard(0, 16), start, out.length, SPAN)
+            // The hanging indent grows with nesting depth, so a wrapped nested item lines up
+            // under its own text rather than under the outer list.
+            out.setSpan(LeadingMarginSpan.Standard(0, 16 + indent * 8), start, out.length, SPAN)
             return
         }
 

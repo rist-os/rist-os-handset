@@ -167,7 +167,8 @@ class VoicemailActivity : AppCompatActivity() {
 
         when {
             vm.transcript.isNotBlank() -> box.addView(TextView(this).apply {
-                text = vm.transcript
+                // The transcript is model-written, so it can carry markdown.
+                text = Markdown.render(vm.transcript)
                 setTextColor(t.ink); textSize = 12.5f
             })
             vm.carrierHeld -> Unit
