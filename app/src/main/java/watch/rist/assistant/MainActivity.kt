@@ -42,6 +42,7 @@ import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.PickVisualMediaRequest
+import androidx.core.widget.doAfterTextChanged
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -79,6 +80,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var torchSliderThumb: View
     private lateinit var textInput: EditText
     private lateinit var sendButton: View
+    private lateinit var photoButton: View
     private lateinit var statusText: TextView
     private lateinit var replyContainer: LinearLayout
     private var activeEntryId: Long = 0L
@@ -508,7 +510,10 @@ class MainActivity : AppCompatActivity() {
         setupTorch()
 
         sendButton.setOnClickListener { sendTypedText() }
-        findViewById<View>(R.id.photoButton)?.setOnClickListener { openPhotoSource() }
+        photoButton = findViewById(R.id.photoButton)
+        photoButton.setOnClickListener { openPhotoSource() }
+        textInput.doAfterTextChanged { syncComposeButton() }
+        syncComposeButton()
         textInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEND) { sendTypedText(); true } else false
         }
@@ -1179,6 +1184,20 @@ class MainActivity : AppCompatActivity() {
             Log.w(TAG, "no system camera answered; using the in-app one", it)
             launchCamera()
         }
+    }
+
+    /**
+     * One slot, two jobs: the camera while there is nothing to send, the send arrow the moment
+     * there is. Both icons are 40dp wide, so the row does not shift as they swap.
+     *
+     * Driven by a text watcher rather than set at each call site, because the field is also
+     * cleared after a send and by the editor action — anything that empties it has to put the
+     * camera back, and a watcher is the only place that sees all of them.
+     */
+    private fun syncComposeButton() {
+        val hasText = textInput.text?.toString()?.trim().orEmpty().isNotEmpty()
+        sendButton.visibility = if (hasText) View.VISIBLE else View.GONE
+        photoButton.visibility = if (hasText) View.GONE else View.VISIBLE
     }
 
     /** Camera or existing photos. Everything behind both was already built; only this was missing. */
