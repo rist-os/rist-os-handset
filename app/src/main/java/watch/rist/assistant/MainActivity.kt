@@ -1689,6 +1689,26 @@ class MainActivity : AppCompatActivity() {
                     setTextColor(blend(t.inkMuted, t.ground, 0.35f)); typeface = tf
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 8f)
                 })
+                // Right of the time, and blank until it is used: the pin appears only once the
+                // answer is pinned. The tap target stays the same size either way, so there is
+                // something to hit while it is still invisible, and the description is always
+                // set so a screen reader can find it when the glyph cannot be seen.
+                addView(TextView(this@MainActivity).apply {
+                    text = if (e.pinned) "📌" else ""
+                    setTextColor(t.accent); typeface = tf
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                    minWidth = (26 * d).toInt()
+                    setPadding((6 * d).toInt(), 0, (6 * d).toInt(), (4 * d).toInt())
+                    isClickable = true; isFocusable = true
+                    contentDescription =
+                        if (e.pinned) "Unpin this answer" else "Pin this answer so it is kept"
+                    setOnClickListener {
+                        runCatching {
+                            Transcript.setPinned(this@MainActivity, e.localId, !e.pinned)
+                        }
+                        renderTranscript()
+                    }
+                })
             })
             val body = when (e.state) {
                 EntryState.RECORDING -> "● recording…"
@@ -1705,21 +1725,6 @@ class MainActivity : AppCompatActivity() {
             // A pinned answer is exempt from the age sweep and the count cap, so the ✕ is
             // withdrawn while it is pinned: "kept until I unpin it" has to mean it cannot be
             // lost to a stray tap either.
-            // Left edge, hard away from the ✕ on the right. These two do opposite things and
-            // one of them is destructive, so they must not share a thumb's worth of screen.
-            val pin = TextView(this).apply {
-                text = "📌"
-                alpha = if (e.pinned) 1f else 0.3f
-                setTextColor(if (e.pinned) t.accent else muted); typeface = tf
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                setPadding((2 * d).toInt(), (2 * d).toInt(), (10 * d).toInt(), (6 * d).toInt())
-                isClickable = true; isFocusable = true
-                contentDescription = if (e.pinned) "Unpin this answer" else "Pin this answer so it is kept"
-                setOnClickListener {
-                    runCatching { Transcript.setPinned(this@MainActivity, e.localId, !e.pinned) }
-                    renderTranscript()
-                }
-            }
             val dismiss = TextView(this).apply {
                 text = "✕"
                 setTextColor(muted); typeface = tf
@@ -1738,7 +1743,7 @@ class MainActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply { topMargin = (10 * d).toInt(); bottomMargin = (8 * d).toInt() }
-                addView(pin); addView(col); addView(dismiss)
+                addView(col); addView(dismiss)
             })
 
             if (idx == 0 && lastAttachments.isNotEmpty() && e.localId == lastAttachmentsEntryId) {
