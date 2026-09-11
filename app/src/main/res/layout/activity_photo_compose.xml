@@ -80,10 +80,13 @@
             android:orientation="horizontal" />
     </HorizontalScrollView>
 
+    <!-- The end margin keeps the send arrow clear of the floating home button, a 52dp disc
+         that OverlayHomeService parks 12dp in from the right edge at this height. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
+        android:layout_marginEnd="60dp"
         android:orientation="horizontal"
         android:gravity="center_vertical">
 
