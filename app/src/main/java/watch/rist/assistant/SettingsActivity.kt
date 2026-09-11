@@ -285,9 +285,10 @@ class SettingsActivity : AppCompatActivity() {
     /**
      * How long answers to direct requests stay on the home screen.
      *
-     * Deliberately says what it does NOT cover. The feed mixes replies with texts, calls and
-     * notifications, and those keep their own window, so a control that silently governed only
-     * part of what the user is looking at would be worse than none.
+     * Shows the current value and opens a wheel on it. Deliberately says what it does NOT
+     * cover: the feed mixes replies with texts, calls and notifications, and those are kept
+     * until cleared, so a control that silently governed only part of what the user is
+     * looking at would be worse than none.
      */
     private fun buildRetentionSection() {
         val picker = findViewById<LinearLayout>(R.id.themePicker) ?: return
@@ -301,8 +302,7 @@ class SettingsActivity : AppCompatActivity() {
         val ink = ContextCompat.getColor(this, R.color.ink)
         val muted = Themes.readableMuted(theme)
         val bodyTf: Typeface? = ThemePaint.typefaceOf(this, theme)
-
-        val rows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val d = resources.displayMetrics.density
 
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -310,47 +310,50 @@ class SettingsActivity : AppCompatActivity() {
             tag = RETENTION_SECTION_TAG
         }
 
-        fun paint() {
-            rows.removeAllViews()
-            val chosen = Retention.byMs(Config.transcriptMaxAgeMs(this))
-            for (c in Retention.CHOICES) {
-                val on = c.id == chosen.id
-                rows.addView(TextView(this).apply {
-                    text = (if (on) "●  " else "○  ") + c.label
-                    setTextColor(if (on) ink else muted)
-                    textSize = 13f
-                    typeface = bodyTf
-                    setPadding(0, px(9f), 0, px(9f))
-                    isClickable = true
-                    isFocusable = true
-                    contentDescription = c.label + if (on) ", selected" else ""
-                    setOnClickListener {
-                        Config.setTranscriptMaxAgeMs(this@SettingsActivity, c.ms)
-                        paint()
-                    }
-                })
-            }
-        }
-
-        box.addView(
-            makeExpandable(
-                title = "Message history",
-                sub = "",
-                count = 0,
-                open = false,
-                target = rows,
-                titleSp = 14f,
-                onExpand = { paint() },
-            )
-        )
+        box.addView(TextView(this).apply {
+            text = "MESSAGE HISTORY"
+            setTextColor(ink); textSize = 14f; typeface = pixelTf; isAllCaps = true
+            setPadding(0, px(6f), 0, px(4f))
+        })
         box.addView(TextView(this).apply {
             text = "How long answers to your requests stay on the home screen. " +
-                "Texts, calls and notifications are kept separately and are not affected."
+                "Texts, calls and notifications are kept until you clear them."
             setTextColor(muted); textSize = 10.5f; typeface = bodyTf
             setPadding(0, 0, 0, px(8f))
         })
-        box.addView(rows)
+
+        val value = TextView(this).apply {
+            setTextColor(theme.accent); textSize = 15f; typeface = bodyTf
+            setPadding(0, px(6f), 0, px(6f))
+            isClickable = true
+            isFocusable = true
+        }
+        fun paint() {
+            val chosen = Retention.byMs(Config.transcriptMaxAgeMs(this))
+            value.text = chosen.label + "  ▾"
+            value.contentDescription = "Message history, " + chosen.label + ", opens a picker"
+        }
+        value.setOnClickListener {
+            val chosen = Retention.byMs(Config.transcriptMaxAgeMs(this))
+            runCatching {
+                RistDialog.wheel(
+                    activity = this,
+                    t = theme,
+                    tf = bodyTf,
+                    d = d,
+                    title = "Keep my messages for",
+                    labels = Retention.CHOICES.map { it.label },
+                    selected = Retention.CHOICES.indexOfFirst { it.id == chosen.id },
+                ) { picked ->
+                    Retention.CHOICES.getOrNull(picked)?.let {
+                        Config.setTranscriptMaxAgeMs(this, it.ms)
+                        paint()
+                    }
+                }
+            }.onFailure { Log.e("RistSettings", "retention wheel failed", it) }
+        }
         paint()
+        box.addView(value)
 
         parent.addView(box, idx)
     }
