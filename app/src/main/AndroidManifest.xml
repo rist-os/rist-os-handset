@@ -238,6 +238,19 @@
             android:showWhenLocked="true"
             android:theme="@style/Theme.AppCompat.NoActionBar" />
 
+        <!-- Lets the system camera write one capture into our cache and nothing else. The
+             authority is spelled out rather than templated: Soong does not substitute
+             ${applicationId}, and this manifest is built by both Gradle and Soong. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="watch.rist.assistant.photos"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <receiver android:name=".AlarmReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />

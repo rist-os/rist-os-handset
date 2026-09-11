@@ -230,7 +230,7 @@ class MainActivity : AppCompatActivity() {
 
     private val cameraPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) launchCamera() else toast(getString(R.string.camera_permission_denied))
+            if (granted) launchSystemCamera() else toast(getString(R.string.camera_permission_denied))
         }
 
     private val cameraLauncher =
@@ -238,6 +238,21 @@ class MainActivity : AppCompatActivity() {
             if (result.resultCode != RESULT_OK) { status("camera cancelled"); return@registerForActivityResult }
             val path = result.data?.getStringExtra(CameraActivity.EXTRA_JPEG_PATH)
             if (path != null) onPhotoCaptured(path)
+        }
+
+    // Where the system camera is told to write; read back and cleared when it returns.
+    private var pendingCameraFile: File? = null
+
+    private val takePictureLauncher =
+        registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+            val f = pendingCameraFile
+            pendingCameraFile = null
+            if (!ok || f == null || !f.exists() || f.length() == 0L) {
+                status("camera cancelled")
+                f?.let { runCatching { it.delete() } }
+                return@registerForActivityResult
+            }
+            onPhotoCaptured(f.absolutePath)
         }
 
     // The system photo picker. It needs no storage permission at all and shows the app only
@@ -1139,6 +1154,33 @@ class MainActivity : AppCompatActivity() {
         cameraLauncher.launch(Intent(this, CameraActivity::class.java))
     }
 
+    /**
+     * Hands off to the phone's own camera app rather than RIST's minimal one, so taking a
+     * photo feels like taking a photo — flash, zoom, the modes people expect.
+     *
+     * The CAMERA permission still has to be granted even though the other app does the
+     * capturing: once an app declares CAMERA, the platform requires it for IMAGE_CAPTURE.
+     * If no camera app answers, this falls back to the in-app one rather than dead-ending.
+     */
+    private fun launchSystemCamera() {
+        if (!hasPermission(Manifest.permission.CAMERA)) {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            return
+        }
+        runCatching {
+            val dir = File(cacheDir, "photos").apply { mkdirs() }
+            val target = File(dir, "capture-${System.currentTimeMillis()}.jpg")
+            pendingCameraFile = target
+            takePictureLauncher.launch(
+                androidx.core.content.FileProvider.getUriForFile(this, PHOTO_AUTHORITY, target)
+            )
+        }.onFailure {
+            pendingCameraFile = null
+            Log.w(TAG, "no system camera answered; using the in-app one", it)
+            launchCamera()
+        }
+    }
+
     /** Camera or existing photos. Everything behind both was already built; only this was missing. */
     private fun openPhotoSource() {
         val theme = Themes.byId(Config.themeId(this))
@@ -1155,8 +1197,7 @@ class MainActivity : AppCompatActivity() {
                 ),
             ) { which ->
                 if (which == 0) {
-                    if (hasPermission(Manifest.permission.CAMERA)) launchCamera()
-                    else cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                    launchSystemCamera()
                 } else {
                     photoPickerLauncher.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
@@ -1184,14 +1225,7 @@ class MainActivity : AppCompatActivity() {
                     return@forEachIndexed
                 }
                 val (jpeg, w, h) = loaded
-                status("📷 sending photo ${i + 1} of ${uris.size} — awaiting reply")
-                val reply = withContext(Dispatchers.IO) {
-                    Uploader(applicationContext).sendImage(
-                        jpeg, w, h, format = "jpeg",
-                        onLocationInterim = { resp -> speakInterim(resp) },
-                    )
-                }
-                handleImageReply(reply)
+                showAndSendPhoto(jpeg, w, h, "photo ${i + 1} of ${uris.size}")
             }
         }
     }
@@ -1407,43 +1441,51 @@ class MainActivity : AppCompatActivity() {
         lastPhotoPath = path
         status("📷 ${getString(R.string.photo_captured)}")
         uiScope.launch {
-            val file = File(path)
-            val decoded = withContext(Dispatchers.IO) {
-                runCatching {
-                    val bytes = file.readBytes()
-                    val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@runCatching null
-                    Triple(bytes, bmp.width, bmp.height) to ViewRenderer.toEink(bmp)
-                }.getOrNull()
+            val loaded = withContext(Dispatchers.IO) {
+                loadScaledJpeg(android.net.Uri.fromFile(File(path)))
             }
-            replyContainer.removeAllViews()
-            if (decoded == null) { status("could not decode captured photo"); return@launch }
-            val (meta, eink) = decoded
-            val (jpeg, width, height) = meta
-
-            replyContainer.addView(TextView(this@MainActivity).apply {
-                text = "${getString(R.string.photo_captured)} · ${jpeg.size / 1024} KB"
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            })
-            replyContainer.addView(ImageView(this@MainActivity).apply {
-                setImageBitmap(eink)
-                adjustViewBounds = true
-                scaleType = ImageView.ScaleType.FIT_CENTER
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = (8 * resources.displayMetrics.density).toInt() }
-            })
-            updateClearButton()
-
-            status("📷 sending photo — awaiting reply")
-            val reply = withContext(Dispatchers.IO) {
-                Uploader(applicationContext).sendImage(
-                    jpeg, width, height, format = "jpeg",
-                    onLocationInterim = { resp -> speakInterim(resp) }
-                )
-            }
-            handleImageReply(reply)
+            if (loaded == null) { status("could not decode captured photo"); return@launch }
+            showAndSendPhoto(loaded.first, loaded.second, loaded.third, "photo")
         }
+    }
+
+    /**
+     * Renders one photo into the reply pane and sends it.
+     *
+     * Shared by all three sources — the system camera, the in-app camera, and the picker — so
+     * every one is downscaled by the same rule and drawn the same way. The system camera hands
+     * back whatever the sensor produced, so this path cannot assume a sized file.
+     */
+    private suspend fun showAndSendPhoto(jpeg: ByteArray, width: Int, height: Int, label: String) {
+        val eink = withContext(Dispatchers.IO) {
+            runCatching {
+                BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)?.let { ViewRenderer.toEink(it) }
+            }.getOrNull()
+        }
+        replyContainer.removeAllViews()
+        replyContainer.addView(TextView(this@MainActivity).apply {
+            text = "${getString(R.string.photo_captured)} · ${jpeg.size / 1024} KB"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        })
+        if (eink != null) replyContainer.addView(ImageView(this@MainActivity).apply {
+            setImageBitmap(eink)
+            adjustViewBounds = true
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (8 * resources.displayMetrics.density).toInt() }
+        })
+        updateClearButton()
+
+        status("📷 sending $label — awaiting reply")
+        val reply = withContext(Dispatchers.IO) {
+            Uploader(applicationContext).sendImage(
+                jpeg, width, height, format = "jpeg",
+                onLocationInterim = { resp -> speakInterim(resp) }
+            )
+        }
+        handleImageReply(reply)
     }
 
     private fun handleImageReply(reply: DeviceResponse?) =
@@ -2315,6 +2357,9 @@ class MainActivity : AppCompatActivity() {
 
         // Each picked photo is its own turn, so this is how many replies a single pick can
         // produce. Kept small deliberately.
+        // Must match the provider authority in AndroidManifest.xml.
+        private const val PHOTO_AUTHORITY = "watch.rist.assistant.photos"
+
         private const val MAX_PHOTOS_PER_PICK = 5
 
         // Longest edge after downscaling a picked photo, before re-encoding as JPEG.
