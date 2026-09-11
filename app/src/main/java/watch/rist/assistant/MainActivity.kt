@@ -41,6 +41,7 @@ import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -237,6 +238,15 @@ class MainActivity : AppCompatActivity() {
             if (result.resultCode != RESULT_OK) { status("camera cancelled"); return@registerForActivityResult }
             val path = result.data?.getStringExtra(CameraActivity.EXTRA_JPEG_PATH)
             if (path != null) onPhotoCaptured(path)
+        }
+
+    // The system photo picker. It needs no storage permission at all and shows the app only
+    // what the user actually chose, so RIST never gains the ability to read the whole gallery.
+    private val photoPickerLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.PickMultipleVisualMedia(MAX_PHOTOS_PER_PICK)
+        ) { uris ->
+            if (uris.isEmpty()) status("no photos chosen") else sendPickedPhotos(uris)
         }
 
     private val pushReceiver = object : BroadcastReceiver() {
@@ -483,6 +493,7 @@ class MainActivity : AppCompatActivity() {
         setupTorch()
 
         sendButton.setOnClickListener { sendTypedText() }
+        findViewById<View>(R.id.photoButton)?.setOnClickListener { openPhotoSource() }
         textInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEND) { sendTypedText(); true } else false
         }
@@ -1127,6 +1138,84 @@ class MainActivity : AppCompatActivity() {
     private fun launchCamera() {
         cameraLauncher.launch(Intent(this, CameraActivity::class.java))
     }
+
+    /** Camera or existing photos. Everything behind both was already built; only this was missing. */
+    private fun openPhotoSource() {
+        val theme = Themes.byId(Config.themeId(this))
+        runCatching {
+            RistDialog.choose(
+                activity = this,
+                t = theme,
+                tf = ThemePaint.typefaceOf(this, theme),
+                d = resources.displayMetrics.density,
+                title = getString(R.string.photo_source_title),
+                options = listOf(
+                    getString(R.string.photo_source_camera),
+                    getString(R.string.photo_source_library),
+                ),
+            ) { which ->
+                if (which == 0) {
+                    if (hasPermission(Manifest.permission.CAMERA)) launchCamera()
+                    else cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                } else {
+                    photoPickerLauncher.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                }
+            }
+        }.onFailure { Log.w(TAG, "photo source chooser failed", it) }
+    }
+
+    /**
+     * Sends each chosen photo as its own turn.
+     *
+     * DeviceRequest.input is a `oneof`, so exactly one image fits in a request and an image
+     * cannot travel with text. A multi-pick therefore becomes a sequence rather than one
+     * message carrying several pictures, and the status line counts them so that is visible
+     * rather than surprising. Carrying a set in one turn needs a repeated field in the
+     * canonical proto, which lives in the backend repo.
+     */
+    private fun sendPickedPhotos(uris: List<android.net.Uri>) {
+        uiScope.launch {
+            uris.forEachIndexed { i, uri ->
+                val loaded = withContext(Dispatchers.IO) { loadScaledJpeg(uri) }
+                if (loaded == null) {
+                    status("could not read photo ${i + 1}")
+                    return@forEachIndexed
+                }
+                val (jpeg, w, h) = loaded
+                status("📷 sending photo ${i + 1} of ${uris.size} — awaiting reply")
+                val reply = withContext(Dispatchers.IO) {
+                    Uploader(applicationContext).sendImage(
+                        jpeg, w, h, format = "jpeg",
+                        onLocationInterim = { resp -> speakInterim(resp) },
+                    )
+                }
+                handleImageReply(reply)
+            }
+        }
+    }
+
+    /**
+     * Reads [uri] and re-encodes it small enough to put on the wire.
+     *
+     * A picked photo is whatever the camera produced — often twelve megapixels and several
+     * megabytes — while a captured one has already been sized down. Sending the original
+     * would be slow on a phone connection and pointless for a model.
+     */
+    private fun loadScaledJpeg(uri: android.net.Uri): Triple<ByteArray, Int, Int>? = runCatching {
+        val raw = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(raw, 0, raw.size, bounds)
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > MAX_PHOTO_EDGE_PX) sample *= 2
+        val bmp = BitmapFactory.decodeByteArray(
+            raw, 0, raw.size, BitmapFactory.Options().apply { inSampleSize = sample }
+        ) ?: return null
+        val out = java.io.ByteArrayOutputStream()
+        bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out)
+        Triple(out.toByteArray(), bmp.width, bmp.height)
+    }.getOrNull()
 
     private fun setupTorch() {
         torchCameraId = runCatching {
@@ -2223,6 +2312,13 @@ class MainActivity : AppCompatActivity() {
 
     private companion object {
         private const val TAG = "RistMain"
+
+        // Each picked photo is its own turn, so this is how many replies a single pick can
+        // produce. Kept small deliberately.
+        private const val MAX_PHOTOS_PER_PICK = 5
+
+        // Longest edge after downscaling a picked photo, before re-encoding as JPEG.
+        private const val MAX_PHOTO_EDGE_PX = 1600
 
         // Safety cap after which a deferred `play` starts regardless.
         private const val MEDIA_POLL_MS = 200L

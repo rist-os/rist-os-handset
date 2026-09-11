@@ -83,6 +83,69 @@ object RistDialog {
         return dialog
     }
 
+    /** A short list of choices, themed like the rest. Returns the index picked. */
+    fun choose(
+        activity: Activity,
+        t: RistTheme,
+        tf: Typeface?,
+        d: Float,
+        title: String,
+        options: List<String>,
+        onPick: (Int) -> Unit,
+    ): AlertDialog {
+        val rows = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        val pad = (22 * d).toInt()
+        val content = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, (10 * d).toInt())
+            addView(TextView(activity).apply {
+                tag = TITLE_TAG
+                text = title
+                setTextColor(t.ink)
+                typeface = tf
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, TITLE_SP)
+                setPadding(0, 0, 0, (10 * d).toInt())
+            })
+            addView(rows)
+        }
+
+        val dialog = AlertDialog.Builder(
+            activity,
+            if (t.dark) android.R.style.Theme_Material_Dialog_Alert
+            else android.R.style.Theme_Material_Light_Dialog_Alert,
+        ).setView(content).setNegativeButton("Cancel", null).create()
+
+        options.forEachIndexed { i, label ->
+            rows.addView(TextView(activity).apply {
+                text = label
+                setTextColor(t.ink)
+                typeface = tf
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, BODY_SP)
+                setPadding(0, (14 * d).toInt(), 0, (14 * d).toInt())
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { dialog.dismiss(); onPick(i) }
+            })
+        }
+
+        dialog.setOwnerActivity(activity)
+        dialog.show()
+
+        val face = GradientDrawable().apply {
+            setColor(t.tileFill)
+            cornerRadius = t.tileRadiusDp * d
+            setStroke(Math.max(1, (t.borderWidthDp * d).toInt()), t.fieldBorder)
+        }
+        dialog.window?.setBackgroundDrawable(InsetDrawable(face, (16 * d).toInt()))
+        dialog.getButton(DialogInterface.BUTTON_NEGATIVE)?.apply {
+            setTextColor(t.accent)
+            typeface = tf
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, BUTTON_SP)
+            setAllCaps(false)
+        }
+        return dialog
+    }
+
     /**
      * A scrolling wheel of [labels], opened on the current value.
      *

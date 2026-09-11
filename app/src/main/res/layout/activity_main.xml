@@ -478,6 +478,19 @@
             android:importantForAutofill="no" />
 
         <ImageView
+            android:id="@+id/photoButton"
+            android:layout_width="40dp"
+            android:layout_height="48dp"
+            android:padding="8dp"
+            android:scaleType="fitCenter"
+            android:background="@null"
+            android:src="@drawable/ic_camera"
+            android:tint="@color/ink_muted"
+            android:contentDescription="@string/photo_icon_desc"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <ImageView
             android:id="@+id/sendButton"
             android:layout_width="40dp"
             android:layout_height="48dp"

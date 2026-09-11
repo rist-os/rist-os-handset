@@ -28,6 +28,10 @@
 
     <string name="text_input_hint">Type a message</string>
     <string name="send_icon_desc">Send button</string>
+    <string name="photo_icon_desc">Add a photo</string>
+    <string name="photo_source_title">Add a photo</string>
+    <string name="photo_source_camera">Take a photo</string>
+    <string name="photo_source_library">Choose from photos</string>
     <string name="text_sending">✎ sending — awaiting reply</string>
 
     <string name="camera_capture">CAPTURE</string>
