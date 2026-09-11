@@ -6,7 +6,7 @@ import rist.v1.Capabilities
 object DeviceProfile {
 
     // Must equal SCHEMA_VERSION_CURRENT in the canonical proto.
-    internal const val RCS_SCHEMA_VERSION = 12
+    internal const val RCS_SCHEMA_VERSION = 13
 
     private const val COLOR_DEPTH_BITS = 24
 

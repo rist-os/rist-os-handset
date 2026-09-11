@@ -38,7 +38,14 @@
     <string name="camera_cancel">CANCEL</string>
     <string name="camera_unavailable">Camera unavailable on this device</string>
     <string name="camera_permission_denied">Camera permission denied</string>
-    <string name="photo_captured">photo captured (grayscale)</string>
+    <string name="photo_captured">photo</string>
+    <string name="photo_compose_close">✕</string>
+    <string name="photo_compose_close_desc">Discard these photos and go back</string>
+    <string name="photo_compose_remove">REMOVE</string>
+    <string name="photo_compose_remove_desc">Remove this photo</string>
+    <string name="photo_compose_preview_desc">Photo about to be sent</string>
+    <string name="photo_compose_send_desc">Send the photo with the caption</string>
+    <string name="photo_caption_hint">Add a caption…</string>
     <string name="camera_switch">FLIP</string>
     <string name="camera_switch_desc">Switch between front and back camera</string>
     <string name="camera_flash_off">FLASH OFF</string>

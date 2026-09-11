@@ -157,6 +157,57 @@ class UploaderContractTest {
         assertEquals(caps, parsed.caps)
     }
 
+    private fun photo(n: Int, w: Int, h: Int): ImageInput =
+        ImageInput.newBuilder().setFormat("jpeg").setWidth(w).setHeight(h)
+            .setData(ByteString.copyFrom(jpeg(n))).build()
+
+    @Test
+    fun deviceRequest_photosRideOutsideTheInputOneof_withTheCaptionAsText() {
+        val a = photo(4_096, 1600, 1200)
+        val b = photo(2_048, 1200, 1600)
+        val req = Uploader.buildPhotosRequest(
+            deviceId = "dev-p", sessionId = "sess-p", timestamp = 5L, authToken = "tok-p",
+            caps = DeviceProfile.capabilities(1080, 2400),
+            images = listOf(a, b), caption = "what breed is this?",
+        )
+
+        assertEquals(2, req.imagesCount)
+        assertEquals(a, req.getImages(0))
+        assertEquals(b, req.getImages(1))
+        // The caption is the turn's text; the pre-v13 `image` slot stays empty.
+        assertEquals(DeviceRequest.InputCase.TEXT, req.inputCase)
+        assertEquals("what breed is this?", req.text)
+        assertTrue(!req.hasImage())
+        assertEquals(rist.v1.SchemaVersion.SCHEMA_VERSION_13_VALUE, req.caps.schemaVersion)
+    }
+
+    @Test
+    fun deviceRequest_aBarePhotoLeavesTheInputOneofUnset() {
+        // The backend tells a wordless picture from an empty utterance by `text` being ABSENT.
+        // Setting it to "" would make the turn look like a VAD misfire and get it dropped.
+        val req = Uploader.buildPhotosRequest(
+            deviceId = "d", sessionId = "s", timestamp = 1L, authToken = "",
+            caps = DeviceProfile.capabilities(1080, 2400),
+            images = listOf(photo(1_024, 800, 600)), caption = "   ",
+        )
+        assertEquals(DeviceRequest.InputCase.INPUT_NOT_SET, req.inputCase)
+        assertEquals(1, req.imagesCount)
+    }
+
+    @Test
+    fun deviceRequest_photosSurviveSerializeParseRoundTrip() {
+        val original = Uploader.buildPhotosRequest(
+            deviceId = "d", sessionId = "s", timestamp = 1L, authToken = "t",
+            caps = DeviceProfile.capabilities(1080, 2400),
+            images = listOf(photo(8_192, 800, 600), photo(512, 60, 80)), caption = "two",
+        )
+        val parsed = DeviceRequest.parseFrom(original.toByteArray())
+        assertEquals(original, parsed)
+        assertEquals(2, parsed.imagesCount)
+        assertArrayEquals(jpeg(8_192), parsed.getImages(0).data.toByteArray())
+        assertEquals("two", parsed.text)
+    }
+
     @Test
     fun audioInput_rawBytesArePreservedExactly() {
         val raw = byteArrayOf(0x02, 0x01, 0x7F.toByte(), 0xFF.toByte())

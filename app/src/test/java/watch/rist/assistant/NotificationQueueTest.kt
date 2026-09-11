@@ -439,6 +439,6 @@ class NotificationQueueTest {
         val caps = DeviceProfile.capabilities(1080, 2400)
         assertEquals(CommsFeed.MAX_NOTIFICATIONS, caps.maxNotifications)
         assertTrue(caps.maxNotifications > 0)
-        assertEquals("and the schema version the notifications ride on", 12, caps.schemaVersion)
+        assertTrue("and the schema version the notifications ride on", caps.schemaVersion >= 12)
     }
 }

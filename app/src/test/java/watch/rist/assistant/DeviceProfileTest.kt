@@ -8,6 +8,13 @@ import rist.v1.Capabilities
 class DeviceProfileTest {
 
     @Test
+    fun schemaVersion_isTheOneTheProtoCallsCurrent() {
+        // The proto is a sync target from the backend repo; the constant is typed by hand.
+        // When they drift, the backend is told the device speaks a version it does not.
+        assertEquals(rist.v1.SchemaVersion.SCHEMA_VERSION_CURRENT_VALUE, DeviceProfile.RCS_SCHEMA_VERSION)
+    }
+
+    @Test
     fun phoneCapabilities_advertiseFullColorTouchProfile() {
         val caps: Capabilities = DeviceProfile.capabilities(screenW = 1080, screenH = 2400)
 

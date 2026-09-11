@@ -124,6 +124,14 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.RistAssistant" />
 
+        <!-- The caption screen between choosing a photo and sending it. -->
+        <activity
+            android:name=".PhotoComposeActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.RistAssistant" />
+
         <service
             android:name=".OverlayHomeService"
             android:exported="false" />

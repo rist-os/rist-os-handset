@@ -167,7 +167,9 @@ class MainActivity : AppCompatActivity() {
     private var navigating = false
     private var rerouting = false
 
-    private var lastPhotoPath: String? = null
+    // Thumbnails of photos sent this session, by transcript entry. The store keeps only the
+    // words, as the backend does; the pictures show while the process lives and no longer.
+    private val sentPhotoThumbs = LinkedHashMap<Long, List<android.graphics.Bitmap>>()
 
     private val isDebugBuild: Boolean
         get() = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
@@ -261,9 +263,24 @@ class MainActivity : AppCompatActivity() {
     // what the user actually chose, so RIST never gains the ability to read the whole gallery.
     private val photoPickerLauncher =
         registerForActivityResult(
-            ActivityResultContracts.PickMultipleVisualMedia(MAX_PHOTOS_PER_PICK)
+            ActivityResultContracts.PickMultipleVisualMedia(Uploader.MAX_PHOTOS_PER_TURN)
         ) { uris ->
-            if (uris.isEmpty()) status("no photos chosen") else sendPickedPhotos(uris)
+            if (uris.isEmpty()) status("no photos chosen") else stagePhotos(uris)
+        }
+
+    // Photos sized for the wire and waiting on the caption screen; deleted once sent or dropped.
+    private var stagedPhotos: List<File> = emptyList()
+
+    private val photoComposeLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val paths = result.data?.getStringArrayListExtra(PhotoComposeActivity.EXTRA_PATHS).orEmpty()
+            val caption = result.data?.getStringExtra(PhotoComposeActivity.EXTRA_CAPTION).orEmpty()
+            if (result.resultCode != RESULT_OK || paths.isEmpty()) {
+                discardStagedPhotos()
+                status("photo discarded")
+                return@registerForActivityResult
+            }
+            sendPhotos(paths.map { File(it) }, caption)
         }
 
     private val pushReceiver = object : BroadcastReceiver() {
@@ -353,6 +370,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         // Counterpart of onSaveInstanceState: a capture returning to a recreated activity.
         savedInstanceState?.getString(STATE_PENDING_CAMERA_FILE)?.let { pendingCameraFile = File(it) }
+        savedInstanceState?.getStringArrayList(STATE_STAGED_PHOTOS)?.let { stagedPhotos = it.map { p -> File(p) } }
         setContentView(R.layout.activity_main)
         applyTheme()
 
@@ -1241,29 +1259,53 @@ class MainActivity : AppCompatActivity() {
         // RIST while it is open, the capture still comes back — to a recreated activity that
         // would otherwise have forgotten where it asked for the file to be written.
         pendingCameraFile?.let { outState.putString(STATE_PENDING_CAMERA_FILE, it.absolutePath) }
+        // Same story for the caption screen: its result must find the staged files to send.
+        if (stagedPhotos.isNotEmpty()) {
+            outState.putStringArrayList(STATE_STAGED_PHOTOS, ArrayList(stagedPhotos.map { it.absolutePath }))
+        }
     }
 
     /**
-     * Sends each chosen photo as its own turn.
+     * Sizes each photo for the wire and opens the caption screen over them.
      *
-     * DeviceRequest.input is a `oneof`, so exactly one image fits in a request and an image
-     * cannot travel with text. A multi-pick therefore becomes a sequence rather than one
-     * message carrying several pictures, and the status line counts them so that is visible
-     * rather than surprising. Carrying a set in one turn needs a repeated field in the
-     * canonical proto, which lives in the backend repo.
+     * The camera and the picker both land here, so a captured photo and a chosen one are
+     * downscaled by the same rule and get the same chance to be captioned or dropped before
+     * anything is sent. Nothing leaves the phone until that screen says send.
      */
-    private fun sendPickedPhotos(uris: List<android.net.Uri>) {
+    private fun stagePhotos(uris: List<android.net.Uri>, deleteAfter: List<File> = emptyList()) {
+        status("📷 preparing…")
         uiScope.launch {
-            uris.forEachIndexed { i, uri ->
-                val loaded = withContext(Dispatchers.IO) { loadScaledJpeg(uri) }
-                if (loaded == null) {
-                    status("could not read photo ${i + 1}")
-                    return@forEachIndexed
+            val staged = withContext(Dispatchers.IO) {
+                val dir = File(cacheDir, "photos").apply { mkdirs() }
+                val stamp = System.currentTimeMillis()
+                val out = uris.take(Uploader.MAX_PHOTOS_PER_TURN).mapIndexedNotNull { i, uri ->
+                    val loaded = loadScaledJpeg(uri) ?: return@mapIndexedNotNull null
+                    runCatching { File(dir, "staged-$stamp-$i.jpg").also { it.writeBytes(loaded.first) } }
+                        .getOrNull()
                 }
-                val (jpeg, w, h) = loaded
-                showAndSendPhoto(jpeg, w, h, "photo ${i + 1} of ${uris.size}")
+                deleteAfter.forEach { runCatching { it.delete() } }
+                out
+            }
+            if (staged.isEmpty()) { status("could not read the photo"); return@launch }
+            discardStagedPhotos()
+            stagedPhotos = staged
+            runCatching {
+                photoComposeLauncher.launch(
+                    Intent(this@MainActivity, PhotoComposeActivity::class.java).putStringArrayListExtra(
+                        PhotoComposeActivity.EXTRA_PATHS, ArrayList(staged.map { it.absolutePath })
+                    )
+                )
+            }.onFailure {
+                Log.w(TAG, "caption screen failed to open", it)
+                discardStagedPhotos()
+                status("could not open the photo")
             }
         }
+    }
+
+    private fun discardStagedPhotos() {
+        stagedPhotos.forEach { runCatching { it.delete() } }
+        stagedPhotos = emptyList()
     }
 
     /**
@@ -1489,59 +1531,76 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onPhotoCaptured(path: String) {
-        lastPhotoPath?.takeIf { it != path }?.let { runCatching { File(it).delete() } }
-        lastPhotoPath = path
-        status("📷 ${getString(R.string.photo_captured)}")
-        uiScope.launch {
-            val loaded = withContext(Dispatchers.IO) {
-                loadScaledJpeg(android.net.Uri.fromFile(File(path)))
-            }
-            if (loaded == null) { status("could not decode captured photo"); return@launch }
-            showAndSendPhoto(loaded.first, loaded.second, loaded.third, "photo")
-        }
+        val f = File(path)
+        stagePhotos(listOf(android.net.Uri.fromFile(f)), deleteAfter = listOf(f))
     }
 
     /**
-     * Renders one photo into the reply pane and sends it.
-     *
-     * Shared by all three sources — the system camera, the in-app camera, and the picker — so
-     * every one is downscaled by the same rule and drawn the same way. The system camera hands
-     * back whatever the sensor produced, so this path cannot assume a sized file.
+     * Sends [files] as one turn with [caption], recorded in the feed like a typed message: the
+     * caption (or "photo") as the prompt line, the pictures under it in colour, the answer
+     * below. The pictures used to be drawn through the e-ink filter, which is why every photo
+     * looked greyscale on the phone while the bytes sent were in colour.
      */
-    private suspend fun showAndSendPhoto(jpeg: ByteArray, width: Int, height: Int, label: String) {
-        val eink = withContext(Dispatchers.IO) {
-            runCatching {
-                BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)?.let { ViewRenderer.toEink(it) }
-            }.getOrNull()
+    private fun sendPhotos(files: List<File>, caption: String) {
+        cancelInFlightTurn()
+        hideKeyboard()
+        val prompt = buildString {
+            append(if (files.size == 1) "📷 photo" else "📷 ${files.size} photos")
+            if (caption.isNotBlank()) append(": ").append(caption)
         }
-        replyContainer.removeAllViews()
-        replyContainer.addView(TextView(this@MainActivity).apply {
-            text = "${getString(R.string.photo_captured)} · ${jpeg.size / 1024} KB"
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-        })
-        if (eink != null) replyContainer.addView(ImageView(this@MainActivity).apply {
-            setImageBitmap(eink)
-            adjustViewBounds = true
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = (8 * resources.displayMetrics.density).toInt() }
-        })
-        updateClearButton()
-
-        status("📷 sending $label — awaiting reply")
-        val reply = withContext(Dispatchers.IO) {
-            Uploader(applicationContext).sendImage(
-                jpeg, width, height, format = "jpeg",
-                onLocationInterim = { resp -> speakInterim(resp) }
-            )
+        status(getString(R.string.text_sending))
+        val entryId = runCatching { Transcript.begin(this, prompt, EntryState.WAITING) }.getOrDefault(0L)
+        uiScope.launch {
+            val photos = withContext(Dispatchers.IO) {
+                files.mapNotNull { f ->
+                    val bytes = runCatching { f.readBytes() }.getOrNull() ?: return@mapNotNull null
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                    if (bounds.outWidth <= 0) null else Uploader.Photo(bytes, bounds.outWidth, bounds.outHeight)
+                }
+            }
+            discardStagedPhotos()
+            if (entryId != 0L && photos.isNotEmpty()) {
+                sentPhotoThumbs[entryId] = withContext(Dispatchers.IO) { photos.mapNotNull { thumbnailOf(it.jpeg) } }
+                while (sentPhotoThumbs.size > MAX_PHOTO_TURNS_REMEMBERED) {
+                    sentPhotoThumbs.remove(sentPhotoThumbs.keys.first())
+                }
+            }
+            renderTranscript()
+            if (photos.isEmpty()) {
+                if (entryId != 0L) runCatching {
+                    Transcript.update(this@MainActivity, entryId, state = EntryState.FAILED, error = "could not read the photo")
+                }
+                renderTranscript()
+                status("could not read the photo")
+                return@launch
+            }
+            val uploader = Uploader(applicationContext)
+            val reply = withContext(Dispatchers.IO) {
+                uploader.sendPhotos(photos, caption, onLocationInterim = { resp -> speakInterim(resp) })
+            }
+            if (reply == null) announceFailure(uploader.lastFailure)
+            if (entryId != 0L) runCatching {
+                Transcript.update(
+                    this@MainActivity, entryId,
+                    state = if (reply != null) EntryState.ANSWERED else EntryState.FAILED,
+                    answer = reply?.speech?.text.orEmpty(),
+                    requestId = reply?.requestId.orEmpty(),
+                    error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
+                )
+            }
+            handleReply(reply, subject = "photo", clear = true)
         }
-        handleImageReply(reply)
     }
 
-    private fun handleImageReply(reply: DeviceResponse?) =
-        handleReply(reply, subject = "photo", clear = false)
+    /** A small colour copy of a sent photo for the feed. */
+    private fun thumbnailOf(jpeg: ByteArray): android.graphics.Bitmap? = runCatching {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, bounds)
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > THUMB_EDGE_PX) sample *= 2
+        BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, BitmapFactory.Options().apply { inSampleSize = sample })
+    }.getOrNull()
 
     private fun speakInterim(resp: DeviceResponse) {
         val speech = resp.speech ?: return
@@ -1871,6 +1930,8 @@ class MainActivity : AppCompatActivity() {
             val recent = all.filterNot { it.pinned }.take(RENDER_CAP)
             (pinned + recent).sortedByDescending { it.at }
         }
+        // Thumbnails of entries the store has since aged out or cleared go with them.
+        sentPhotoThumbs.keys.retainAll(Transcript.all(this).map { it.localId }.toSet())
         for ((idx, e) in shown.withIndex()) {
             // The whole entry toggles the pin — prompt line and answer both. The prompt line
             // alone was a ~14dp strip of small type, which is not a target anyone can hit.
@@ -1909,6 +1970,21 @@ class MainActivity : AppCompatActivity() {
                     importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                 })
             })
+            sentPhotoThumbs[e.localId]?.takeIf { it.isNotEmpty() }?.let { thumbs ->
+                col.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    setPadding(0, (2 * d).toInt(), 0, (6 * d).toInt())
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    for (b in thumbs) addView(ImageView(this@MainActivity).apply {
+                        setImageBitmap(b)
+                        adjustViewBounds = true
+                        scaleType = ImageView.ScaleType.FIT_CENTER
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.WRAP_CONTENT, (112 * d).toInt()
+                        ).apply { rightMargin = (6 * d).toInt() }
+                    })
+                })
+            }
             val body = when (e.state) {
                 EntryState.RECORDING -> "● recording…"
                 EntryState.SENT, EntryState.WAITING -> "… waiting for a reply"
@@ -2412,8 +2488,7 @@ class MainActivity : AppCompatActivity() {
     private fun clearReply() {
         runCatching { Transcript.clear(this) }
         replyContainer.removeAllViews()
-        lastPhotoPath?.let { runCatching { File(it).delete() } }
-        lastPhotoPath = null
+        sentPhotoThumbs.clear()
         status(getString(R.string.status_idle))
         updateClearButton()
     }
@@ -2423,16 +2498,17 @@ class MainActivity : AppCompatActivity() {
     private companion object {
         private const val TAG = "RistMain"
 
-        // Each picked photo is its own turn, so this is how many replies a single pick can
-        // produce. Kept small deliberately.
         // Must match the provider authority in AndroidManifest.xml.
         private const val PHOTO_AUTHORITY = "watch.rist.assistant.photos"
         private const val STATE_PENDING_CAMERA_FILE = "pending_camera_file"
+        private const val STATE_STAGED_PHOTOS = "staged_photos"
+
+        // Longest edge of a sent photo's thumbnail in the feed, and how many turns keep theirs.
+        private const val THUMB_EDGE_PX = 480
+        private const val MAX_PHOTO_TURNS_REMEMBERED = 8
 
         // How many unpinned transcript entries are inflated per repaint; the store keeps more.
         private const val RENDER_CAP = 150
-
-        private const val MAX_PHOTOS_PER_PICK = 5
 
         // Longest edge after downscaling a picked photo, before re-encoding as JPEG.
         private const val MAX_PHOTO_EDGE_PX = 1600

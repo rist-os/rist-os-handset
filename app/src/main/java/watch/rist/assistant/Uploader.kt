@@ -26,6 +26,10 @@ class Uploader(private val ctx: Context) {
 
         private const val TAG = "RistUploader"
 
+        // The backend answers the first four photos of a turn and drops the rest with a log
+        // line, so anything past this would be silently ignored rather than seen.
+        internal const val MAX_PHOTOS_PER_TURN = 4
+
         // Must match RecordService's capture format.
         private const val SAMPLE_RATE = 16_000
         private const val BIT_DEPTH = 16
@@ -179,7 +183,34 @@ class Uploader(private val ctx: Context) {
                 .setCaps(caps)
                 .build()
 
-        // image shares the `input` oneof with audio/text, so it is sent alone.
+        /**
+         * Photos with an optional caption: the v13 shape. `images` sits outside the `input`
+         * oneof, so the caption rides in `text` beside it; a bare photo leaves `text` unset,
+         * which is how the backend tells a wordless picture from an empty utterance.
+         */
+        internal fun buildPhotosRequest(
+            deviceId: String,
+            sessionId: String,
+            timestamp: Long,
+            authToken: String,
+            caps: rist.v1.Capabilities,
+            images: List<ImageInput>,
+            caption: String,
+        ): DeviceRequest =
+            DeviceRequest.newBuilder()
+                .setDeviceId(deviceId)
+                .setSessionId(sessionId)
+                .setTimestamp(timestamp)
+                .setRequestId(newRequestId())
+                .apply { if (caption.isNotBlank()) setText(caption) }
+                .addAllImages(images)
+                .setAuthToken(authToken)
+                .setCaps(caps)
+                .build()
+
+        // The pre-v13 shape: `image` shares the `input` oneof with audio/text, so it went alone
+        // and could carry no caption. Kept because the backend still reads it and the contract
+        // tests pin its layout; nothing on the device sends it any more.
         internal fun buildImageRequest(
             deviceId: String,
             sessionId: String,
@@ -317,38 +348,53 @@ class Uploader(private val ctx: Context) {
         return post(req, onLocationInterim = onLocationInterim)
     }
 
-    // Blocking; call on IO.
-    fun sendImage(
-        jpeg: ByteArray,
-        width: Int,
-        height: Int,
-        format: String = "jpeg",
+    /** One photo ready for the wire: already downscaled, upright, and re-encoded. */
+    class Photo(val jpeg: ByteArray, val width: Int, val height: Int, val format: String = "jpeg")
+
+    /**
+     * Sends [photos] as one turn, with [caption] as the question about them. Blocking; call on IO.
+     *
+     * Refuses rather than trims an oversized photo: the caller sized it, so a photo over the cap
+     * is a bug on this side, and silently dropping one of several would answer a different
+     * question from the one asked.
+     */
+    fun sendPhotos(
+        photos: List<Photo>,
+        caption: String,
         onLocationInterim: ((DeviceResponse) -> Unit)? = null
     ): DeviceResponse? {
-        if (jpeg.isEmpty()) {
-            Log.w(TAG, "sendImage: empty image, nothing to send")
+        if (photos.isEmpty()) {
+            Log.w(TAG, "sendPhotos: no photos, nothing to send")
+            return null
+        }
+        if (photos.size > MAX_PHOTOS_PER_TURN) {
+            Log.w(TAG, "sendPhotos: ${photos.size} photos is over the per-turn limit of $MAX_PHOTOS_PER_TURN; not sending")
             return null
         }
         val cap = DeviceProfile.maxImageBytes()
-        if (jpeg.size > cap) {
-            Log.w(TAG, "sendImage: ${jpeg.size} bytes exceeds the advertised cap of $cap; not sending")
+        val over = photos.firstOrNull { it.jpeg.isEmpty() || it.jpeg.size > cap }
+        if (over != null) {
+            Log.w(TAG, "sendPhotos: a photo of ${over.jpeg.size} bytes is outside (0, $cap]; not sending")
             return null
         }
-        val image = ImageInput.newBuilder()
-            .setFormat(format)
-            .setWidth(maxOf(0, width))
-            .setHeight(maxOf(0, height))
-            .setData(ByteString.copyFrom(jpeg))
-            .build()
-
-        val requestProto = buildImageRequest(
+        val images = photos.map {
+            ImageInput.newBuilder()
+                .setFormat(it.format)
+                .setWidth(maxOf(0, it.width))
+                .setHeight(maxOf(0, it.height))
+                .setData(ByteString.copyFrom(it.jpeg))
+                .build()
+        }
+        val requestProto = buildPhotosRequest(
             deviceId = Config.deviceId(ctx),
             sessionId = Config.sessionId(ctx),
             timestamp = System.currentTimeMillis(),
             authToken = Config.authToken(ctx),
             caps = DeviceProfile.capabilities(ctx),
-            image = image
+            images = images,
+            caption = caption,
         )
+        Log.i(TAG, "photos: ${images.size} image(s) caption=${caption.length}c")
         return post(requestProto, onLocationInterim = onLocationInterim)
     }
 
