@@ -1702,12 +1702,28 @@ class MainActivity : AppCompatActivity() {
                 typeface = tf
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, if (e.state == EntryState.ANSWERED) 17f else 12f)
             })
+            // A pinned answer is exempt from the age sweep and the count cap, so the ✕ is
+            // withdrawn while it is pinned: "kept until I unpin it" has to mean it cannot be
+            // lost to a stray tap either.
+            val pin = TextView(this).apply {
+                text = if (e.pinned) "★" else "☆"
+                setTextColor(if (e.pinned) t.accent else muted); typeface = tf
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                setPadding((10 * d).toInt(), (2 * d).toInt(), (2 * d).toInt(), (6 * d).toInt())
+                isClickable = true; isFocusable = true
+                contentDescription = if (e.pinned) "Unpin this answer" else "Pin this answer so it is kept"
+                setOnClickListener {
+                    runCatching { Transcript.setPinned(this@MainActivity, e.localId, !e.pinned) }
+                    renderTranscript()
+                }
+            }
             val dismiss = TextView(this).apply {
                 text = "✕"
                 setTextColor(muted); typeface = tf
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                 setPadding((10 * d).toInt(), (2 * d).toInt(), (2 * d).toInt(), (6 * d).toInt())
                 isClickable = true; isFocusable = true
+                visibility = if (e.pinned) View.GONE else View.VISIBLE
                 contentDescription = "Clear this answer"
                 setOnClickListener {
                     runCatching { Transcript.discard(this@MainActivity, e.localId) }
@@ -1719,7 +1735,7 @@ class MainActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply { topMargin = (10 * d).toInt(); bottomMargin = (8 * d).toInt() }
-                addView(col); addView(dismiss)
+                addView(col); addView(pin); addView(dismiss)
             })
 
             if (idx == 0 && lastAttachments.isNotEmpty() && e.localId == lastAttachmentsEntryId) {
