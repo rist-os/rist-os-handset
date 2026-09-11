@@ -102,13 +102,11 @@ class RetentionTest {
     }
 
     @Test
-    fun `the transcript window and the texts and calls window are separate`() {
-        // The home feed mixes replies with texts, calls and notifications. The setting claims
-        // to govern only the first, so the two windows must not be the same knob.
-        assertTrue(
-            "the comms window (${CommsFeed.MAX_AGE_MS}ms) now equals the transcript default; " +
-                "one setting is silently governing both",
-            CommsFeed.MAX_AGE_MS != Config.DEFAULT_TRANSCRIPT_MAX_AGE_MS,
-        )
+    fun `comms are bounded by count, so this setting cannot reach them`() {
+        // The home feed mixes replies with texts, calls and notifications. This setting claims
+        // to govern only the first. Comms have no age bound at all now, so there is no second
+        // window for it to accidentally become.
+        assertTrue(CommsFeed.MAX_READ > 0 && CommsFeed.HARD_CAP > CommsFeed.MAX_READ)
+        assertTrue(NotificationQueue.MAX_HELD > CommsFeed.MAX_NOTIFICATIONS)
     }
 }

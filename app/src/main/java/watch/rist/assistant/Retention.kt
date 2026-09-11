@@ -4,8 +4,8 @@ package watch.rist.assistant
  * How long an answer to a direct request stays on the home screen.
  *
  * This governs ONLY the transcript — the things you asked for and the replies to them.
- * Texts, calls, voicemail and notifications are a different regime with their own window;
- * see [CommsFeed.MAX_AGE_MS]. Nothing here touches them.
+ * Texts, calls, voicemail and notifications are a different regime: they are kept until
+ * cleared, bounded by count rather than by age. Nothing here touches them.
  *
  * A closed, ordered list rather than a free number: every value has to be sayable back to
  * the user ("kept for a week"), settable from the assistant, and pinned by a test. The order

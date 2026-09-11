@@ -33,9 +33,6 @@ object NotificationQueue {
 
     private const val TAG = "RistNotice"
 
-    // Measured from the server's created_at; expired notices are dropped in [renderable].
-    const val MAX_AGE_MS = CommsFeed.MAX_AGE_MS
-
     // Must stay above [CommsFeed.MAX_NOTIFICATIONS]; eviction is oldest-first.
     const val MAX_HELD = 64
 
@@ -48,9 +45,6 @@ object NotificationQueue {
     // notice instantly expired.
     internal fun atMs(n: Notice): Long =
         if (n.createdAtEpochS > 0L) n.createdAtEpochS * 1000L else n.receivedAtMs
-
-    internal fun isExpired(n: Notice, nowMs: Long, maxAgeMs: Long = MAX_AGE_MS): Boolean =
-        nowMs - atMs(n) >= maxAgeMs
 
     // A repeat replaces (one row per id), resets acked to false and keeps the original receivedAtMs.
     // A blank id is dropped: it could never be acked.
@@ -90,10 +84,11 @@ object NotificationQueue {
         held: List<Notice>,
         nowMs: Long,
         seen: Set<String> = emptySet(),
-        maxAgeMs: Long = MAX_AGE_MS,
         limit: Int = CommsFeed.MAX_NOTIFICATIONS,
     ): List<Notice> = held
-        .filter { it.title.isNotBlank() && !isExpired(it, nowMs, maxAgeMs) }
+        // No age test. A notification that deletes itself before anyone looked is the one
+        // failure this feed must not have; [MAX_HELD] bounds the store instead.
+        .filter { it.title.isNotBlank() }
         .sortedWith(
             compareByDescending<Notice> { feedId(it.id) !in seen }.thenByDescending { atMs(it) }
         )

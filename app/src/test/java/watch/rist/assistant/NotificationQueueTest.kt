@@ -195,7 +195,6 @@ class NotificationQueueTest {
     fun `a notice with no timestamp stays visible instead of ageing out at the epoch`() {
         val n = notice("n-1").copy(createdAtEpochS = 0L, receivedAtMs = T0)
         assertEquals(T0, NotificationQueue.atMs(n))
-        assertFalse(NotificationQueue.isExpired(n, T0))
         assertEquals(1, NotificationQueue.renderable(listOf(n), T0).size)
     }
 
@@ -209,31 +208,34 @@ class NotificationQueueTest {
     }
 
     @Test
-    fun `a notice ages out at twenty four hours even when it is unread`() {
-        val old = notice("n-old", atMs = T0 - CommsFeed.MAX_AGE_MS)
+    fun `a notice never ages out, however old it is`() {
+        // A notification that deletes itself before anyone looked is the one failure this
+        // feed must not have. Comms are kept until cleared.
+        val day = 24L * 60L * 60L * 1000L
+        val ancient = notice("n-old", atMs = T0 - 400L * day)
         val fresh = notice("n-new", atMs = T0 - 60_000L)
 
-        assertTrue(NotificationQueue.isExpired(old, T0))
-        assertEquals(listOf("n-new"), NotificationQueue.renderable(listOf(old, fresh), T0).map { it.id })
-
-        val rows = NotificationQueue.toFeedItems(listOf(old, fresh), emptySet())
         assertEquals(
-            "assemble() would have kept the stale one, which is why expiry runs before it",
-            2, CommsFeed.assemble(rows, T0).size,
+            setOf("n-old", "n-new"),
+            NotificationQueue.renderable(listOf(ancient, fresh), T0).map { it.id }.toSet(),
         )
     }
 
     @Test
-    fun `the device window and the backend shelf life are the same number`() {
-        assertEquals(CommsFeed.MAX_AGE_MS, NotificationQueue.MAX_AGE_MS)
-        assertEquals(24L * 60L * 60L * 1000L, NotificationQueue.MAX_AGE_MS)
+    fun `the held store is bounded by count, not by age`() {
+        val day = 24L * 60L * 60L * 1000L
+        val many = (1..NotificationQueue.MAX_HELD + 20).map {
+            notice("n" + it, atMs = T0 - it * day)
+        }
+        assertEquals(NotificationQueue.MAX_HELD, NotificationQueue.trim(many).size)
     }
 
     @Test
-    fun `an expired notice is still acked, so the backend stops sending it`() {
+    fun `an old notice is still acked, so the backend stops sending it`() {
+        val day = 24L * 60L * 60L * 1000L
         val disk = FakeDisk()
-        disk.store(listOf(notice("n-old", atMs = T0 - 2 * CommsFeed.MAX_AGE_MS)))
-        assertEquals(0, NotificationQueue.renderable(disk.load(), T0).size)
+        disk.store(listOf(notice("n-old", atMs = T0 - 2 * day)))
+        assertEquals(1, NotificationQueue.renderable(disk.load(), T0).size)
         assertEquals(listOf("n-old"), disk.pendingAcks())
     }
 

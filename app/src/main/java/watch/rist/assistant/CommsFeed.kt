@@ -35,9 +35,6 @@ data class FeedItem(
 
 object CommsFeed {
 
-    // Also the retention bound for inbound text bodies; SmsInbox prunes to this.
-    const val MAX_AGE_MS = 24L * 60L * 60L * 1000L
-
     const val MAX_READ = 6
 
     const val HARD_CAP = 25
@@ -52,7 +49,6 @@ object CommsFeed {
     fun assemble(
         items: List<FeedItem>,
         nowMs: Long,
-        maxAgeMs: Long = MAX_AGE_MS,
         maxRead: Int = MAX_READ,
         hardCap: Int = HARD_CAP,
     ): List<FeedItem> {
@@ -61,9 +57,10 @@ object CommsFeed {
         val ordered = unique.values.toList()
 
         val unread = ordered.filter { it.unread }
-        val read = ordered.filter { !it.unread }
-            .filter { nowMs - it.atMs < maxAgeMs }
-            .take(maxRead.coerceAtLeast(0))
+        // Nothing here ages out. A call or a text leaves the feed when it is cleared or
+        // when it is pushed off the end by newer ones -- never on a clock, which is how every
+        // other phone behaves and what the backend already does with the same records.
+        val read = ordered.filter { !it.unread }.take(maxRead.coerceAtLeast(0))
 
         val keptUnread = unread.take(hardCap.coerceAtLeast(0))
         val keptRead = read.take((hardCap - keptUnread.size).coerceAtLeast(0))
