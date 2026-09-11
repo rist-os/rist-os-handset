@@ -9,6 +9,14 @@ import android.util.Log
 class AlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
+        // Installing a new APK cancels every PendingIntent this package holds, so an app update
+        // silently disarms the alarms exactly the way a reboot does. Same store, same repair.
+        if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+            runCatching { Alarms.reschedule(context.applicationContext) }
+                .onFailure { Log.w(TAG, "could not re-arm alarms after the update", it) }
+            return
+        }
+
         val label = intent.getStringExtra(EXTRA_LABEL).orEmpty()
         val id = intent.getStringExtra(EXTRA_ALARM_ID).orEmpty()
         val isTimer = intent.action == ACTION_TIMER
@@ -16,6 +24,11 @@ class AlarmReceiver : BroadcastReceiver() {
 
         if (isTimer) runCatching {
             DeviceCommands.clearTimer(context, intent.getStringExtra(EXTRA_TIMER_KEY).orEmpty())
+        } else runCatching {
+            // It has gone off, so this one is no longer armed. A repeating alarm is moved on to
+            // its next occurrence here; a one-shot is forgotten, which also stops the store
+            // growing without bound.
+            Alarms.onFired(context, id)
         }
 
         runCatching {

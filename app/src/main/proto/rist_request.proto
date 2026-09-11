@@ -367,7 +367,10 @@ message AlarmCommand {
   string kind             = 3;   // always "alarm"
   uint64 fire_at_epoch_s  = 4;   // absolute fire time (unix seconds)
   string label            = 5;   // "wake up"
-  string recurrence       = 6;   // passthrough ("", "daily", "weekdays") — device handles re-arm
+  // Closed set: "" (one-shot), "daily", "weekdays", "weekends", "weekly:<dow>" where dow is
+  // mon..sun. The backend refuses anything outside it rather than passing a phrase through, and
+  // the device treats an unrecognised value as a one-shot. The device re-arms the next occurrence.
+  string recurrence       = 6;
   bool   sound            = 7;
   bool   vibrate          = 8;
 }
