@@ -1677,8 +1677,18 @@ class MainActivity : AppCompatActivity() {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
+            // The whole prompt line is the pin control: a small glyph is a poor target on a
+            // phone, and there is nothing else on this row to tap, so the row can own it.
             col.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
+                isClickable = true; isFocusable = true
+                setPadding(0, (4 * d).toInt(), 0, (4 * d).toInt())
+                contentDescription = (if (e.pinned) "Unpin" else "Pin") +
+                    " this answer, " + e.prompt
+                setOnClickListener {
+                    runCatching { Transcript.setPinned(this@MainActivity, e.localId, !e.pinned) }
+                    renderTranscript()
+                }
                 addView(TextView(this@MainActivity).apply {
                     text = "▸ " + e.prompt
                     setTextColor(muted); typeface = tf
@@ -1689,25 +1699,13 @@ class MainActivity : AppCompatActivity() {
                     setTextColor(blend(t.inkMuted, t.ground, 0.35f)); typeface = tf
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 8f)
                 })
-                // Right of the time, and blank until it is used: the pin appears only once the
-                // answer is pinned. The tap target stays the same size either way, so there is
-                // something to hit while it is still invisible, and the description is always
-                // set so a screen reader can find it when the glyph cannot be seen.
+                // Indicator only — the row above owns the tap. Not focusable, or a screen
+                // reader would announce two controls for the one action.
                 addView(TextView(this@MainActivity).apply {
-                    text = if (e.pinned) "📌" else ""
+                    text = if (e.pinned) "  📌" else ""
                     setTextColor(t.accent); typeface = tf
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-                    minWidth = (26 * d).toInt()
-                    setPadding((6 * d).toInt(), 0, (6 * d).toInt(), (4 * d).toInt())
-                    isClickable = true; isFocusable = true
-                    contentDescription =
-                        if (e.pinned) "Unpin this answer" else "Pin this answer so it is kept"
-                    setOnClickListener {
-                        runCatching {
-                            Transcript.setPinned(this@MainActivity, e.localId, !e.pinned)
-                        }
-                        renderTranscript()
-                    }
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                 })
             })
             val body = when (e.state) {
