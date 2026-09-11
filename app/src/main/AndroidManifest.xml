@@ -267,11 +267,13 @@
             </intent-filter>
         </receiver>
 
-        <receiver android:name=".PhoneStateReceiver" android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.PHONE_STATE" />
-            </intent-filter>
-        </receiver>
+        <!-- A .PhoneStateReceiver was declared here with a PHONE_STATE filter, and the class
+             does not exist anywhere: not in the tree, not in history, not in the box backup.
+             Every call therefore crashed the app before it could do anything, because Android
+             instantiates a declared receiver when its action fires. It was presumably meant to
+             call IncomingCall.show(), which still has no callers. Removed rather than stubbed:
+             a receiver that does nothing is not worth waking the process for. Restoring caller
+             ID means writing that class deliberately. -->
 
         <!-- android:process=":ota" is matched by the seapp_contexts entry in aosp/sepolicy/; do not remove. -->
         <service
