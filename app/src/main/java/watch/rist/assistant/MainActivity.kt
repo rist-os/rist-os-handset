@@ -1673,22 +1673,24 @@ class MainActivity : AppCompatActivity() {
         var attachmentsPainted = false
         val tsFmt = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
         for ((idx, e) in Transcript.all(this).asReversed().withIndex()) {
+            // The whole entry toggles the pin — prompt line and answer both. The prompt line
+            // alone was a ~14dp strip of small type, which is not a target anyone can hit.
+            // The ✕ sits outside this column and keeps its own handler.
             val col = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-            // The whole prompt line is the pin control: a small glyph is a poor target on a
-            // phone, and there is nothing else on this row to tap, so the row can own it.
-            col.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
                 isClickable = true; isFocusable = true
-                setPadding(0, (4 * d).toInt(), 0, (4 * d).toInt())
-                contentDescription = (if (e.pinned) "Unpin" else "Pin") +
-                    " this answer, " + e.prompt
+                contentDescription = (if (e.pinned) "Unpin" else "Pin") + " this answer, " + e.prompt
                 setOnClickListener {
+                    Log.i(TAG, "pin tapped id=${e.localId} wasPinned=${e.pinned}")
                     runCatching { Transcript.setPinned(this@MainActivity, e.localId, !e.pinned) }
+                        .onFailure { Log.w(TAG, "pin toggle failed", it) }
                     renderTranscript()
                 }
+            }
+            col.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, (4 * d).toInt(), 0, (4 * d).toInt())
                 addView(TextView(this@MainActivity).apply {
                     text = "▸ " + e.prompt
                     setTextColor(muted); typeface = tf
