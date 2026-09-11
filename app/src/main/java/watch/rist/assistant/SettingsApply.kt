@@ -17,6 +17,10 @@ object SettingsApply {
 
     private const val KEY_ALARM_VOLUME = "alarms.volume"
 
+    // How long answers to direct requests stay on the home screen. Texts, calls and
+    // notifications are a separate regime and this does not touch them.
+    private const val KEY_MESSAGE_HISTORY = "assistant.message_history"
+
     private data class Result(val key: String, val value: String, val outcome: Int, val detail: String)
 
     fun handle(ctx: Context, cmd: rist.v1.SettingsCommand) {
@@ -54,17 +58,28 @@ object SettingsApply {
                 Result(w.key, current(ctx, KEY_ALARM_VOLUME), OUTCOME_APPLIED, "")
             }
         }
+        KEY_MESSAGE_HISTORY -> {
+            val choice = Retention.byId(w.value)
+            if (choice == null) {
+                Result(w.key, current(ctx, KEY_MESSAGE_HISTORY), OUTCOME_INVALID_VALUE,
+                    "expected one of " + Retention.ids().joinToString(", "))
+            } else {
+                Config.setTranscriptMaxAgeMs(ctx, choice.ms)
+                Result(w.key, current(ctx, KEY_MESSAGE_HISTORY), OUTCOME_APPLIED, "")
+            }
+        }
         else -> Result(w.key, "", OUTCOME_REFUSED, "not supported on this device")
     }
 
     private fun read(ctx: Context, key: String): String? = when (key) {
-        KEY_VOICE, KEY_ALARM_VOLUME -> current(ctx, key)
+        KEY_VOICE, KEY_ALARM_VOLUME, KEY_MESSAGE_HISTORY -> current(ctx, key)
         else -> null
     }
 
     private fun current(ctx: Context, key: String): String = when (key) {
         KEY_VOICE -> if (Config.isReplyVoiceEnabled(ctx)) "on" else "off"
         KEY_ALARM_VOLUME -> Config.alarmVolumePercent(ctx).toString()
+        KEY_MESSAGE_HISTORY -> Retention.byMs(Config.transcriptMaxAgeMs(ctx)).id
         else -> ""
     }
 

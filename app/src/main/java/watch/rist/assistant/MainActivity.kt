@@ -1673,12 +1673,24 @@ class MainActivity : AppCompatActivity() {
         var attachmentsPainted = false
         val tsFmt = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
         for ((idx, e) in Transcript.all(this).asReversed().withIndex()) {
+            // The whole entry toggles the pin — prompt line and answer both. The prompt line
+            // alone was a ~14dp strip of small type, which is not a target anyone can hit.
+            // The ✕ sits outside this column and keeps its own handler.
             val col = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                isClickable = true; isFocusable = true
+                contentDescription = (if (e.pinned) "Unpin" else "Pin") + " this answer, " + e.prompt
+                setOnClickListener {
+                    Log.i(TAG, "pin tapped id=${e.localId} wasPinned=${e.pinned}")
+                    runCatching { Transcript.setPinned(this@MainActivity, e.localId, !e.pinned) }
+                        .onFailure { Log.w(TAG, "pin toggle failed", it) }
+                    renderTranscript()
+                }
             }
             col.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
+                setPadding(0, (4 * d).toInt(), 0, (4 * d).toInt())
                 addView(TextView(this@MainActivity).apply {
                     text = "▸ " + e.prompt
                     setTextColor(muted); typeface = tf
@@ -1688,6 +1700,14 @@ class MainActivity : AppCompatActivity() {
                     text = "  " + tsFmt.format(java.util.Date(e.at))
                     setTextColor(blend(t.inkMuted, t.ground, 0.35f)); typeface = tf
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 8f)
+                })
+                // Indicator only — the row above owns the tap. Not focusable, or a screen
+                // reader would announce two controls for the one action.
+                addView(TextView(this@MainActivity).apply {
+                    text = if (e.pinned) "  📌" else ""
+                    setTextColor(t.accent); typeface = tf
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                 })
             })
             val body = when (e.state) {
@@ -1703,12 +1723,16 @@ class MainActivity : AppCompatActivity() {
                 typeface = tf
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, if (e.state == EntryState.ANSWERED) 17f else 12f)
             })
+            // A pinned answer is exempt from the age sweep and the count cap, so the ✕ is
+            // withdrawn while it is pinned: "kept until I unpin it" has to mean it cannot be
+            // lost to a stray tap either.
             val dismiss = TextView(this).apply {
                 text = "✕"
                 setTextColor(muted); typeface = tf
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                 setPadding((10 * d).toInt(), (2 * d).toInt(), (2 * d).toInt(), (6 * d).toInt())
                 isClickable = true; isFocusable = true
+                visibility = if (e.pinned) View.GONE else View.VISIBLE
                 contentDescription = "Clear this answer"
                 setOnClickListener {
                     runCatching { Transcript.discard(this@MainActivity, e.localId) }

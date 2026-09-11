@@ -280,6 +280,84 @@ class SettingsActivity : AppCompatActivity() {
         parent.addView(box, idx)
     }
 
+    private val RETENTION_SECTION_TAG = "rist_retention_section"
+
+    /**
+     * How long answers to direct requests stay on the home screen.
+     *
+     * Shows the current value and opens a wheel on it. Deliberately says what it does NOT
+     * cover: the feed mixes replies with texts, calls and notifications, and those are kept
+     * until cleared, so a control that silently governed only part of what the user is
+     * looking at would be worse than none.
+     */
+    private fun buildRetentionSection() {
+        val picker = findViewById<LinearLayout>(R.id.themePicker) ?: return
+        val parent = picker.parent as? LinearLayout ?: return
+
+        parent.findViewWithTag<View>(RETENTION_SECTION_TAG)?.let { parent.removeView(it) }
+        val anchor = findViewById<View>(R.id.themesHeading) ?: picker
+        val idx = parent.indexOfChild(anchor).coerceAtLeast(0)
+
+        val theme = Themes.byId(Config.themeId(this))
+        val ink = ContextCompat.getColor(this, R.color.ink)
+        val muted = Themes.readableMuted(theme)
+        val bodyTf: Typeface? = ThemePaint.typefaceOf(this, theme)
+        val d = resources.displayMetrics.density
+
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, px(12f), 0, px(6f))
+            tag = RETENTION_SECTION_TAG
+        }
+
+        box.addView(TextView(this).apply {
+            text = "MESSAGE HISTORY"
+            setTextColor(ink); textSize = 14f; typeface = pixelTf; isAllCaps = true
+            setPadding(0, px(6f), 0, px(4f))
+        })
+        box.addView(TextView(this).apply {
+            text = "How long answers to your requests stay on the home screen. " +
+                "Texts, calls and notifications are kept until you clear them."
+            setTextColor(muted); textSize = 10.5f; typeface = bodyTf
+            setPadding(0, 0, 0, px(8f))
+        })
+
+        val value = TextView(this).apply {
+            setTextColor(theme.accent); textSize = 15f; typeface = bodyTf
+            setPadding(0, px(6f), 0, px(6f))
+            isClickable = true
+            isFocusable = true
+        }
+        fun paint() {
+            val chosen = Retention.byMs(Config.transcriptMaxAgeMs(this))
+            value.text = chosen.label + "  ▾"
+            value.contentDescription = "Message history, " + chosen.label + ", opens a picker"
+        }
+        value.setOnClickListener {
+            val chosen = Retention.byMs(Config.transcriptMaxAgeMs(this))
+            runCatching {
+                RistDialog.wheel(
+                    activity = this,
+                    t = theme,
+                    tf = bodyTf,
+                    d = d,
+                    title = "Keep my messages for",
+                    labels = Retention.CHOICES.map { it.label },
+                    selected = Retention.CHOICES.indexOfFirst { it.id == chosen.id },
+                ) { picked ->
+                    Retention.CHOICES.getOrNull(picked)?.let {
+                        Config.setTranscriptMaxAgeMs(this, it.ms)
+                        paint()
+                    }
+                }
+            }.onFailure { Log.e("RistSettings", "retention wheel failed", it) }
+        }
+        paint()
+        box.addView(value)
+
+        parent.addView(box, idx)
+    }
+
     private fun confirmBackendChange(confirmLabel: String, onConfirm: () -> Unit) {
         if (Enrolment.needed(this)) { onConfirm(); return }
         if (backendDialog?.isShowing == true) return
@@ -539,6 +617,8 @@ class SettingsActivity : AppCompatActivity() {
         // Built first: each code-built section inserts at the anchor, so the last built sits nearest it.
         runCatching { buildVoicemailSection() }
             .onFailure { Log.e("RistSettings", "voicemail section build failed", it) }
+        runCatching { buildRetentionSection() }
+            .onFailure { Log.e("RistSettings", "retention section build failed", it) }
         // ThemePaint.retint() overwrites XML typefaces, so these headings are put back here.
         runCatching {
             for (id in intArrayOf(R.id.backendHeading, R.id.themesHeading)) {

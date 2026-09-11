@@ -199,7 +199,12 @@ object Config {
     fun defaultBackendUrl(ctx: Context): String = deploy(ctx).first
     fun defaultPushUrl(ctx: Context): String = deploy(ctx).second
 
-    const val DEFAULT_TRANSCRIPT_MAX_ENTRIES = 200
+    // A count cap as well as the age one, so the transcript file stays a size the app can
+    // rewrite on every message. It was 200, which made "Forever" untrue the moment somebody
+    // crossed it; 1000 is roughly 150 KB of JSON and still bounded.
+    const val DEFAULT_TRANSCRIPT_MAX_ENTRIES = 1000
+
+    // The age limit, in ms; 0 means keep them until cleared. See [Retention] for the choices.
     const val DEFAULT_TRANSCRIPT_MAX_AGE_MS = 2L * 60L * 1000L
 
     fun transcriptMaxEntries(ctx: Context): Int =
