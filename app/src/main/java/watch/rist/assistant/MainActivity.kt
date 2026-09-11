@@ -1705,11 +1705,14 @@ class MainActivity : AppCompatActivity() {
             // A pinned answer is exempt from the age sweep and the count cap, so the ✕ is
             // withdrawn while it is pinned: "kept until I unpin it" has to mean it cannot be
             // lost to a stray tap either.
+            // Left edge, hard away from the ✕ on the right. These two do opposite things and
+            // one of them is destructive, so they must not share a thumb's worth of screen.
             val pin = TextView(this).apply {
-                text = if (e.pinned) "★" else "☆"
+                text = "📌"
+                alpha = if (e.pinned) 1f else 0.3f
                 setTextColor(if (e.pinned) t.accent else muted); typeface = tf
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                setPadding((10 * d).toInt(), (2 * d).toInt(), (2 * d).toInt(), (6 * d).toInt())
+                setPadding((2 * d).toInt(), (2 * d).toInt(), (10 * d).toInt(), (6 * d).toInt())
                 isClickable = true; isFocusable = true
                 contentDescription = if (e.pinned) "Unpin this answer" else "Pin this answer so it is kept"
                 setOnClickListener {
@@ -1735,7 +1738,7 @@ class MainActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply { topMargin = (10 * d).toInt(); bottomMargin = (8 * d).toInt() }
-                addView(col); addView(pin); addView(dismiss)
+                addView(pin); addView(col); addView(dismiss)
             })
 
             if (idx == 0 && lastAttachments.isNotEmpty() && e.localId == lastAttachmentsEntryId) {
