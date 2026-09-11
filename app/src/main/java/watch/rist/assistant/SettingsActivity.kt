@@ -280,6 +280,81 @@ class SettingsActivity : AppCompatActivity() {
         parent.addView(box, idx)
     }
 
+    private val RETENTION_SECTION_TAG = "rist_retention_section"
+
+    /**
+     * How long answers to direct requests stay on the home screen.
+     *
+     * Deliberately says what it does NOT cover. The feed mixes replies with texts, calls and
+     * notifications, and those keep their own window, so a control that silently governed only
+     * part of what the user is looking at would be worse than none.
+     */
+    private fun buildRetentionSection() {
+        val picker = findViewById<LinearLayout>(R.id.themePicker) ?: return
+        val parent = picker.parent as? LinearLayout ?: return
+
+        parent.findViewWithTag<View>(RETENTION_SECTION_TAG)?.let { parent.removeView(it) }
+        val anchor = findViewById<View>(R.id.themesHeading) ?: picker
+        val idx = parent.indexOfChild(anchor).coerceAtLeast(0)
+
+        val theme = Themes.byId(Config.themeId(this))
+        val ink = ContextCompat.getColor(this, R.color.ink)
+        val muted = Themes.readableMuted(theme)
+        val bodyTf: Typeface? = ThemePaint.typefaceOf(this, theme)
+
+        val rows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, px(12f), 0, px(6f))
+            tag = RETENTION_SECTION_TAG
+        }
+
+        fun paint() {
+            rows.removeAllViews()
+            val chosen = Retention.byMs(Config.transcriptMaxAgeMs(this))
+            for (c in Retention.CHOICES) {
+                val on = c.id == chosen.id
+                rows.addView(TextView(this).apply {
+                    text = (if (on) "●  " else "○  ") + c.label
+                    setTextColor(if (on) ink else muted)
+                    textSize = 13f
+                    typeface = bodyTf
+                    setPadding(0, px(9f), 0, px(9f))
+                    isClickable = true
+                    isFocusable = true
+                    contentDescription = c.label + if (on) ", selected" else ""
+                    setOnClickListener {
+                        Config.setTranscriptMaxAgeMs(this@SettingsActivity, c.ms)
+                        paint()
+                    }
+                })
+            }
+        }
+
+        box.addView(
+            makeExpandable(
+                title = "Message history",
+                sub = "",
+                count = 0,
+                open = false,
+                target = rows,
+                titleSp = 14f,
+                onExpand = { paint() },
+            )
+        )
+        box.addView(TextView(this).apply {
+            text = "How long answers to your requests stay on the home screen. " +
+                "Texts, calls and notifications are kept separately and are not affected."
+            setTextColor(muted); textSize = 10.5f; typeface = bodyTf
+            setPadding(0, 0, 0, px(8f))
+        })
+        box.addView(rows)
+        paint()
+
+        parent.addView(box, idx)
+    }
+
     private fun confirmBackendChange(confirmLabel: String, onConfirm: () -> Unit) {
         if (Enrolment.needed(this)) { onConfirm(); return }
         if (backendDialog?.isShowing == true) return
@@ -539,6 +614,8 @@ class SettingsActivity : AppCompatActivity() {
         // Built first: each code-built section inserts at the anchor, so the last built sits nearest it.
         runCatching { buildVoicemailSection() }
             .onFailure { Log.e("RistSettings", "voicemail section build failed", it) }
+        runCatching { buildRetentionSection() }
+            .onFailure { Log.e("RistSettings", "retention section build failed", it) }
         // ThemePaint.retint() overwrites XML typefaces, so these headings are put back here.
         runCatching {
             for (id in intArrayOf(R.id.backendHeading, R.id.themesHeading)) {
