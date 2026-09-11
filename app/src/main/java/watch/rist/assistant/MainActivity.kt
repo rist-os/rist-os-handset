@@ -351,6 +351,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Counterpart of onSaveInstanceState: a capture returning to a recreated activity.
+        savedInstanceState?.getString(STATE_PENDING_CAMERA_FILE)?.let { pendingCameraFile = File(it) }
         setContentView(R.layout.activity_main)
         applyTheme()
 
@@ -1195,7 +1197,7 @@ class MainActivity : AppCompatActivity() {
      * camera back, and a watcher is the only place that sees all of them.
      */
     private fun syncComposeButton() {
-        val hasText = textInput.text?.toString()?.trim().orEmpty().isNotEmpty()
+        val hasText = isSendable(textInput.text?.toString()?.trim().orEmpty())
         sendButton.visibility = if (hasText) View.VISIBLE else View.GONE
         photoButton.visibility = if (hasText) View.GONE else View.VISIBLE
     }
@@ -1218,12 +1220,27 @@ class MainActivity : AppCompatActivity() {
                 if (which == 0) {
                     launchSystemCamera()
                 } else {
-                    photoPickerLauncher.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                    )
+                    // Inside its own runCatching: this runs from the dialog row's click, which
+                    // is outside the guard around the chooser itself.
+                    runCatching {
+                        photoPickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    }.onFailure {
+                        Log.w(TAG, "photo picker unavailable", it)
+                        status("photos are not available on this phone")
+                    }
                 }
             }
         }.onFailure { Log.w(TAG, "photo source chooser failed", it) }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        // The system camera runs in another process and can outlive ours. If the OS reclaims
+        // RIST while it is open, the capture still comes back — to a recreated activity that
+        // would otherwise have forgotten where it asked for the file to be written.
+        pendingCameraFile?.let { outState.putString(STATE_PENDING_CAMERA_FILE, it.absolutePath) }
     }
 
     /**
@@ -1262,9 +1279,25 @@ class MainActivity : AppCompatActivity() {
         BitmapFactory.decodeByteArray(raw, 0, raw.size, bounds)
         var sample = 1
         while (maxOf(bounds.outWidth, bounds.outHeight) / sample > MAX_PHOTO_EDGE_PX) sample *= 2
-        val bmp = BitmapFactory.decodeByteArray(
+        val decoded = BitmapFactory.decodeByteArray(
             raw, 0, raw.size, BitmapFactory.Options().apply { inSampleSize = sample }
         ) ?: return null
+        // Re-encoding discards EXIF, and a phone camera stores a portrait shot as landscape
+        // pixels plus an Orientation tag. Without applying that tag first, every portrait photo
+        // reached the backend sideways with its width and height swapped.
+        val degrees = runCatching {
+            when (android.media.ExifInterface(java.io.ByteArrayInputStream(raw))
+                .getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1)) {
+                android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                else -> 0f
+            }
+        }.getOrDefault(0f)
+        val bmp = if (degrees == 0f) decoded else android.graphics.Bitmap.createBitmap(
+            decoded, 0, 0, decoded.width, decoded.height,
+            android.graphics.Matrix().apply { postRotate(degrees) }, true,
+        )
         val out = java.io.ByteArrayOutputStream()
         bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out)
         Triple(out.toByteArray(), bmp.width, bmp.height)
@@ -1551,9 +1584,15 @@ class MainActivity : AppCompatActivity() {
         renderReply(reply, fallbackText = text, clear = clear)
     }
 
+    /**
+     * The one definition of "there is something to send". The compose button and the sender
+     * both use it; when they disagreed, "..." showed a send arrow that silently emptied the box.
+     */
+    private fun isSendable(text: String): Boolean = text.any { it.isLetterOrDigit() }
+
     private fun sendTypedText() {
         val text = textInput.text?.toString()?.trim().orEmpty()
-        if (text.isEmpty() || text.none { it.isLetterOrDigit() }) {
+        if (!isSendable(text)) {
             textInput.text?.clear()
             return
         }
@@ -1822,7 +1861,17 @@ class MainActivity : AppCompatActivity() {
         val muted = Themes.readableMuted(t)
         var attachmentsPainted = false
         val tsFmt = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
-        for ((idx, e) in Transcript.all(this).asReversed().withIndex()) {
+        // Everything is KEPT; not everything is inflated. With retention at "Forever" the store
+        // can hold the count cap, and ~8 views plus a markdown parse per entry on every repaint
+        // would stall an e-ink handset. The newest RENDER_CAP unpinned entries and every pinned
+        // one are drawn; older unpinned ones stay in the store and come back as newer ones age
+        // out or are cleared.
+        val shown = Transcript.all(this).asReversed().let { all ->
+            val pinned = all.filter { it.pinned }
+            val recent = all.filterNot { it.pinned }.take(RENDER_CAP)
+            (pinned + recent).sortedByDescending { it.at }
+        }
+        for ((idx, e) in shown.withIndex()) {
             // The whole entry toggles the pin — prompt line and answer both. The prompt line
             // alone was a ~14dp strip of small type, which is not a target anyone can hit.
             // The ✕ sits outside this column and keeps its own handler.
@@ -2378,6 +2427,10 @@ class MainActivity : AppCompatActivity() {
         // produce. Kept small deliberately.
         // Must match the provider authority in AndroidManifest.xml.
         private const val PHOTO_AUTHORITY = "watch.rist.assistant.photos"
+        private const val STATE_PENDING_CAMERA_FILE = "pending_camera_file"
+
+        // How many unpinned transcript entries are inflated per repaint; the store keeps more.
+        private const val RENDER_CAP = 150
 
         private const val MAX_PHOTOS_PER_PICK = 5
 

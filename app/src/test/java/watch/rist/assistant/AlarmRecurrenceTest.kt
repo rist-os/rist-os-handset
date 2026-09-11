@@ -192,6 +192,62 @@ class AlarmRecurrenceTest {
         assertTrue(Alarms.held(app).isEmpty())
     }
 
+    // ---- the two ways a schedule used to get silently corrupted ----
+
+    @Test
+    fun `a daily alarm keeps its time of day across the spring-forward gap`() {
+        // Los Angeles springs forward at 02:00 on Sunday 8 March 2026: 02:30 does not exist
+        // that day. The gap day alone may shift; the day after must be 02:30 again.
+        val la = ZoneId.of("America/Los_Angeles")
+        val sat = at(2026, 3, 7, 2, 30, la)
+        val tod = 2 * 3600 + 30 * 60
+
+        val gapDay = Alarms.nextOccurrence(sat, tod, "daily", sat, la)!!
+        assertEquals("the gap day resolves forward, as a clock does",
+            LocalDateTime.of(2026, 3, 8, 3, 30), local(gapDay, la))
+
+        // What onFired does next: anchor on the (shifted) gap-day instant, time of day kept.
+        val dayAfter = Alarms.nextOccurrence(gapDay, tod, "daily", gapDay, la)!!
+        assertEquals("the shift must not carry into the following day",
+            LocalDateTime.of(2026, 3, 9, 2, 30), local(dayAfter, la))
+    }
+
+    @Test
+    fun `a snooze keeps a daily alarm daily and returns it to the schedule`() {
+        val nowS = System.currentTimeMillis() / 1000
+        val scheduled = nowS + 30
+        DeviceCommands.alarm(
+            app,
+            AlarmCommand.newBuilder().setAction("arm").setAlarmId("a1")
+                .setFireAtEpochS(scheduled).setLabel("wake up").setRecurrence("daily")
+                .setSound(true).setVibrate(true).build(),
+        )
+        // It rings on schedule: the store rolls to tomorrow.
+        AlarmReceiver().onReceive(
+            app, Intent(AlarmReceiver.ACTION_FIRE).putExtra(AlarmReceiver.EXTRA_ALARM_ID, "a1"),
+        )
+        val tomorrow = Alarms.held(app).single().scheduledEpochS
+        assertTrue(tomorrow > scheduled)
+
+        // The backend snoozes it, echoing only the id, as the proto documents.
+        DeviceCommands.alarm(
+            app, AlarmCommand.newBuilder().setAction("snooze").setAlarmId("a1").build(),
+        )
+        val snoozed = Alarms.held(app).single()
+        assertEquals("a snooze must not turn a daily alarm into a one-shot", "daily", snoozed.recurrence)
+        assertEquals("a snooze moves the next ring, not the schedule", tomorrow, snoozed.scheduledEpochS)
+        assertTrue("the next ring is the snooze", snoozed.fireAtEpochS < tomorrow)
+
+        // The snooze rings: it returns to the schedule instead of drifting nine minutes.
+        AlarmReceiver().onReceive(
+            app, Intent(AlarmReceiver.ACTION_FIRE).putExtra(AlarmReceiver.EXTRA_ALARM_ID, "a1"),
+        )
+        val back = Alarms.held(app).single()
+        assertEquals("daily", back.recurrence)
+        assertEquals(tomorrow, back.fireAtEpochS)
+        assertEquals(tomorrow, back.scheduledEpochS)
+    }
+
     @Test
     fun `repeats reads the field the way the backend writes it`() {
         assertTrue(Alarms.repeats("daily"))

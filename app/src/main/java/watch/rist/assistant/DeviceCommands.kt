@@ -400,25 +400,30 @@ object DeviceCommands {
             "cancel" -> {
                 runCatching { am.cancel(pi) }
                 Alarms.forget(ctx, c.alarmId)
+                // If it is ringing this second, cancelling it has to silence it too. Before this
+                // the ring carried on after the record was gone.
+                AlarmService.dismiss(ctx, "backend cancel")
                 Log.i(TAG, "alarm cancelled id='${c.alarmId}'")
             }
             "snooze" -> runCatching {
-                val atMs = System.currentTimeMillis() + 9 * 60_000L
-                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi)
+                val atS = System.currentTimeMillis() / 1000L + 9 * 60L
+                // The schedule and the recurrence come from the STORE, not the command. The
+                // proto documents only the id as echoed on a snooze, so trusting the command
+                // turned a daily alarm into a one-shot; and a snooze must move the next ring,
+                // not the schedule, or the alarm drifts nine minutes later every time.
+                val stored = Alarms.held(ctx).firstOrNull { it.id == c.alarmId }
+                val snoozed = (stored ?: Alarms.Armed(
+                    c.alarmId, atS, c.label, c.sound, c.vibrate, c.recurrence,
+                )).copy(fireAtEpochS = atS)
+                am.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP, atS * 1000L,
+                    alarmPendingIntent(ctx, c.alarmId, snoozed.label, snoozed.sound, snoozed.vibrate),
+                )
                 // The store has to follow the snooze, or a reboot during those nine minutes
                 // would re-arm the original time, which has already passed, and drop it.
-                Alarms.remember(
-                    ctx,
-                    Alarms.Armed(
-                        id = c.alarmId,
-                        fireAtEpochS = atMs / 1000L,
-                        label = c.label,
-                        sound = c.sound,
-                        vibrate = c.vibrate,
-                        recurrence = c.recurrence,
-                    ),
-                )
-                Log.i(TAG, "alarm snoozed id='${c.alarmId}' 9m")
+                Alarms.remember(ctx, snoozed)
+                AlarmService.dismiss(ctx, "snoozed")
+                Log.i(TAG, "alarm snoozed id='${c.alarmId}' 9m (schedule kept at ${snoozed.scheduledEpochS})")
             }.onFailure { Log.w(TAG, "alarm snooze failed", it) }
             else -> Log.w(TAG, "unknown alarm action '${c.action}'")
         }

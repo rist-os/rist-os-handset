@@ -20,7 +20,6 @@ object CommsFeedView {
 
     private const val TAG = "RistFeed"
 
-    private const val CALL_LOG_LOOKBACK_MS = 7L * 24L * 60L * 60L * 1000L
 
     private val expanded = HashSet<String>()
 
@@ -43,7 +42,9 @@ object CommsFeedView {
         CommsFeed.waiting(candidates(ctx), CarrierVoicemail.waiting(ctx), Config.pendingMail(ctx))
 
     private fun missedCalls(ctx: Context): List<FeedItem> = runCatching {
-        val cutoff = System.currentTimeMillis() - CALL_LOG_LOOKBACK_MS
+        // No date cutoff, for the same reason as SmsInbox.arrivals: the feed keeps a missed
+        // call until it is cleared, and a lookback here was a seven-day expiry in disguise.
+        // LIMIT_PARAM_KEY bounds the query instead.
         val out = ArrayList<FeedItem>()
         // Cap via LIMIT_PARAM_KEY in the URI: a LIMIT in sortOrder throws IllegalArgumentException.
         val capped = android.provider.CallLog.Calls.CONTENT_URI.buildUpon()
@@ -55,8 +56,8 @@ object CommsFeedView {
         ctx.contentResolver.query(
             capped,
             arrayOf(android.provider.CallLog.Calls.NUMBER, android.provider.CallLog.Calls.DATE),
-            "${android.provider.CallLog.Calls.TYPE} = ? AND ${android.provider.CallLog.Calls.DATE} > ?",
-            arrayOf(android.provider.CallLog.Calls.MISSED_TYPE.toString(), cutoff.toString()),
+            "${android.provider.CallLog.Calls.TYPE} = ?",
+            arrayOf(android.provider.CallLog.Calls.MISSED_TYPE.toString()),
             "${android.provider.CallLog.Calls.DATE} DESC"
         )?.use { c ->
             while (c.moveToNext()) {

@@ -296,6 +296,12 @@ object Markdown {
         var noCloseAhead = false
         var knownBadClose = -1
 
+        // The same rule for emphasis. Whether a marker can CLOSE depends only on the characters
+        // around it, never on where the opener was, so once findCloser reports nothing usable
+        // ahead for a needle, that stays true for every later opener of the same needle. A
+        // line of "**a " repeated was quadratic without this.
+        val noCloser = HashSet<String>(4)
+
         var i = 0
         while (i < s.length) {
             val c = s[i]
@@ -335,8 +341,9 @@ object Markdown {
             }
 
             // ~~strikethrough~~
-            if (c == '~' && i + 1 < s.length && s[i + 1] == '~') {
+            if (c == '~' && i + 1 < s.length && s[i + 1] == '~' && "~~" !in noCloser) {
                 val end = findCloser(s, i + 2, "~~")
+                if (end < 0) noCloser += "~~"
                 if (end > i + 2) {
                     val start = out.length
                     inline(out, s.substring(i + 2, end), depth + 1)
@@ -354,7 +361,9 @@ object Markdown {
                 for (n in run downTo 1) {
                     if (!opens(s, i, c, n)) continue
                     val needle = s.substring(i, i + n)
+                    if (needle in noCloser) continue
                     val end = findCloser(s, i + n, needle)
+                    if (end < 0) { noCloser += needle; continue }
                     if (end <= i + n) continue
                     val start = out.length
                     inline(out, s.substring(i + n, end), depth + 1)

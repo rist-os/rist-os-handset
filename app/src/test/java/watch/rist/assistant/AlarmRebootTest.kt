@@ -104,6 +104,17 @@ class AlarmRebootTest {
     }
 
     @Test
+    fun `an alarm missed by moments still rings`() {
+        // Set for 07:00:00; the phone reached BOOT_COMPLETED at 07:00:20. Discarding that is
+        // the one thing an alarm clock must never do.
+        Memory.json =
+            """[{"id":"close","at":${nowS() - 20},"label":"x","sound":true,"vibrate":true}]"""
+        simulateReboot()
+        assertEquals("it should be armed to ring now", 1, scheduled().size)
+        assertEquals(1, Alarms.held(app).size)
+    }
+
+    @Test
     fun `an alarm whose time passed while the phone was off does not fire late`() {
         // Waking someone at 09:00 for an alarm they set for 07:00 is worse than silence.
         Memory.json =

@@ -216,11 +216,16 @@ object Transcript {
     }
 
     private fun save(ctx: Context) {
-        val snapshot = JSONArray().also { arr -> entries.forEach { arr.put(it.toJson()) } }.toString()
+        // Copy the entries under the lock, serialise on the io thread. With retention at
+        // "Forever" the list can reach the count cap, and building ~150 KB of JSON on the UI
+        // thread for every pin, dismiss and update was a stall waiting to happen.
+        val snapshot = entries.map { it.copy() }
         val app = ctx.applicationContext
         io.execute {
-            runCatching { File(app.filesDir, FILE).writeText(snapshot) }
-                .onFailure { Log.w(TAG, "transcript save failed", it) }
+            runCatching {
+                val json = JSONArray().also { arr -> snapshot.forEach { arr.put(it.toJson()) } }
+                File(app.filesDir, FILE).writeText(json.toString())
+            }.onFailure { Log.w(TAG, "transcript save failed", it) }
         }
     }
 }

@@ -44,12 +44,24 @@ object Alarms {
 
     data class Armed(
         val id: String,
+        /** When it will next ring. Differs from [scheduledEpochS] only while snoozed. */
         val fireAtEpochS: Long,
         val label: String,
         val sound: Boolean,
         val vibrate: Boolean,
-        /** Passthrough from the backend ("", "daily", "weekdays"). Stored, not yet acted on. */
+        /** The backend's closed vocabulary: "", daily, weekdays, weekends, weekly:<dow>. */
         val recurrence: String,
+        /**
+         * The time on the schedule, which a snooze must not move: a daily 07:00 alarm snoozed
+         * to 07:09 still returns to 07:00 tomorrow, not 07:09 and then 07:18.
+         */
+        val scheduledEpochS: Long = fireAtEpochS,
+        /**
+         * Seconds past local midnight the schedule was set for. Kept separately because it is
+         * the one thing a daylight-saving gap must not be allowed to rewrite: deriving it from
+         * an epoch that landed on a gap day would turn 02:30 into 03:30 permanently.
+         */
+        val todSec: Int = Alarms.timeOfDay(scheduledEpochS),
     )
 
     @Synchronized
@@ -59,13 +71,17 @@ object Alarms {
             val o = arr.optJSONObject(i) ?: return@mapNotNull null
             val id = o.optString("id")
             if (id.isBlank()) return@mapNotNull null
+            val at = o.optLong("at")
+            val sched = if (o.has("sched")) o.optLong("sched") else at
             Armed(
                 id = id,
-                fireAtEpochS = o.optLong("at"),
+                fireAtEpochS = at,
                 label = o.optString("label"),
                 sound = o.optBoolean("sound", true),
                 vibrate = o.optBoolean("vibrate", true),
                 recurrence = o.optString("recurrence"),
+                scheduledEpochS = sched,
+                todSec = if (o.has("tod")) o.optInt("tod") else timeOfDay(sched),
             )
         }
     }.getOrElse {
@@ -92,11 +108,18 @@ object Alarms {
     }
 
     /**
-     * Re-arms every alarm still in the future and drops the ones whose moment has passed.
+     * An alarm missed by this much still rings, immediately. Reboots and app updates take
+     * seconds, and BOOT_COMPLETED can land a minute after the moment; an alarm set for 07:00
+     * that the phone reached at 07:00:20 must not be silently discarded.
+     */
+    private const val LATE_GRACE_S = 5L * 60L
+
+    /**
+     * Re-arms every alarm still in the future, rings the ones missed by moments, rolls
+     * repeating ones forward, and drops one-shots whose moment is truly gone.
      *
-     * An alarm whose time passed while the phone was off does NOT fire late. Waking someone
-     * at 09:00 for an alarm they set for 07:00 is worse than not waking them at all, and the
-     * backend still holds the record either way.
+     * An alarm hours late does NOT fire. Waking someone at 09:00 for an alarm they set for
+     * 07:00 is worse than not waking them at all, and the backend still holds the record.
      */
     @Synchronized
     fun reschedule(ctx: Context, nowEpochS: Long = System.currentTimeMillis() / 1000) {
@@ -106,13 +129,16 @@ object Alarms {
         val keep = ArrayList<Armed>(all.size)
         var dropped = 0
         var rolled = 0
+        var late = 0
         for (a in all) {
+            val missedBy = nowEpochS - a.fireAtEpochS
             val due = when {
-                a.fireAtEpochS > nowEpochS -> a
-                // Its moment passed while the phone was off. A repeating alarm moves to its next
-                // occurrence; a one-shot is simply gone.
-                else -> nextOccurrence(a.fireAtEpochS, a.recurrence, nowEpochS)
-                    ?.let { rolled++; a.copy(fireAtEpochS = it) }
+                missedBy < 0 -> a
+                missedBy <= LATE_GRACE_S -> { late++; a.copy(fireAtEpochS = nowEpochS + 1) }
+                repeats(a.recurrence) ->
+                    nextOccurrence(a.scheduledEpochS, a.todSec, a.recurrence, nowEpochS)
+                        ?.let { rolled++; a.copy(fireAtEpochS = it, scheduledEpochS = it) }
+                else -> null
             }
             if (due == null) {
                 dropped++
@@ -121,8 +147,8 @@ object Alarms {
             keep += due
             DeviceCommands.rearm(ctx, due)
         }
-        if (dropped > 0 || rolled > 0) save(ctx, keep)
-        Log.i(TAG, "boot: re-armed ${keep.size} (rolled $rolled forward), dropped $dropped")
+        if (dropped > 0 || rolled > 0 || late > 0) save(ctx, keep)
+        Log.i(TAG, "boot: re-armed ${keep.size} ($late rung late, $rolled rolled forward), dropped $dropped")
     }
 
     // ---- recurrence ----
@@ -149,15 +175,30 @@ object Alarms {
 
     fun repeats(recurrence: String): Boolean = recurrence.trim().isNotEmpty()
 
-    /**
-     * The next time [recurrence] comes round after [afterEpochS], keeping the local time of day
-     * of [fireAtEpochS]. Null for a one-shot or a rule we do not recognise.
-     *
-     * Days are added in the phone's own zone rather than by adding 86400 seconds, so a 07:00
-     * alarm stays at 07:00 across a daylight-saving change instead of drifting to 06:00 or 08:00.
-     */
+    /** Seconds past local midnight of [epochS] in [zone]. */
+    internal fun timeOfDay(epochS: Long, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): Int =
+        java.time.Instant.ofEpochSecond(epochS).atZone(zone).toLocalTime().toSecondOfDay()
+
+    /** Convenience for callers that hold only an instant; derives the time of day from it. */
     fun nextOccurrence(
         fireAtEpochS: Long,
+        recurrence: String,
+        afterEpochS: Long,
+        zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
+    ): Long? = nextOccurrence(fireAtEpochS, timeOfDay(fireAtEpochS, zone), recurrence, afterEpochS, zone)
+
+    /**
+     * The next time [recurrence] comes round after [afterEpochS], at [todSec] past midnight,
+     * stepping days from the date of [anchorEpochS]. Null for a one-shot or an unknown rule.
+     *
+     * Each candidate is built fresh from a date and a wall-clock time rather than by advancing
+     * one cursor. A cursor that lands on a daylight-saving gap is shifted an hour — 02:30
+     * becomes 03:30 — and then carries that shift into every day after it. Rebuilding from the
+     * stored time of day means the gap day alone is shifted, which is what a clock does.
+     */
+    fun nextOccurrence(
+        anchorEpochS: Long,
+        todSec: Int,
         recurrence: String,
         afterEpochS: Long,
         zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
@@ -168,14 +209,14 @@ object Alarms {
             Log.w(TAG, "unrecognised recurrence '$recurrence'; treating the alarm as one-shot")
             return null
         }
-        var at = java.time.Instant.ofEpochSecond(fireAtEpochS).atZone(zone)
+        val tod = java.time.LocalTime.ofSecondOfDay(todSec.toLong().coerceIn(0L, 86_399L))
+        var date = java.time.Instant.ofEpochSecond(anchorEpochS).atZone(zone).toLocalDate()
         // A fortnight of days is more than enough to reach any member of the enumeration, even
         // starting from an alarm whose moment passed while the phone was switched off.
         repeat(400) {
-            at = at.plusDays(1)
-            if (at.toEpochSecond() > afterEpochS && matches(at.dayOfWeek, rule)) {
-                return at.toEpochSecond()
-            }
+            date = date.plusDays(1)
+            val at = date.atTime(tod).atZone(zone).toEpochSecond()
+            if (at > afterEpochS && matches(date.dayOfWeek, rule)) return at
         }
         return null
     }
@@ -201,12 +242,25 @@ object Alarms {
     @Synchronized
     fun onFired(ctx: Context, id: String, nowEpochS: Long = System.currentTimeMillis() / 1000) {
         val alarm = held(ctx).firstOrNull { it.id == id } ?: return
-        val next = nextOccurrence(alarm.fireAtEpochS, alarm.recurrence, nowEpochS)
+        if (!repeats(alarm.recurrence)) {
+            forget(ctx, id)
+            return
+        }
+        // A snooze ring returns to the schedule; a scheduled ring moves the schedule on. The
+        // two are told apart by whether the ring time IS the schedule time — not by the clock,
+        // because AlarmManager may deliver a scheduled ring a moment early and a comparison
+        // against now would then mistake it for a snooze and never advance.
+        val snoozeRing = alarm.fireAtEpochS != alarm.scheduledEpochS
+        val next = if (snoozeRing && alarm.scheduledEpochS > nowEpochS) alarm.scheduledEpochS
+        else nextOccurrence(
+            alarm.scheduledEpochS, alarm.todSec, alarm.recurrence,
+            afterEpochS = maxOf(nowEpochS, alarm.scheduledEpochS),
+        )
         if (next == null) {
             forget(ctx, id)
             return
         }
-        val moved = alarm.copy(fireAtEpochS = next)
+        val moved = alarm.copy(fireAtEpochS = next, scheduledEpochS = next)
         remember(ctx, moved)
         DeviceCommands.rearm(ctx, moved)
         Log.i(TAG, "recurring alarm id='$id' (${alarm.recurrence}) moved to $next")
@@ -223,6 +277,8 @@ object Alarms {
                     .put("sound", it.sound)
                     .put("vibrate", it.vibrate)
                     .put("recurrence", it.recurrence)
+                    .put("sched", it.scheduledEpochS)
+                    .put("tod", it.todSec)
             )
         }
         store.write(ctx, arr.toString())

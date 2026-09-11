@@ -295,6 +295,15 @@ class MarkdownTest {
     }
 
     @Test(timeout = 5_000)
+    fun `a line of unclosed emphasis openers does not hang either`() {
+        // Every "**" opened, and each opener rescanned to end of line for a closer that the
+        // flanking rule rejects. Same quadratic shape as the brackets, different marker.
+        assertTrue(render("**a ".repeat(50_000)).length > 0)
+        assertTrue(render("~~a ".repeat(50_000)).length > 0)
+        assertTrue(render("_a ".repeat(50_000)).length > 0)
+    }
+
+    @Test(timeout = 5_000)
     fun `a line of brackets closed only at the very end does not hang`() {
         assertTrue(render("[".repeat(200_000) + "]").toString().isNotEmpty())
     }

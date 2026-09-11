@@ -243,6 +243,12 @@ object KioskManager {
         set += "com.google.android.cellbroadcastreceiver"
         // USB debugging authorization dialog.
         set += "com.android.systemui"
+        // The system photo picker behind "Choose from photos". Lock task blocks any activity
+        // outside this list, so without these the picker simply never appears. Both mainline
+        // spellings; an uninstalled one is inert, like the cell-broadcast pair above.
+        set += "com.android.photopicker"
+        set += "com.android.providers.media.module"
+        set += "com.google.android.providers.media.module"
         return set.toTypedArray()
     }
 
