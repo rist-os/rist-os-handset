@@ -1278,6 +1278,8 @@ class MainActivity : AppCompatActivity() {
             val staged = withContext(Dispatchers.IO) {
                 val dir = File(cacheDir, "photos").apply { mkdirs() }
                 val stamp = System.currentTimeMillis()
+                dir.listFiles { f -> f.name.startsWith("staged-") && stamp - f.lastModified() > STALE_STAGED_MS }
+                    ?.forEach { runCatching { it.delete() } }
                 val out = uris.take(Uploader.MAX_PHOTOS_PER_TURN).mapIndexedNotNull { i, uri ->
                     val loaded = loadScaledJpeg(uri) ?: return@mapIndexedNotNull null
                     runCatching { File(dir, "staged-$stamp-$i.jpg").also { it.writeBytes(loaded.first) } }
@@ -2504,8 +2506,14 @@ class MainActivity : AppCompatActivity() {
         private const val STATE_STAGED_PHOTOS = "staged_photos"
 
         // Longest edge of a sent photo's thumbnail in the feed, and how many turns keep theirs.
-        private const val THUMB_EDGE_PX = 480
-        private const val MAX_PHOTO_TURNS_REMEMBERED = 8
+        // Bounded because these are bitmaps in memory: 6 turns of 4 photos at 400 px is ~11 MB
+        // at worst, which is as much as a feed should hold for pictures nobody can tap.
+        private const val THUMB_EDGE_PX = 400
+        private const val MAX_PHOTO_TURNS_REMEMBERED = 6
+
+        // A staged file older than this belongs to a caption screen that never came back
+        // (the process died under it); swept the next time a photo is staged.
+        private const val STALE_STAGED_MS = 60L * 60L * 1000L
 
         // How many unpinned transcript entries are inflated per repaint; the store keeps more.
         private const val RENDER_CAP = 150

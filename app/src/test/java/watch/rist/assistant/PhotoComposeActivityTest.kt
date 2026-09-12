@@ -106,6 +106,16 @@ class PhotoComposeActivityTest {
     }
 
     @Test
+    fun `the keyboard offers a Send key, not Enter`() {
+        // A multi-line input class makes the IME's action key insert a newline, so the send
+        // action below could never fire from a real keyboard even though this suite can call it.
+        val field = launch(photoFile("a.jpg")).get().findViewById<EditText>(R.id.captionInput)
+        assertEquals(0, field.inputType and android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE)
+        assertEquals(EditorInfo.IME_ACTION_SEND, field.imeOptions and EditorInfo.IME_MASK_ACTION)
+        assertEquals("but the field still wraps", 4, field.maxLines)
+    }
+
+    @Test
     fun `the keyboard's send action sends`() {
         val a = photoFile("a.jpg")
         val act = launch(a).get()

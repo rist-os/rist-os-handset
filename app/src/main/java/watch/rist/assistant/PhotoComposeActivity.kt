@@ -69,6 +69,10 @@ class PhotoComposeActivity : AppCompatActivity() {
         thumbStrip = findViewById(R.id.thumbStrip)
         countText = findViewById(R.id.countText)
         caption = findViewById(R.id.captionInput)
+        // Single-line input class so the keyboard's action key is Send rather than Enter, but
+        // wrapping kept on: a multi-line class would swap that key for a newline.
+        caption.setHorizontallyScrolling(false)
+        caption.maxLines = 4
 
         val incoming = savedInstanceState?.getStringArrayList(STATE_PATHS)
             ?: intent.getStringArrayListExtra(EXTRA_PATHS)

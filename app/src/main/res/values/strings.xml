@@ -38,7 +38,6 @@
     <string name="camera_cancel">CANCEL</string>
     <string name="camera_unavailable">Camera unavailable on this device</string>
     <string name="camera_permission_denied">Camera permission denied</string>
-    <string name="photo_captured">photo</string>
     <string name="photo_compose_close">✕</string>
     <string name="photo_compose_close_desc">Discard these photos and go back</string>
     <string name="photo_compose_remove">REMOVE</string>

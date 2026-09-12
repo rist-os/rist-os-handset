@@ -107,7 +107,7 @@
             android:fontFamily="@font/pixel"
             android:letterSpacing="0.04"
             android:textSize="15sp"
-            android:inputType="textMultiLine|textCapSentences"
+            android:inputType="textCapSentences"
             android:minLines="1"
             android:maxLines="4"
             android:imeOptions="actionSend"
