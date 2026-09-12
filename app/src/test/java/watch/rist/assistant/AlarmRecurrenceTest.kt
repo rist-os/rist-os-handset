@@ -179,7 +179,8 @@ class AlarmRecurrenceTest {
         assertEquals(
             "and armed",
             1,
-            shadowOf(app.getSystemService(android.app.AlarmManager::class.java)).scheduledAlarms.size,
+            shadowOf(app.getSystemService(android.app.AlarmManager::class.java)).scheduledAlarms
+                .count { shadowOf(it.operation).savedIntent.component?.className == AlarmReceiver::class.java.name },
         )
     }
 

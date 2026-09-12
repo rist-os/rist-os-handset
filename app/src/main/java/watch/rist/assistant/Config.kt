@@ -17,6 +17,9 @@ object Config {
     private const val KEY_PUSH = "push_url"
     private const val KEY_PROGRESS = "progress_url"
     private const val KEY_REPLY_VOICE = "reply_voice_enabled"
+    private const val KEY_AUTO_TZ = "auto_time_zone_from_location"
+    private const val KEY_AUTO_TZ_PENDING = "auto_time_zone_pending"
+    private const val KEY_AUTO_TZ_PENDING_AT = "auto_time_zone_pending_at"
     private const val KEY_HAPTICS = "haptics_enabled"
     private const val KEY_CARRIER_VM_WAITING = "carrier_vm_waiting"
     private const val KEY_VOICEMAIL_PIN = "voicemail_pin"
@@ -374,6 +377,26 @@ object Config {
 
     fun setReplyVoiceEnabled(ctx: Context, enabled: Boolean) {
         prefs(ctx).edit().putBoolean(KEY_REPLY_VOICE, enabled).apply()
+    }
+
+    // On by default: a phone that keeps its home time zone abroad is wrong in a way nobody asked for.
+    fun isAutoTimeZone(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_AUTO_TZ, true)
+
+    fun setAutoTimeZone(ctx: Context, enabled: Boolean) {
+        prefs(ctx).edit().putBoolean(KEY_AUTO_TZ, enabled).apply()
+    }
+
+    /** A zone seen once with the same offset as the current one; switched to if seen again. */
+    fun autoTimeZonePending(ctx: Context): Pair<String, Long>? {
+        val zone = prefs(ctx).getString(KEY_AUTO_TZ_PENDING, null) ?: return null
+        return zone to prefs(ctx).getLong(KEY_AUTO_TZ_PENDING_AT, 0L)
+    }
+
+    fun setAutoTimeZonePending(ctx: Context, zone: String?, atMs: Long) {
+        prefs(ctx).edit().apply {
+            if (zone == null) remove(KEY_AUTO_TZ_PENDING).remove(KEY_AUTO_TZ_PENDING_AT)
+            else putString(KEY_AUTO_TZ_PENDING, zone).putLong(KEY_AUTO_TZ_PENDING_AT, atMs)
+        }.apply()
     }
 
     fun isSetupComplete(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_SETUP_DONE, false)

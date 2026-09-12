@@ -499,6 +499,7 @@ class Uploader(private val ctx: Context) {
         }
         if (!req.hasLocation()) {
             val fix = if (LocationProvider.hasPermission(ctx)) LocationProvider.cached(ctx) else null
+            runCatching { AutoTimeZone.consider(ctx, fix) }
             req = req.toBuilder()
                 .setLocation(if (fix != null) protoLocation(fix) else protoTimezoneOnly())
                 .build()
@@ -704,6 +705,7 @@ class Uploader(private val ctx: Context) {
             Log.i("RistNavDbg", "RE-ASK freshBlocking(maxAge=${lr.maxAgeS},minAcc=${lr.minAccuracyM}) -> " +
                 (fix?.let { "fix acc=${it.accuracyM}m" } ?: "NULL (could not get a fix) -> giving up, returning location_request"))
             if (fix == null) return resp
+            runCatching { AutoTimeZone.consider(ctx, fix) }
 
             // Re-POST exactly once; isResend=true prevents a loop.
             val resendReq = requestProto.toBuilder().setLocation(protoLocation(fix)).build()

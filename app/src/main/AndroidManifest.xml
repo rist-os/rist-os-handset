@@ -259,6 +259,9 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- Hourly check that the clock's time zone still matches where the phone is. -->
+        <receiver android:name=".TimeZoneCheckReceiver" android:exported="false" />
+
         <receiver android:name=".AlarmReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />

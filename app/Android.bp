@@ -10,6 +10,9 @@ android_app {
     ],
     manifest: "src/main/AndroidManifest.xml",
     resource_dirs: ["src/main/res"],
+    // Soong's default is "assets/" beside this file; Gradle's is src/main/assets. Without this the
+    // image build ships no assets at all: no turn glyphs, no time zone index.
+    asset_dirs: ["src/main/assets"],
 
     // type: "lite" matches the Gradle option("lite"); links the no-reflection runtime.
     proto: {

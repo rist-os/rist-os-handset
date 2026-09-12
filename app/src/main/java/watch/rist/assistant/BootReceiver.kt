@@ -21,6 +21,12 @@ class BootReceiver : BroadcastReceiver() {
                     // A reboot wipes every AlarmManager alarm, so anything the user set is gone
                     // until this puts it back.
                     runCatching { Alarms.reschedule(ctx.applicationContext) }
+                    // A phone switched off at home and on again abroad is the commonest way to
+                    // arrive somewhere with the wrong clock.
+                    runCatching {
+                        AutoTimeZone.schedule(ctx.applicationContext)
+                        AutoTimeZone.checkInBackground(ctx.applicationContext, force = true)
+                    }
                 }
             }
         }

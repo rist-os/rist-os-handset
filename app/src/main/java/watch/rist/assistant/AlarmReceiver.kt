@@ -14,6 +14,7 @@ class AlarmReceiver : BroadcastReceiver() {
         if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
             runCatching { Alarms.reschedule(context.applicationContext) }
                 .onFailure { Log.w(TAG, "could not re-arm alarms after the update", it) }
+            runCatching { AutoTimeZone.schedule(context.applicationContext) }
             return
         }
 

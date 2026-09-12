@@ -34,8 +34,10 @@ class AlarmRebootTest {
             .setSound(true).setVibrate(true)
             .build()
 
+    /** The user's alarms: other entries (the hourly time zone check) are not what these tests are about. */
     private fun scheduled() =
         shadowOf(app.getSystemService(android.app.AlarmManager::class.java)).scheduledAlarms
+            .filter { shadowOf(it.operation).savedIntent.component?.className == AlarmReceiver::class.java.name }
 
     /** What the OS does across a restart: every pending alarm is dropped. */
     private fun simulateReboot() {
