@@ -113,15 +113,20 @@ object AutoTimeZone {
     /** Acts on one fix. Cheap after the first call in a process; safe to call on any thread but main. */
     @Synchronized
     fun consider(ctx: Context, fix: LocationProvider.Fix?, nowMs: Long = System.currentTimeMillis()) {
-        if (fix == null || !Config.isAutoTimeZone(ctx)) return
-        if (nowMs - fix.timeMs > MAX_FIX_AGE_MS) return
-        if (fix.accuracyM > MAX_ACCURACY_M) return
-        if (!system.canSet(ctx)) return
+        // Debug level: this runs on every request, and the reasons matter only when it misbehaves.
+        if (fix == null) { Log.d(TAG, "skip: no fix"); return }
+        if (!Config.isAutoTimeZone(ctx)) { Log.d(TAG, "skip: set to the phone's own setting"); return }
+        if (nowMs - fix.timeMs > MAX_FIX_AGE_MS) { Log.d(TAG, "skip: fix is ${(nowMs - fix.timeMs) / 60_000} min old"); return }
+        if (fix.accuracyM > MAX_ACCURACY_M) { Log.d(TAG, "skip: fix accuracy ${fix.accuracyM} m"); return }
+        if (!system.canSet(ctx)) { Log.d(TAG, "skip: not device owner"); return }
 
         val found = TimeZoneIndex.zoneAt(ctx, fix.lat, fix.lon)
         val current = system.current()
         when (val d = decide(current, found, Config.autoTimeZonePending(ctx), nowMs)) {
-            Decision.Keep -> if (found == current) Config.setAutoTimeZonePending(ctx, null, 0L)
+            Decision.Keep -> {
+                Log.d(TAG, "keep $current (location says ${found ?: "nothing"})")
+                if (found == current) Config.setAutoTimeZonePending(ctx, null, 0L)
+            }
             is Decision.Wait -> {
                 Config.setAutoTimeZonePending(ctx, d.zone, nowMs)
                 Log.i(TAG, "saw ${d.zone} (same offset as $current); switching if seen again")
@@ -157,6 +162,8 @@ object AutoTimeZone {
      * request of up to about fifteen seconds, so never on the main thread.
      */
     fun checkBlocking(ctx: Context) {
+        Log.i(TAG, "check: from location=${Config.isAutoTimeZone(ctx)} owner=${system.canSet(ctx)} " +
+            "location permission=${LocationProvider.hasPermission(ctx)} zone=${system.current()}")
         if (!Config.isAutoTimeZone(ctx) || !system.canSet(ctx)) return
         if (!LocationProvider.hasPermission(ctx)) return
         val now = System.currentTimeMillis()
@@ -176,7 +183,10 @@ object AutoTimeZone {
      */
     fun checkInBackground(ctx: Context, force: Boolean = false) {
         val now = SystemClock.elapsedRealtime()
-        if (!force && lastBackgroundCheckMs != 0L && now - lastBackgroundCheckMs < MIN_CHECK_INTERVAL_MS) return
+        if (!force && lastBackgroundCheckMs != 0L && now - lastBackgroundCheckMs < MIN_CHECK_INTERVAL_MS) {
+            Log.d(TAG, "check skipped: the last one was ${(now - lastBackgroundCheckMs) / 1000}s ago")
+            return
+        }
         lastBackgroundCheckMs = now
         val app = ctx.applicationContext
         Thread({ runCatching { checkBlocking(app) }.onFailure { Log.w(TAG, "check failed", it) } },
