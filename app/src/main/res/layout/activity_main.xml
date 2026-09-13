@@ -458,8 +458,6 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="24dp"
-            android:layout_marginEnd="@dimen/gap"
             android:background="@drawable/bg_lcd_field"
             android:paddingStart="14dp"
             android:paddingEnd="14dp"
@@ -477,10 +475,15 @@
             android:imeOptions="actionSend"
             android:importantForAutofill="no" />
 
+        <!-- Camera and send share one slot. Equal space either side centres the icon between
+             the end of the message box and the edge of the screen; both carry the same margins
+             so swapping one for the other moves nothing. -->
         <ImageView
             android:id="@+id/photoButton"
             android:layout_width="40dp"
             android:layout_height="48dp"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
             android:padding="8dp"
             android:scaleType="fitCenter"
             android:background="@null"
@@ -494,7 +497,8 @@
             android:id="@+id/sendButton"
             android:layout_width="40dp"
             android:layout_height="48dp"
-            android:layout_marginEnd="14dp"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
             android:padding="6dp"
             android:scaleType="fitCenter"
             android:background="@null"

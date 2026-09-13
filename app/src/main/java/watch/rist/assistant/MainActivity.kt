@@ -1937,42 +1937,49 @@ class MainActivity : AppCompatActivity() {
         // Thumbnails of entries the store has since aged out or cleared go with them.
         sentPhotoThumbs.keys.retainAll(Transcript.all(this).map { it.localId }.toSet())
         for ((idx, e) in shown.withIndex()) {
-            // The whole entry toggles the pin — prompt line and answer both. The prompt line
-            // alone was a ~14dp strip of small type, which is not a target anyone can hit.
-            // The ✕ sits outside this column and keeps its own handler.
+            // A double tap anywhere on the entry toggles the pin, prompt line and answer both.
+            // A single tap did it before, and a tap meant only to stop a scroll or to wake the
+            // screen pinned things by accident. The ✕ sits outside this column with its own handler.
+            val togglePin = {
+                Log.i(TAG, "pin double-tapped id=${e.localId} wasPinned=${e.pinned}")
+                runCatching { Transcript.setPinned(this@MainActivity, e.localId, !e.pinned) }
+                    .onFailure { Log.w(TAG, "pin toggle failed", it) }
+                renderTranscript()
+            }
             val col = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                isClickable = true; isFocusable = true
-                contentDescription = (if (e.pinned) "Unpin" else "Pin") + " this answer, " + e.prompt
-                setOnClickListener {
-                    Log.i(TAG, "pin tapped id=${e.localId} wasPinned=${e.pinned}")
-                    runCatching { Transcript.setPinned(this@MainActivity, e.localId, !e.pinned) }
-                        .onFailure { Log.w(TAG, "pin toggle failed", it) }
-                    renderTranscript()
-                }
+                isFocusable = true
+                contentDescription = (if (e.pinned) "Pinned. " else "") + e.prompt
+                val taps = android.view.GestureDetector(this@MainActivity,
+                    object : android.view.GestureDetector.SimpleOnGestureListener() {
+                        // Claiming the down is what delivers the second tap; the scroll view
+                        // above still takes the gesture over as soon as it becomes a drag.
+                        override fun onDown(ev: MotionEvent) = true
+                        override fun onDoubleTap(ev: MotionEvent): Boolean { togglePin(); return true }
+                    })
+                setOnTouchListener { _, ev -> taps.onTouchEvent(ev) }
+                // A screen reader's double tap arrives as a click action, not as two touches.
+                ViewCompat.replaceAccessibilityAction(
+                    this,
+                    androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat.ACTION_CLICK,
+                    if (e.pinned) "Unpin" else "Pin",
+                ) { _, _ -> togglePin(); true }
             }
-            col.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
+            // One wrapping text rather than three views in a row: a prompt longer than a line
+            // used to take the whole width and push the time and the pin off the edge.
+            col.addView(TextView(this).apply {
+                text = promptLine(
+                    prompt = e.prompt,
+                    time = tsFmt.format(java.util.Date(e.at)),
+                    pinned = e.pinned,
+                    timeColor = blend(t.inkMuted, t.ground, 0.35f),
+                    pinColor = t.accent,
+                )
+                setTextColor(muted); typeface = tf
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
                 setPadding(0, (4 * d).toInt(), 0, (4 * d).toInt())
-                addView(TextView(this@MainActivity).apply {
-                    text = "▸ " + e.prompt
-                    setTextColor(muted); typeface = tf
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-                })
-                addView(TextView(this@MainActivity).apply {
-                    text = "  " + tsFmt.format(java.util.Date(e.at))
-                    setTextColor(blend(t.inkMuted, t.ground, 0.35f)); typeface = tf
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 8f)
-                })
-                // Indicator only — the row above owns the tap. Not focusable, or a screen
-                // reader would announce two controls for the one action.
-                addView(TextView(this@MainActivity).apply {
-                    text = if (e.pinned) "  📌" else ""
-                    setTextColor(t.accent); typeface = tf
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                })
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             })
             sentPhotoThumbs[e.localId]?.takeIf { it.isNotEmpty() }?.let { thumbs ->
                 col.addView(LinearLayout(this).apply {
@@ -2499,8 +2506,38 @@ class MainActivity : AppCompatActivity() {
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
-    private companion object {
+    internal companion object {
         private const val TAG = "RistMain"
+
+        /**
+         * "▸ prompt  2:17 PM  📌" as one piece of text, so it wraps as a sentence does and the
+         * time and pin always follow the last word, however long the prompt. The time is drawn
+         * smaller and fainter, as it was when it was a view of its own.
+         */
+        internal fun promptLine(
+            prompt: String,
+            time: String,
+            pinned: Boolean,
+            timeColor: Int,
+            pinColor: Int,
+        ): CharSequence {
+            val out = android.text.SpannableStringBuilder("▸ ").append(prompt)
+            val timeStart = out.length
+            // A no-break space ties the time to the prompt's last word, so a wrap never leaves
+            // the time alone at the start of a line with nothing before it.
+            out.append("  ").append(time.replace(' ', ' '))
+            out.setSpan(android.text.style.RelativeSizeSpan(8f / 11f), timeStart, out.length,
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            out.setSpan(android.text.style.ForegroundColorSpan(timeColor), timeStart, out.length,
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            if (pinned) {
+                val pinStart = out.length
+                out.append("  📌")
+                out.setSpan(android.text.style.ForegroundColorSpan(pinColor), pinStart, out.length,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+            return out
+        }
 
         // Must match the provider authority in AndroidManifest.xml.
         private const val PHOTO_AUTHORITY = "watch.rist.assistant.photos"
