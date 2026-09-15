@@ -810,6 +810,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        volumePanel.hide()
         if (KioskManager.isDeviceOwner(this)) OverlayHomeService.setVisible(this, true)
     }
 
@@ -1691,16 +1692,40 @@ class MainActivity : AppCompatActivity() {
         textInput.clearFocus()
     }
 
+    internal val volumePanel by lazy { VolumePanel(this) }
+
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
         val k = event.keyCode
-        val isVolume = k == android.view.KeyEvent.KEYCODE_VOLUME_UP ||
-            k == android.view.KeyEvent.KEYCODE_VOLUME_DOWN ||
-            k == android.view.KeyEvent.KEYCODE_VOLUME_MUTE
-        if (isVolume && DeviceCommands.ringing()) return super.dispatchKeyEvent(event)
+        val up = k == android.view.KeyEvent.KEYCODE_VOLUME_UP
+        if (up || k == android.view.KeyEvent.KEYCODE_VOLUME_DOWN) {
+            val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+            val channel = VolumeKeys.route(
+                callOrRinging = am.mode == android.media.AudioManager.MODE_IN_CALL ||
+                    am.mode == android.media.AudioManager.MODE_IN_COMMUNICATION ||
+                    am.mode == android.media.AudioManager.MODE_RINGTONE,
+                alarmRinging = DeviceCommands.ringing(),
+                picked = volumePanel.target,
+                voiceSounding = Playback.isActive(),
+                mediaSounding = am.isMusicActive,
+            )
+            if (channel != null) {
+                // Both the press and the release are taken, or Android acts on the release too.
+                if (event.action == android.view.KeyEvent.ACTION_DOWN) volumePanel.press(channel, raise = up)
+                return true
+            }
+        }
         return super.dispatchKeyEvent(event)
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        // A touch outside the open volume panel closes it and goes no further, so reaching for
+        // the panel and missing does not also pin an answer or start a recording.
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN && volumePanel.isShowing &&
+            !volumePanel.contains(ev.rawX.toInt(), ev.rawY.toInt())
+        ) {
+            volumePanel.hide()
+            return true
+        }
         trackMaintenanceHold(ev)
         if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
             val focused = currentFocus
