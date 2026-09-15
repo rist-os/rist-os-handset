@@ -1840,6 +1840,9 @@ class MainActivity : AppCompatActivity() {
             isClickable = true; isFocusable = true
             setOnClickListener { commitPending(approved) }
         }
+        // Directly under the newest entry, which is the answer asking the question. The feed is
+        // newest-first, so appending put the question under every older answer, off the screen.
+        val at = minOf(1, replyContainer.childCount)
         replyContainer.addView(TextView(this).apply {
             text = pendingPrompt
             setTextColor(t.ink); typeface = tf
@@ -1847,11 +1850,11 @@ class MainActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = (10 * d).toInt() }
-        })
+        }, at)
         replyContainer.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             addView(button("[ yes ]", true)); addView(button("[ no ]", false))
-        })
+        }, at + 1)
     }.onFailure { Log.w(TAG, "renderPendingConfirmation failed", it) }.let { }
 
     private fun armPendingExpiry() {
