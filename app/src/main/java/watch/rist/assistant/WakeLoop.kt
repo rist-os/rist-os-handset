@@ -158,8 +158,12 @@ object WakeLoop {
             // A kick asks for a poll, and this is it. Left queued, it would cut short the wait
             // after this poll: registering the network callback reports the current network at
             // once, which on the phone turned the idle 240s into back-to-back holds.
+            // Kicks during the poll are dropped too: the poll that answered is fresher than they
+            // are, and a network lost mid-poll fails it, which retries in a second anyway.
             kicks.tryReceive()
-            when (val out = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { poll(ctx) }) {
+            val out = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { poll(ctx) }
+            kicks.tryReceive()
+            when (out) {
                 is Outcome.Signal -> {
                     runCatching { apply(ctx, out.signal, out.acked) }
                         .onFailure { Log.w(TAG, "could not take a signal in", it) }
