@@ -55,6 +55,13 @@ class VolumePanelTest {
     }
 
     @Test
+    fun `the ringer button cycles ring, vibrate, silent, as Android's does`() {
+        assertEquals(AudioManager.RINGER_MODE_VIBRATE, VolumeKeys.nextRingerMode(AudioManager.RINGER_MODE_NORMAL))
+        assertEquals(AudioManager.RINGER_MODE_SILENT, VolumeKeys.nextRingerMode(AudioManager.RINGER_MODE_VIBRATE))
+        assertEquals(AudioManager.RINGER_MODE_NORMAL, VolumeKeys.nextRingerMode(AudioManager.RINGER_MODE_SILENT))
+    }
+
+    @Test
     fun `the voice is the first slider, as the one with no other control`() {
         assertEquals(VolumeKeys.Channel.VOICE, VolumeKeys.Channel.values().first())
         assertEquals(11, VolumeKeys.Channel.VOICE.stream)

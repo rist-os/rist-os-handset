@@ -66,6 +66,19 @@ internal object VolumeKeys {
         else -> Channel.VOICE
     }
 
+    /** Ring → vibrate → silent → ring, the order Android's own button cycles in. */
+    fun nextRingerMode(mode: Int): Int = when (mode) {
+        AudioManager.RINGER_MODE_NORMAL -> AudioManager.RINGER_MODE_VIBRATE
+        AudioManager.RINGER_MODE_VIBRATE -> AudioManager.RINGER_MODE_SILENT
+        else -> AudioManager.RINGER_MODE_NORMAL
+    }
+
+    fun ringerName(mode: Int): String = when (mode) {
+        AudioManager.RINGER_MODE_VIBRATE -> "vibrate"
+        AudioManager.RINGER_MODE_SILENT -> "silent"
+        else -> "ring"
+    }
+
     /** One button step from [current], kept inside [min]..[max]. */
     fun step(current: Int, min: Int, max: Int, raise: Boolean): Int =
         (current + if (raise) 1 else -1).coerceIn(min, max)
@@ -112,6 +125,7 @@ internal class VolumePanel(private val activity: Activity) {
         handler.removeCallbacks(hideRunnable)
         card?.let { c -> (c.parent as? ViewGroup)?.removeView(c) }
         card = null
+        modeButton = null
         sliders.clear()
         target = null
     }
@@ -154,6 +168,7 @@ internal class VolumePanel(private val activity: Activity) {
     }
 
     private fun refresh() {
+        paintMode()
         for ((channel, col) in sliders) {
             val l = level(channel)
             col.slider.setLevel(if (l.muted) 0 else l.current, l.min, l.max)
@@ -174,9 +189,10 @@ internal class VolumePanel(private val activity: Activity) {
         val surface = if (t.dark) blend(t.ground, Color.WHITE, 0.10f) else blend(t.ground, Color.WHITE, 0.60f)
         val tf = ThemePaint.typefaceOf(activity, t)
 
-        val row = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(10f), dp(14f), dp(10f), dp(12f))
+        val card = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(10f), dp(12f), dp(10f), dp(12f))
             background = GradientDrawable().apply {
                 cornerRadius = 28 * d
                 setColor(surface)
@@ -187,6 +203,27 @@ internal class VolumePanel(private val activity: Activity) {
             isClickable = true
             setOnTouchListener { _, _ -> keepOpen(); false }
         }
+        // Ring / vibrate / silent, as the round button at the top of Android's own panel.
+        modeButton = android.widget.ImageView(activity).apply {
+            val size = dp(44f)
+            layoutParams = LinearLayout.LayoutParams(size, size).apply { bottomMargin = dp(10f) }
+            setPadding(dp(11f), dp(11f), dp(11f), dp(11f))
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(t.accent) }
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                val next = VolumeKeys.nextRingerMode(am.ringerMode)
+                val ok = runCatching { am.ringerMode = next }
+                    .onFailure { e -> Log.w(TAG, "ringer mode $next refused", e) }.isSuccess
+                if (!ok) android.widget.Toast.makeText(activity,
+                    "The phone would not switch to ${VolumeKeys.ringerName(next)}", android.widget.Toast.LENGTH_SHORT).show()
+                refresh()
+                keepOpen()
+            }
+        }
+        card.addView(modeButton)
+        val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
+        card.addView(row)
         for (channel in VolumeKeys.Channel.values()) {
             val col = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -221,11 +258,25 @@ internal class VolumePanel(private val activity: Activity) {
             sliders[channel] = Column(slider, label)
         }
         val host = activity.window.decorView as ViewGroup
-        host.addView(row, FrameLayout.LayoutParams(
+        host.addView(card, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
             Gravity.END or Gravity.CENTER_VERTICAL,
         ).apply { marginEnd = dp(10f) })
-        return row
+        return card
+    }
+
+    private var modeButton: android.widget.ImageView? = null
+
+    private fun paintMode() {
+        val b = modeButton ?: return
+        val mode = am.ringerMode
+        b.setImageResource(when (mode) {
+            AudioManager.RINGER_MODE_VIBRATE -> R.drawable.ic_vol_vibrate
+            AudioManager.RINGER_MODE_SILENT -> R.drawable.ic_vol_silent
+            else -> R.drawable.ic_vol_ring
+        })
+        b.setColorFilter(theme.ground)
+        b.contentDescription = "Ringer: ${VolumeKeys.ringerName(mode)}. Tap for ${VolumeKeys.ringerName(VolumeKeys.nextRingerMode(mode))}"
     }
 
     companion object {

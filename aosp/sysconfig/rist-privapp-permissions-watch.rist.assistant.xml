@@ -6,6 +6,7 @@
         <permission name="android.permission.MANAGE_NOTIFICATION_LISTENERS" />
         <permission name="android.permission.REQUEST_COMPANION_RUN_IN_BACKGROUND" />
         <permission name="android.permission.SYSTEM_APPLICATION_OVERLAY" />
+        <permission name="android.permission.MODIFY_AUDIO_SETTINGS_PRIVILEGED" />
 
     </privapp-permissions>
 
