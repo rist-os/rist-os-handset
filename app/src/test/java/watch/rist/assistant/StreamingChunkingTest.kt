@@ -179,9 +179,9 @@ class StreamingChunkingTest {
     }
 
     @Test
-    fun theOptInIsOffByDefaultAndTheStreamedPathIsTestedAnyway() {
-        assertFalse(StreamingWire.STREAMING_ENABLED)
-        assertEquals(StreamingWire.UNARY_MEDIA_TYPE, StreamingWire.acceptHeader())
-        assertEquals(StreamingWire.SEQ_MEDIA_TYPE, StreamingWire.acceptHeader(enabled = true))
+    fun turnsAskForTheStreamAndTheUnaryShapeIsStillReadable() {
+        assertTrue(StreamingWire.STREAMING_ENABLED)
+        assertEquals(StreamingWire.SEQ_MEDIA_TYPE, StreamingWire.acceptHeader())
+        assertEquals(StreamingWire.UNARY_MEDIA_TYPE, StreamingWire.acceptHeader(enabled = false))
     }
 }

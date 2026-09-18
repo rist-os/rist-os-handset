@@ -67,6 +67,22 @@ class Uploader(private val ctx: Context) {
 
         internal fun sharedClient(): OkHttpClient = client
 
+        /**
+         * Turns get three minutes between bytes, not thirty seconds. The backend now lets a turn
+         * run as long as the work takes, and it does not stop a turn because our socket closed,
+         * so a short timeout reported a failure for work that then went on to happen, and the
+         * person said it again. Still no automatic retry: a retry repeats a real-world action.
+         */
+        internal const val TURN_READ_TIMEOUT_S = 180L
+
+        /** Said when a turn's connection drops after the request was sent. */
+        internal const val MAY_HAVE_HAPPENED =
+            "I lost the connection, so that may still have gone through — check before asking again"
+        private val turnClient: OkHttpClient by lazy {
+            client.newBuilder().readTimeout(TURN_READ_TIMEOUT_S, TimeUnit.SECONDS).build()
+        }
+        internal fun turnClient(): OkHttpClient = turnClient
+
         // Best-effort and blocking; call off the main thread.
         fun sendProgress(ctx: Context, report: rist.v1.MediaProgress) {
             runCatching {
@@ -543,7 +559,7 @@ class Uploader(private val ctx: Context) {
 
         // Registered before execute so the send-to-first-byte window is cancellable.
         val reqId = req.requestId
-        val call = client.newCall(httpRequest)
+        val call = turnClient.newCall(httpRequest)
         StreamingCancel.begin(reqId, call)
         var streamed = false
         val resp: DeviceResponse = try {
@@ -625,9 +641,9 @@ class Uploader(private val ctx: Context) {
             }
             if (streamed) StreamingStatus.publishEnd(ctx, reqId, StreamingStatus.ENDING_TRUNCATED)
             lastFailure = when (t) {
-                is java.net.SocketTimeoutException ->
-                    if (streamed) "that's taking longer than it should — try me again"
-                    else "the network timed out"
+                // The request reached the backend, which keeps working after a socket drops. So
+                // this is "unknown", not "failed": asking again could send the email twice.
+                is java.net.SocketTimeoutException -> MAY_HAVE_HAPPENED
                 is java.net.UnknownHostException, is java.net.ConnectException -> "I can't reach the network"
                 is com.google.protobuf.InvalidProtocolBufferException -> "the reply was garbled"
                 is javax.net.ssl.SSLException -> "the secure connection failed"

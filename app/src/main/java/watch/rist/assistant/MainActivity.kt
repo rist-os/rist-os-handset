@@ -302,12 +302,25 @@ class MainActivity : AppCompatActivity() {
             val progress = runCatching { rist.v1.Progress.parseFrom(bytes) }.getOrNull() ?: return
             val line = StreamingWire.renderLine(progress) ?: return
             statusText.text = line
+            // Shown in place of "waiting for a reply" on the entry being answered, replaced by
+            // each new line, never accumulated (status_line.md).
+            liveStatusLine = line
+            val shown = liveStatusView?.takeIf { it.isAttachedToWindow }
+            // The first line of a turn redraws the feed, which is when the Stop appears: the
+            // entry was drawn before the request was on the wire and had nothing to stop yet.
+            if (shown != null) shown.text = line else renderTranscript()
             keepAwake(AWAKE_SHORT_MS)
         }
     }
 
+    // The latest progress line of the turn in flight, and the view showing it.
+    internal var liveStatusLine = ""
+    private var liveStatusView: TextView? = null
+
     private val streamEndedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
+            liveStatusLine = ""
+            liveStatusView = null
             val ending = intent.getStringExtra(StreamingStatus.EXTRA_ENDING).orEmpty()
             statusText.text = when (ending) {
                 StreamingStatus.ENDING_CANCELLED -> getString(R.string.status_idle)
@@ -2025,9 +2038,14 @@ class MainActivity : AppCompatActivity() {
                     })
                 })
             }
+            val waiting = e.state == EntryState.SENT || e.state == EntryState.WAITING
+            // The newest waiting entry is the turn in flight: it shows what the backend says it
+            // is doing, and a way to stop it (long_turns.md §5).
+            val live = waiting && idx == 0 && StreamingCancel.inFlightId().isNotEmpty()
             val body = when (e.state) {
                 EntryState.RECORDING -> "● recording…"
-                EntryState.SENT, EntryState.WAITING -> "… waiting for a reply"
+                EntryState.SENT, EntryState.WAITING ->
+                    if (live && liveStatusLine.isNotBlank()) liveStatusLine else "… waiting for a reply"
                 EntryState.FAILED -> "⚠ no answer" + (if (e.error.isNotBlank()) " (${e.error})" else "")
                 EntryState.ANSWERED -> e.answer
             }
@@ -2037,6 +2055,18 @@ class MainActivity : AppCompatActivity() {
                 setTextColor(if (e.state == EntryState.FAILED) t.accent else t.ink)
                 typeface = tf
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, if (e.state == EntryState.ANSWERED) 17f else 12f)
+                if (live) liveStatusView = this
+            })
+            if (live) col.addView(TextView(this).apply {
+                text = getString(R.string.stop_turn)
+                setTextColor(t.accent); typeface = tf; isAllCaps = true
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                setPadding(0, (8 * d).toInt(), (16 * d).toInt(), (8 * d).toInt())
+                isClickable = true; isFocusable = true
+                contentDescription = getString(R.string.stop_turn_desc)
+                setOnClickListener {
+                    if (cancelInFlightTurn()) status(getString(R.string.stop_turn_sent))
+                }
             })
             // A pinned answer is exempt from the age sweep and the count cap, so the ✕ is
             // withdrawn while it is pinned: "kept until I unpin it" has to mean it cannot be
