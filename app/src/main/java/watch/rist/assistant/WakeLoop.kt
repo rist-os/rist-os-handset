@@ -155,6 +155,10 @@ object WakeLoop {
                 waitOrKick(NO_TOKEN_RECHECK_MS)
                 continue
             }
+            // A kick asks for a poll, and this is it. Left queued, it would cut short the wait
+            // after this poll: registering the network callback reports the current network at
+            // once, which on the phone turned the idle 240s into back-to-back holds.
+            kicks.tryReceive()
             when (val out = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { poll(ctx) }) {
                 is Outcome.Signal -> {
                     runCatching { apply(ctx, out.signal, out.acked) }
