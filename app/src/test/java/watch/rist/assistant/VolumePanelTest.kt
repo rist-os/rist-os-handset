@@ -55,6 +55,17 @@ class VolumePanelTest {
     }
 
     @Test
+    fun `where voice has no volume of its own, the buttons and the panel go to media`() {
+        // The phone's app build cannot be granted the permission the assistant volume needs,
+        // so replies play as media; a press that would have gone to voice must reach them.
+        assertEquals(VolumeKeys.Channel.MEDIA, VolumeKeys.route(false, false, null, false, false, voiceOwnVolume = false))
+        assertEquals(VolumeKeys.Channel.MEDIA,
+            VolumeKeys.route(false, false, VolumeKeys.Channel.VOICE, false, false, voiceOwnVolume = false))
+        assertFalse(VolumeKeys.channels(voiceOwnVolume = false).contains(VolumeKeys.Channel.VOICE))
+        assertTrue(VolumeKeys.channels(voiceOwnVolume = true).contains(VolumeKeys.Channel.VOICE))
+    }
+
+    @Test
     fun `the ringer button cycles ring, vibrate, silent, as Android's does`() {
         assertEquals(AudioManager.RINGER_MODE_VIBRATE, VolumeKeys.nextRingerMode(AudioManager.RINGER_MODE_NORMAL))
         assertEquals(AudioManager.RINGER_MODE_SILENT, VolumeKeys.nextRingerMode(AudioManager.RINGER_MODE_VIBRATE))
@@ -76,6 +87,16 @@ class VolumePanelTest {
         assertTrue("and the release too, or Android acts on it",
             a.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_VOLUME_UP)))
         assertTrue(a.volumePanel.isShowing)
+        // No privileged audio permission here, as on the phone's app build: voice is media.
+        assertEquals(VolumeKeys.Channel.MEDIA, a.volumePanel.target)
+    }
+
+    @Test
+    fun `with the privileged audio permission a press goes to the voice`() {
+        val a = Robolectric.buildActivity(MainActivity::class.java).create().resume().visible().get()
+        org.robolectric.Shadows.shadowOf(a.application)
+            .grantPermissions("android.permission.MODIFY_AUDIO_SETTINGS_PRIVILEGED")
+        a.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_UP))
         assertEquals(VolumeKeys.Channel.VOICE, a.volumePanel.target)
     }
 

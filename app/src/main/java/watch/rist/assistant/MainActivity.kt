@@ -1707,6 +1707,7 @@ class MainActivity : AppCompatActivity() {
                 picked = volumePanel.target,
                 voiceSounding = Playback.isActive(),
                 mediaSounding = am.isMusicActive,
+                voiceOwnVolume = VolumeKeys.voiceHasOwnVolume(this),
             )
             if (channel != null) {
                 // Both the press and the release are taken, or Android acts on the release too.

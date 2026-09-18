@@ -58,13 +58,31 @@ internal object VolumeKeys {
         picked: Channel?,
         voiceSounding: Boolean,
         mediaSounding: Boolean,
-    ): Channel? = when {
-        callOrRinging || alarmRinging -> null
-        picked != null -> picked
-        voiceSounding -> Channel.VOICE
-        mediaSounding -> Channel.MEDIA
-        else -> Channel.VOICE
+        voiceOwnVolume: Boolean = true,
+    ): Channel? {
+        val voice = if (voiceOwnVolume) Channel.VOICE else Channel.MEDIA
+        return when {
+            callOrRinging || alarmRinging -> null
+            picked != null -> if (picked == Channel.VOICE) voice else picked
+            voiceSounding -> voice
+            mediaSounding -> Channel.MEDIA
+            else -> voice
+        }
     }
+
+    /**
+     * Whether voice replies can have a volume of their own. Android refuses changes to the
+     * assistant volume from anything without MODIFY_AUDIO_SETTINGS_PRIVILEGED, and it grants that
+     * to RIST only from the OS image, never to an app build installed over it. Without it,
+     * replies play as media and share the Media slider.
+     */
+    fun voiceHasOwnVolume(ctx: android.content.Context): Boolean =
+        ctx.checkSelfPermission("android.permission.MODIFY_AUDIO_SETTINGS_PRIVILEGED") ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    /** The sliders to show: Voice only when it really is its own volume. */
+    fun channels(voiceOwnVolume: Boolean): List<Channel> =
+        if (voiceOwnVolume) Channel.values().toList() else Channel.values().filter { it != Channel.VOICE }
 
     /** Ring → vibrate → silent → ring, the order Android's own button cycles in. */
     fun nextRingerMode(mode: Int): Int = when (mode) {
@@ -224,7 +242,8 @@ internal class VolumePanel(private val activity: Activity) {
         card.addView(modeButton)
         val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
         card.addView(row)
-        for (channel in VolumeKeys.Channel.values()) {
+        val ownVoice = VolumeKeys.voiceHasOwnVolume(activity)
+        for (channel in VolumeKeys.channels(ownVoice)) {
             val col = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER_HORIZONTAL
@@ -245,7 +264,9 @@ internal class VolumePanel(private val activity: Activity) {
                 }
             }
             val label = TextView(activity).apply {
-                text = channel.label
+                // Without its own volume, voice plays as media, and the label says so.
+                text = if (channel == VolumeKeys.Channel.MEDIA && !ownVoice) "Media\n& voice" else channel.label
+                maxLines = 2
                 typeface = tf
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
                 gravity = Gravity.CENTER

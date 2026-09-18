@@ -26,9 +26,16 @@ object Playback {
 
     internal fun isOpus(codec: String?): Boolean = codec?.trim().equals(Uploader.CODEC_OPUS, ignoreCase = true)
 
-    @Suppress("UNUSED_PARAMETER")
+    /**
+     * The audio type replies play as, decided per reply. The assistant type has a volume of its
+     * own, but Android lets only a privileged caller set it; where RIST cannot, replies play as
+     * media so the Media slider and the volume buttons reach them instead of leaving them stuck.
+     */
+    @Volatile private var usage = AudioAttributes.USAGE_ASSISTANT
+
     fun play(ctx: Context, audio: ByteArray, codec: String = "", onDone: (() -> Unit)? = null) {
         if (audio.isEmpty()) return
+        usage = if (VolumeKeys.voiceHasOwnVolume(ctx)) AudioAttributes.USAGE_ASSISTANT else AudioAttributes.USAGE_MEDIA
         if (isOpus(codec)) playOpus(audio, onDone) else playPcm(audio, RATE, 1, onDone)
     }
 
@@ -40,7 +47,7 @@ object Playback {
             val track = AudioTrack.Builder()
                 .setAudioAttributes(
                     AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                        .setUsage(usage)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build()
                 )
