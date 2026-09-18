@@ -50,7 +50,7 @@ internal object VolumeKeys {
      * A call or a ringing phone keeps Android's behaviour: the buttons set call volume, or
      * silence the ringer, and nothing here should be in the way of that. A ringing alarm is the
      * alarm screen's to handle. Otherwise the channel the person picked in the open panel wins,
-     * then whatever is sounding, then voice, because that is the one with no other control.
+     * and the ringer otherwise.
      */
     fun route(
         callOrRinging: Boolean,
@@ -60,13 +60,12 @@ internal object VolumeKeys {
         mediaSounding: Boolean,
         voiceOwnVolume: Boolean = true,
     ): Channel? {
-        val voice = if (voiceOwnVolume) Channel.VOICE else Channel.MEDIA
+        // The buttons always start on the ringer (owner's choice, 2026-09-17), even while
+        // something plays; a slider tapped in the open panel takes them over until it closes.
         return when {
             callOrRinging || alarmRinging -> null
-            picked != null -> if (picked == Channel.VOICE) voice else picked
-            voiceSounding -> voice
-            mediaSounding -> Channel.MEDIA
-            else -> voice
+            picked != null -> picked
+            else -> Channel.RINGER
         }
     }
 
@@ -74,15 +73,19 @@ internal object VolumeKeys {
      * Whether voice replies can have a volume of their own. Android refuses changes to the
      * assistant volume from anything without MODIFY_AUDIO_SETTINGS_PRIVILEGED, and it grants that
      * to RIST only from the OS image, never to an app build installed over it. Without it,
-     * replies play as media and share the Media slider.
+     * replies play as media, scaled by RIST's own Voice level: separate from Media, but never
+     * louder than it.
      */
     fun voiceHasOwnVolume(ctx: android.content.Context): Boolean =
         ctx.checkSelfPermission("android.permission.MODIFY_AUDIO_SETTINGS_PRIVILEGED") ==
             android.content.pm.PackageManager.PERMISSION_GRANTED
 
-    /** The sliders to show: Voice only when it really is its own volume. */
-    fun channels(voiceOwnVolume: Boolean): List<Channel> =
-        if (voiceOwnVolume) Channel.values().toList() else Channel.values().filter { it != Channel.VOICE }
+    /**
+     * The sliders to show. Voice is always its own slider: with the privileged permission it is
+     * Android's assistant volume, without it RIST's own level for replies played as media.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    fun channels(voiceOwnVolume: Boolean): List<Channel> = Channel.values().toList()
 
     /** Ring → vibrate → silent → ring, the order Android's own button cycles in. */
     fun nextRingerMode(mode: Int): Int = when (mode) {
@@ -164,6 +167,9 @@ internal class VolumePanel(private val activity: Activity) {
     internal data class Level(val current: Int, val min: Int, val max: Int, val muted: Boolean)
 
     internal fun level(channel: VolumeKeys.Channel): Level {
+        if (channel == VolumeKeys.Channel.VOICE && !VolumeKeys.voiceHasOwnVolume(activity)) {
+            return Level(Config.voiceLevel(activity), 0, Config.VOICE_LEVEL_MAX, false)
+        }
         val s = channel.stream
         return runCatching {
             Level(am.getStreamVolume(s), am.getStreamMinVolume(s), am.getStreamMaxVolume(s), am.isStreamMute(s))
@@ -171,6 +177,11 @@ internal class VolumePanel(private val activity: Activity) {
     }
 
     private fun set(channel: VolumeKeys.Channel, index: Int) {
+        if (channel == VolumeKeys.Channel.VOICE && !VolumeKeys.voiceHasOwnVolume(activity)) {
+            Config.setVoiceLevel(activity, index)
+            refresh()
+            return
+        }
         runCatching {
             // A muted stream ignores a new index until it is unmuted; media arrives muted here.
             if (index > 0 && am.isStreamMute(channel.stream)) {
@@ -268,9 +279,7 @@ internal class VolumePanel(private val activity: Activity) {
                 }
             }
             val label = TextView(activity).apply {
-                // Without its own volume, voice plays as media, and the label says so.
-                text = if (channel == VolumeKeys.Channel.MEDIA && !ownVoice) "Media\n& voice" else channel.label
-                maxLines = 2
+                text = channel.label
                 typeface = tf
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
                 gravity = Gravity.CENTER

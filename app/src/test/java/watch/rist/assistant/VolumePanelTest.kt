@@ -25,14 +25,14 @@ class VolumePanelTest {
     ) = VolumeKeys.route(call, alarm, picked, voice, media)
 
     @Test
-    fun `with nothing playing the buttons adjust the voice`() {
-        assertEquals(VolumeKeys.Channel.VOICE, route())
+    fun `the buttons start on the ringer`() {
+        assertEquals(VolumeKeys.Channel.RINGER, route())
     }
 
     @Test
-    fun `an audiobook playing takes the buttons, and a reply being spoken takes them over that`() {
-        assertEquals(VolumeKeys.Channel.MEDIA, route(media = true))
-        assertEquals(VolumeKeys.Channel.VOICE, route(voice = true, media = true))
+    fun `the ringer stays the default even while something plays`() {
+        assertEquals(VolumeKeys.Channel.RINGER, route(media = true))
+        assertEquals(VolumeKeys.Channel.RINGER, route(voice = true, media = true))
     }
 
     @Test
@@ -55,14 +55,27 @@ class VolumePanelTest {
     }
 
     @Test
-    fun `where voice has no volume of its own, the buttons and the panel go to media`() {
-        // The phone's app build cannot be granted the permission the assistant volume needs,
-        // so replies play as media; a press that would have gone to voice must reach them.
-        assertEquals(VolumeKeys.Channel.MEDIA, VolumeKeys.route(false, false, null, false, false, voiceOwnVolume = false))
-        assertEquals(VolumeKeys.Channel.MEDIA,
-            VolumeKeys.route(false, false, VolumeKeys.Channel.VOICE, false, false, voiceOwnVolume = false))
-        assertFalse(VolumeKeys.channels(voiceOwnVolume = false).contains(VolumeKeys.Channel.VOICE))
-        assertTrue(VolumeKeys.channels(voiceOwnVolume = true).contains(VolumeKeys.Channel.VOICE))
+    fun `without the privileged permission, Voice is still its own slider, kept by RIST`() {
+        // The phone's app build cannot set Android's assistant volume, so replies play as media
+        // scaled by RIST's own level: turning Voice down must not touch Media.
+        val a = Robolectric.buildActivity(MainActivity::class.java).create().resume().visible().get()
+        val am = a.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        am.setStreamVolume(AudioManager.STREAM_MUSIC, 9, 0)
+        Config.setVoiceLevel(a, Config.VOICE_LEVEL_MAX)
+
+        a.volumePanel.show(VolumeKeys.Channel.VOICE)
+        a.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_DOWN))
+
+        assertEquals(Config.VOICE_LEVEL_MAX - 1, Config.voiceLevel(a))
+        assertEquals("media is untouched", 9, am.getStreamVolume(AudioManager.STREAM_MUSIC))
+        assertTrue(VolumeKeys.channels(voiceOwnVolume = false).contains(VolumeKeys.Channel.VOICE))
+    }
+
+    @Test
+    fun `the voice level scales replies from silent to full, never louder`() {
+        assertEquals(0f, Playback.gainFor(0), 0f)
+        assertEquals(1f, Playback.gainFor(Config.VOICE_LEVEL_MAX), 0f)
+        assertEquals(1f, Playback.gainFor(Config.VOICE_LEVEL_MAX + 5), 0f)
     }
 
     @Test
@@ -87,17 +100,7 @@ class VolumePanelTest {
         assertTrue("and the release too, or Android acts on it",
             a.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_VOLUME_UP)))
         assertTrue(a.volumePanel.isShowing)
-        // No privileged audio permission here, as on the phone's app build: voice is media.
-        assertEquals(VolumeKeys.Channel.MEDIA, a.volumePanel.target)
-    }
-
-    @Test
-    fun `with the privileged audio permission a press goes to the voice`() {
-        val a = Robolectric.buildActivity(MainActivity::class.java).create().resume().visible().get()
-        org.robolectric.Shadows.shadowOf(a.application)
-            .grantPermissions("android.permission.MODIFY_AUDIO_SETTINGS_PRIVILEGED")
-        a.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_UP))
-        assertEquals(VolumeKeys.Channel.VOICE, a.volumePanel.target)
+        assertEquals(VolumeKeys.Channel.RINGER, a.volumePanel.target)
     }
 
     @Test

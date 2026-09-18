@@ -18,6 +18,7 @@ object Config {
     private const val KEY_PROGRESS = "progress_url"
     private const val KEY_REPLY_VOICE = "reply_voice_enabled"
     private const val KEY_AUTO_TZ = "auto_time_zone_from_location"
+    private const val KEY_VOICE_LEVEL = "voice_level"
     private const val KEY_AUTO_TZ_PENDING = "auto_time_zone_pending"
     private const val KEY_AUTO_TZ_PENDING_AT = "auto_time_zone_pending_at"
     private const val KEY_HAPTICS = "haptics_enabled"
@@ -381,6 +382,18 @@ object Config {
 
     // On by default: a phone that keeps its home time zone abroad is wrong in a way nobody asked for.
     fun isAutoTimeZone(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_AUTO_TZ, true)
+
+    /**
+     * RIST's own loudness for spoken replies, 0..[VOICE_LEVEL_MAX], used where Android will not
+     * let it set the assistant volume. Replies then play as media, scaled by this.
+     */
+    const val VOICE_LEVEL_MAX = 15
+    fun voiceLevel(ctx: Context): Int =
+        prefs(ctx).getInt(KEY_VOICE_LEVEL, VOICE_LEVEL_MAX).coerceIn(0, VOICE_LEVEL_MAX)
+
+    fun setVoiceLevel(ctx: Context, level: Int) {
+        prefs(ctx).edit().putInt(KEY_VOICE_LEVEL, level.coerceIn(0, VOICE_LEVEL_MAX)).apply()
+    }
 
     fun setAutoTimeZone(ctx: Context, enabled: Boolean) {
         prefs(ctx).edit().putBoolean(KEY_AUTO_TZ, enabled).apply()

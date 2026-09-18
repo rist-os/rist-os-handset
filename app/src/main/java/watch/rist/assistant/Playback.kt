@@ -33,9 +33,16 @@ object Playback {
      */
     @Volatile private var usage = AudioAttributes.USAGE_ASSISTANT
 
+    /** Played as media, replies are scaled by RIST's own Voice level so the two stay separate. */
+    @Volatile private var gain = 1f
+
+    internal fun gainFor(level: Int): Float = (level.toFloat() / Config.VOICE_LEVEL_MAX).coerceIn(0f, 1f)
+
     fun play(ctx: Context, audio: ByteArray, codec: String = "", onDone: (() -> Unit)? = null) {
         if (audio.isEmpty()) return
-        usage = if (VolumeKeys.voiceHasOwnVolume(ctx)) AudioAttributes.USAGE_ASSISTANT else AudioAttributes.USAGE_MEDIA
+        val own = VolumeKeys.voiceHasOwnVolume(ctx)
+        usage = if (own) AudioAttributes.USAGE_ASSISTANT else AudioAttributes.USAGE_MEDIA
+        gain = if (own) 1f else gainFor(Config.voiceLevel(ctx))
         if (isOpus(codec)) playOpus(audio, onDone) else playPcm(audio, RATE, 1, onDone)
     }
 
@@ -78,6 +85,7 @@ object Playback {
             }
 
             track.write(pcm, 0, pcm.size)
+            track.setVolume(gain)
             track.play()
         }.onFailure {
             Log.e(TAG, "playback failed", it)
