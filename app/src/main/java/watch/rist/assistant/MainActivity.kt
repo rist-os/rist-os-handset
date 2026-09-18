@@ -382,6 +382,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AutoTimeZone.schedule(applicationContext)
+        WakeService.start(applicationContext)
         // Counterpart of onSaveInstanceState: a capture returning to a recreated activity.
         savedInstanceState?.getString(STATE_PENDING_CAMERA_FILE)?.let { pendingCameraFile = File(it) }
         savedInstanceState?.getStringArrayList(STATE_STAGED_PHOTOS)?.let { stagedPhotos = it.map { p -> File(p) } }

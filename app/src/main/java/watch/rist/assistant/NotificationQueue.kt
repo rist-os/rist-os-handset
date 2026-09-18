@@ -181,6 +181,17 @@ object NotificationQueue {
         notifyUi(ctx)
     }
 
+    /** Of [wire], the ids not already held: news, as opposed to a redelivery of a lost ack. */
+    fun unheldIds(ctx: Context, wire: List<rist.v1.Notification>): Set<String> = unheldIds(load(ctx), wire)
+
+    internal fun unheldIds(held: List<Notice>, wire: List<rist.v1.Notification>): Set<String> {
+        val ids = held.map { it.id }.toSet()
+        return wire.map { it.id.trim() }.filter { it.isNotBlank() && it !in ids }.toSet()
+    }
+
+    /** Repaints the badges after a count changed outside this object. */
+    fun countsChanged(ctx: Context) = notifyUi(ctx)
+
     /** Ids to put on the next request. Reads from disk, which is the durability guarantee. */
     fun pendingAcks(ctx: Context): List<String> = pendingAcks(load(ctx))
 

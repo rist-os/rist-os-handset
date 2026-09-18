@@ -153,6 +153,11 @@
 
 
         <service
+            android:name=".WakeService"
+            android:exported="false"
+            android:foregroundServiceType="systemExempted" />
+
+        <service
             android:name=".PushService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />

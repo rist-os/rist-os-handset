@@ -17,6 +17,8 @@ class BootReceiver : BroadcastReceiver() {
                 // Only on BOOT_COMPLETED: the fence and alarm stores are in credential-encrypted
                 // prefs and are unreadable before first unlock.
                 if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
+                    // The token lives in credential-encrypted prefs too.
+                    WakeService.start(ctx.applicationContext)
                     runCatching { GeofenceWatcher.reschedule(ctx.applicationContext) }
                     // A reboot wipes every AlarmManager alarm, so anything the user set is gone
                     // until this puts it back.

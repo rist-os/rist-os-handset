@@ -15,6 +15,8 @@ class AlarmReceiver : BroadcastReceiver() {
             runCatching { Alarms.reschedule(context.applicationContext) }
                 .onFailure { Log.w(TAG, "could not re-arm alarms after the update", it) }
             runCatching { AutoTimeZone.schedule(context.applicationContext) }
+            // The update killed the process and the wake loop with it.
+            WakeService.start(context.applicationContext)
             return
         }
 
