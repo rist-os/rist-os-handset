@@ -112,6 +112,26 @@ class VolumePanelTest {
     }
 
     @Test
+    fun `every slider in the panel is laid out wide enough to see`() {
+        // The row once took the width of the ringer button above it: only one slider showed.
+        val a = Robolectric.buildActivity(MainActivity::class.java).create().resume().visible().get()
+        a.volumePanel.show(VolumeKeys.Channel.MEDIA)
+        val card = (a.window.decorView as android.view.ViewGroup).let { root ->
+            (0 until root.childCount).map { root.getChildAt(it) }.last() as android.widget.LinearLayout
+        }
+        card.measure(
+            android.view.View.MeasureSpec.makeMeasureSpec(1080, android.view.View.MeasureSpec.AT_MOST),
+            android.view.View.MeasureSpec.makeMeasureSpec(2400, android.view.View.MeasureSpec.AT_MOST),
+        )
+        val row = card.getChildAt(1) as android.widget.LinearLayout
+        val sliders = VolumeKeys.channels(VolumeKeys.voiceHasOwnVolume(a)).size
+        assertEquals(sliders, row.childCount)
+        val d = a.resources.displayMetrics.density
+        assertTrue("row is ${row.measuredWidth}px for $sliders sliders",
+            row.measuredWidth >= (sliders * 44 * d).toInt())
+    }
+
+    @Test
     fun `leaving the home screen closes the panel`() {
         val controller = Robolectric.buildActivity(MainActivity::class.java).create().resume().visible()
         val a = controller.get()

@@ -241,7 +241,11 @@ internal class VolumePanel(private val activity: Activity) {
         }
         card.addView(modeButton)
         val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
-        card.addView(row)
+        // Wrap, not the vertical card's default match-parent: matched, the row took the width
+        // of the ringer button above it and clipped every slider after the first.
+        card.addView(row, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT,
+        ))
         val ownVoice = VolumeKeys.voiceHasOwnVolume(activity)
         for (channel in VolumeKeys.channels(ownVoice)) {
             val col = LinearLayout(activity).apply {
