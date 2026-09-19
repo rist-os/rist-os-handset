@@ -2051,7 +2051,10 @@ class MainActivity : AppCompatActivity() {
             (pinned + recent).sortedByDescending { it.at }
         }
         // Thumbnails of entries the store has since aged out or cleared go with them.
-        sentPhotoThumbs.keys.retainAll(Transcript.all(this).map { it.localId }.toSet())
+        val liveIds = Transcript.all(this).map { it.localId }.toSet()
+        sentPhotoThumbs.keys.retainAll(liveIds)
+        runCatching { ReceivedPhotos.prune(this, liveIds) }
+        val keptPhotos = runCatching { ReceivedPhotos.byEntry(this) }.getOrDefault(emptyMap())
         for ((idx, e) in shown.withIndex()) {
             // A double tap anywhere on the entry toggles the pin, prompt line and answer both.
             // A single tap did it before, and a tap meant only to stop a scroll or to wake the
@@ -2133,6 +2136,7 @@ class MainActivity : AppCompatActivity() {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, if (e.state == EntryState.ANSWERED) 17f else 12f)
                 if (live) liveStatusView = this
             })
+            keptPhotos[e.localId]?.forEach { photo -> photoCard(photo, t, muted, tf, d)?.let { col.addView(it) } }
             if (live) col.addView(TextView(this).apply {
                 text = getString(R.string.stop_turn)
                 setTextColor(t.accent); typeface = tf; isAllCaps = true
@@ -2187,13 +2191,86 @@ class MainActivity : AppCompatActivity() {
       }.onFailure { Log.w(TAG, "renderTranscript failed", it) }
     }
 
+    /**
+     * A picture the assistant sent, under its answer. Tap or start a pinch to open it full
+     * screen and zoom; hold to save it to the photo library.
+     */
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private fun photoCard(
+        photo: ReceivedPhotos.Photo, t: RistTheme, muted: Int, tf: android.graphics.Typeface?, d: Float,
+    ): View? {
+        val maxH = (AttachmentView.MAX_IMAGE_HEIGHT_DP * d).toInt()
+        val bmp = ReceivedPhotos.preview(photo.file, resources.displayMetrics.widthPixels, maxH) ?: return null
+        val open = { startActivity(PhotoViewerActivity.intent(this, photo.file, photo.title)) }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, (8 * d).toInt(), 0, (4 * d).toInt())
+        }
+        val image = ImageView(this).apply {
+            setImageBitmap(bmp)
+            adjustViewBounds = true
+            maxHeight = maxH
+            scaleType = ImageView.ScaleType.FIT_START
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            contentDescription = photo.title.ifBlank { getString(R.string.attach_image_desc) }
+            isClickable = true; isLongClickable = true; isFocusable = true
+            setOnClickListener { open() }
+            setOnLongClickListener {
+                PhotoViewerActivity.offerSave(this@MainActivity, photo.file)
+                true
+            }
+            // A pinch that starts on the picture is a wish to zoom it: it opens full screen,
+            // where the pinch has room. Two fingers down also keeps the feed from scrolling away.
+            val pinch = android.view.ScaleGestureDetector(this@MainActivity,
+                object : android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                    var opened = false
+                    override fun onScaleBegin(detector: android.view.ScaleGestureDetector): Boolean { opened = false; return true }
+                    override fun onScale(detector: android.view.ScaleGestureDetector): Boolean {
+                        if (!opened && detector.scaleFactor > 1.03f) { opened = true; open() }
+                        return true
+                    }
+                })
+            setOnTouchListener { v, ev ->
+                if (ev.pointerCount > 1) v.parent?.requestDisallowInterceptTouchEvent(true)
+                pinch.onTouchEvent(ev)
+                false
+            }
+            ViewCompat.replaceAccessibilityAction(
+                this,
+                androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat.ACTION_LONG_CLICK,
+                getString(R.string.photo_save),
+            ) { _, _ -> PhotoViewerActivity.offerSave(this@MainActivity, photo.file); true }
+        }
+        box.addView(image)
+        // The credit and licence the picture came with; for a searched image it is required.
+        if (photo.title.isNotBlank()) box.addView(TextView(this).apply {
+            text = photo.title.trim()
+            setTextColor(muted); typeface = tf
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            setPadding(0, (3 * d).toInt(), 0, 0)
+        })
+        return box
+    }
+
     internal fun paintAttachmentsIfCurrent(generation: Int, items: List<RistAttachment>) {
         if (generation != attachmentGeneration) return
         if (isFinishing || isDestroyed) return
-        lastAttachments = items
-        lastAttachmentsEntryId = runCatching { Transcript.all(this).lastOrNull()?.localId ?: 0L }
-            .getOrDefault(0L)
-        runCatching { AttachmentView.render(replyContainer, items, insertAfter = 0) }
+        val entryId = runCatching { Transcript.all(this).lastOrNull()?.localId ?: 0L }.getOrDefault(0L)
+        // Pictures are kept with their answer and drawn under it on every repaint, so they stay
+        // on the feed after the next question. Everything else is still shown for the latest
+        // answer only, as before. With no answer to keep them under, they stay cards.
+        val (photos, others) =
+            if (entryId == 0L) emptyList<RistAttachment>() to items
+            else items.partition { ReceivedPhotos.isKeepable(it) }
+        lastAttachments = others
+        lastAttachmentsEntryId = entryId
+        runCatching { AttachmentView.render(replyContainer, others, insertAfter = 0) }
+        if (photos.isNotEmpty()) uiScope.launch {
+            withContext(Dispatchers.IO) { ReceivedPhotos.save(applicationContext, entryId, photos) }
+            if (!isFinishing && !isDestroyed) renderTranscript()
+        }
     }
 
     private fun renderReply(reply: DeviceResponse?, fallbackText: String, clear: Boolean = true) {

@@ -162,6 +162,15 @@
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.RistAssistant" />
 
+        <!-- A picture the assistant sent, full screen, to zoom and save. -->
+        <activity
+            android:name=".PhotoViewerActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:screenOrientation="fullUser"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"
+            android:theme="@style/Theme.RistAssistant" />
+
         <!-- A call link is a credential: no usage metrics leave the web engine. -->
         <meta-data android:name="android.webkit.WebView.MetricsOptOut" android:value="true" />
 

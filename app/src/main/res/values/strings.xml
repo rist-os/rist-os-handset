@@ -36,6 +36,12 @@
     <string name="photo_source_camera">Take a photo</string>
     <string name="photo_source_library">Choose from photos</string>
     <string name="photo_source_qr">Scan a QR code</string>
+    <string name="photo_menu_title">Photo</string>
+    <string name="photo_save">Save to Photos</string>
+    <string name="photo_saved">Saved to Photos</string>
+    <string name="photo_save_failed">The photo could not be saved.</string>
+    <string name="photo_close">Close</string>
+    <string name="photo_gone">That photo is no longer on the phone.</string>
     <string name="call_untitled">Video call</string>
     <string name="call_join_note">Nothing opens until you tap Join.</string>
     <string name="call_join_replace">You are in a call. Leave it and join this one?</string>
