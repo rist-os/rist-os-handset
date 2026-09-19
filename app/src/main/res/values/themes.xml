@@ -27,4 +27,12 @@
         <item name="android:windowLightStatusBar" tools:targetApi="m">true</item>
         <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">true</item>
     </style>
+
+    <!-- Nothing of its own on screen: only the dialog asking whether to open a link. -->
+    <style name="Theme.RistAssistant.Link" parent="Theme.RistAssistant">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
 </resources>

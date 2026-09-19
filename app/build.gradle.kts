@@ -98,9 +98,6 @@ dependencies {
 
     implementation("com.google.protobuf:protobuf-javalite:3.25.5")
 
-    // QR decoding on the phone itself; pure Java, no Google services.
-    implementation("com.google.zxing:core:3.5.3")
-
     // The call browser: its own storage profile, desktop client hints, no X-Requested-With.
     implementation("androidx.webkit:webkit:1.13.0")
 

@@ -20,7 +20,6 @@ wired as Soong `java_import` prebuilts (see `Android.bp`). This keeps the app
 | `okhttp-4.12.0.jar` | `com.squareup.okhttp3:okhttp:4.12.0` | Apache-2.0 | `b1050081b14bb7a3a7e55a4d3ef01b5dcfabc453b4573a4fc019767191d5f4e0` |
 | `okio-jvm-3.6.0.jar` | `com.squareup.okio:okio-jvm:3.6.0` | Apache-2.0 | `67543f0736fc422ae927ed0e504b98bc5e269fda0d3500579337cb713da28412` |
 | `webkit/webkit-1.13.0.aar` | `androidx.webkit:webkit:1.13.0` | Apache-2.0 | `001c836ea612e835991288a7a66877f25288e4cf5ec89729ee7ae066e3491a35` |
-| `zxing-core-3.5.3.jar` | `com.google.zxing:core:3.5.3` | Apache-2.0 | `8d8064c1636fdaef7189dd9055c7d59950a8940a12f2293956446ec3c109fd82` |
 | `localbroadcastmanager/localbroadcastmanager-1.1.0.aar` | `androidx.localbroadcastmanager:localbroadcastmanager:1.1.0` | Apache-2.0 | `a22b94a77789f3b34becd24082231300524011ccc83f026142c49ad60131379b` |
 | `media3/media3-common-1.4.1.aar` | `androidx.media3:media3-common:1.4.1` | Apache-2.0 | `973e5e7b0ecf8e6c8cd825cab35145b84c56020af7c3ec52815e595ef71baa16` |
 | `media3/media3-container-1.4.1.aar` | `androidx.media3:media3-container:1.4.1` | Apache-2.0 | `65b6d22c96dfb5ce76754b08f5b004ee0dbdbe60793c5eab9f95c1f54f95f4b0` |

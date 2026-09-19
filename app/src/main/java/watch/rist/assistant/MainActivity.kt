@@ -244,17 +244,6 @@ class MainActivity : AppCompatActivity() {
             if (path != null) onPhotoCaptured(path)
         }
 
-    private val qrScanLauncher =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            val text = result.data?.getStringExtra(CameraActivity.EXTRA_QR_TEXT)
-            if (result.resultCode == RESULT_OK && text != null) onQrScanned(text)
-        }
-
-    private val qrPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) launchQrScan() else toast(getString(R.string.camera_permission_denied))
-        }
-
     // Where the system camera is told to write; read back and cleared when it returns.
     private var pendingCameraFile: File? = null
 
@@ -1212,54 +1201,6 @@ class MainActivity : AppCompatActivity() {
         cameraLauncher.launch(Intent(this, CameraActivity::class.java))
     }
 
-    // RIST's own camera, not the phone's: it has to hand back what it read, and the phone's
-    // camera app would open a link in whatever it liked.
-    private fun launchQrScan() {
-        if (!hasPermission(Manifest.permission.CAMERA)) {
-            qrPermissionLauncher.launch(Manifest.permission.CAMERA)
-            return
-        }
-        qrScanLauncher.launch(
-            Intent(this, CameraActivity::class.java).putExtra(CameraActivity.EXTRA_SCAN_QR, true)
-        )
-    }
-
-    /**
-     * Nothing opens on a scan alone. The person sees the site and the full address first, and
-     * what is not a plain web link is shown as text and goes nowhere.
-     */
-    private fun onQrScanned(text: String) {
-        val theme = Themes.byId(Config.themeId(this))
-        val tf = ThemePaint.typefaceOf(this, theme)
-        val d = resources.displayMetrics.density
-        val url = SiteLock.openable(text)
-        val site = url?.let { SiteLock.siteOf(it) }
-        // A meeting link printed as a code is a call, not a web page: it gets the join screen
-        // and the call browser, which can hold a camera and cannot leave the meeting.
-        val isMeeting = url != null &&
-            VideoCalls.classify(url, VideoCalls.ristHost(Config.backendUrl(this))) != null
-        if (isMeeting && VideoCalls.join(this, url!!, "", "", "")) return
-        runCatching {
-            if (url == null || site == null) {
-                RistDialog.ask(
-                    this, theme, tf, d,
-                    title = getString(R.string.qr_not_link_title),
-                    message = getString(R.string.qr_not_link_body, text.take(QR_TEXT_SHOWN)),
-                    positive = getString(R.string.qr_ok),
-                )
-            } else {
-                RistDialog.ask(
-                    this, theme, tf, d,
-                    title = getString(R.string.qr_open_title),
-                    message = getString(R.string.qr_open_body, site, url.take(QR_TEXT_SHOWN)),
-                    positive = getString(R.string.qr_open_yes),
-                    onPositive = { startActivity(LockedBrowserActivity.intent(this, url)) },
-                    negative = getString(R.string.qr_cancel),
-                )
-            }
-        }.onFailure { Log.w(TAG, "could not show what the code held", it) }
-    }
-
     /**
      * Hands off to the phone's own camera app rather than RIST's minimal one, so taking a
      * photo feels like taking a photo — flash, zoom, the modes people expect.
@@ -1314,13 +1255,10 @@ class MainActivity : AppCompatActivity() {
                 options = listOf(
                     getString(R.string.photo_source_camera),
                     getString(R.string.photo_source_library),
-                    getString(R.string.photo_source_qr),
                 ),
             ) { which ->
                 if (which == 0) {
                     launchSystemCamera()
-                } else if (which == 2) {
-                    launchQrScan()
                 } else {
                     // Inside its own runCatching: this runs from the dialog row's click, which
                     // is outside the guard around the chooser itself.
@@ -2738,7 +2676,6 @@ class MainActivity : AppCompatActivity() {
         internal const val STAMP_SCALE = 10f / 11f
 
         /** A code can hold kilobytes; the dialog shows enough to recognise it by. */
-        private const val QR_TEXT_SHOWN = 300
 
         internal fun promptLine(
             prompt: String,

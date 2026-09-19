@@ -73,6 +73,8 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS_PRIVILEGED" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <!-- Signature: taking the browser role, so web links reach LinkActivity (KioskManager). -->
+    <uses-permission android:name="android.permission.MANAGE_ROLE_HOLDERS" />
 
     <application
         android:label="@string/app_name"
@@ -132,7 +134,7 @@
             android:theme="@style/Theme.RistAssistant" />
 
         <!-- The site a scanned QR code points at, and nowhere else. Never exported: the only way
-             in is a link RIST itself has just read and the person has just agreed to open. -->
+             in is LinkActivity, with a link the camera's QR scanner has just handed over. -->
         <activity
             android:name=".LockedBrowserActivity"
             android:exported="false"
@@ -144,6 +146,24 @@
         <!-- Video calls. The join screen is the confirmation: nothing loads and no camera opens
              before its Join is tapped. Neither is exported; the call browser is opened only by
              the join screen, and only on a host it holds its own list of. -->
+        <!-- A web link tapped anywhere on the phone. Exported because other apps hand links to
+             it, but only the camera's QR result opens, checked against the system's own record of
+             the sender; what it opens is the locked browser or the join screen. -->
+        <activity
+            android:name=".LinkActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@style/Theme.RistAssistant.Link">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".VideoCallJoinActivity"
             android:exported="false"

@@ -2,13 +2,18 @@ package watch.rist.assistant
 
 import android.Manifest
 import android.app.KeyguardManager
+import android.app.role.RoleManager
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.os.Process
+import android.os.UserHandle
 import android.util.Log
+import java.util.concurrent.Executor
+import java.util.function.Consumer
 
 object KioskManager {
 
@@ -55,6 +60,29 @@ object KioskManager {
                 admin(context), filter, ComponentName(context, MainActivity::class.java)
             )
         }.onFailure { Log.w(TAG, "setAsDefaultLauncher failed", it) }
+    }
+
+    /**
+     * Web links open in Rist, not the phone's browser, which the kiosk would block: a link from
+     * the camera's QR scanner or from Messages otherwise goes nowhere. [LinkActivity] asks first.
+     *
+     * The browser role, not a preferred activity: while another app holds the role, a web link
+     * goes straight to it and a preference is never consulted. The call is a system API, so it
+     * is reached by reflection; the platform signature grants MANAGE_ROLE_HOLDERS.
+     */
+    fun setAsDefaultForLinks(context: Context) {
+        if (!isDeviceOwner(context)) return
+        val roles = context.getSystemService(RoleManager::class.java) ?: return
+        if (runCatching { roles.isRoleHeld(RoleManager.ROLE_BROWSER) }.getOrDefault(false)) return
+        runCatching {
+            RoleManager::class.java.getMethod(
+                "addRoleHolderAsUser", String::class.java, String::class.java, Int::class.javaPrimitiveType,
+                UserHandle::class.java, Executor::class.java, Consumer::class.java,
+            ).invoke(
+                roles, RoleManager.ROLE_BROWSER, context.packageName, 0, Process.myUserHandle(),
+                context.mainExecutor, Consumer<Boolean> { ok -> Log.i(TAG, "browser role for links: $ok") },
+            )
+        }.onFailure { Log.w(TAG, "could not take the browser role; links will not open", it) }
     }
 
     fun grantSelfPermissions(context: Context) {
@@ -128,6 +156,7 @@ object KioskManager {
         if (!isDeviceOwner(context)) return
         configureLockTask(context)
         setAsDefaultLauncher(context)
+        setAsDefaultForLinks(context)
         applyUserRestrictions(context)
         Config.setKioskProvisionedFor(context, versionCode(context))
     }
@@ -173,6 +202,8 @@ object KioskManager {
     fun ensureConfigured(context: Context) {
         if (!isDeviceOwner(context)) return
         val vc = versionCode(context)
+        // Checked every time: a browser installed or reset later would take links back.
+        setAsDefaultForLinks(context)
         if (vc != 0L && Config.kioskProvisionedFor(context) == vc && allowlistIsCurrent(context)) return
         Log.i(TAG, "kiosk policy stale (vc=$vc); provisioning")
         provisionNow(context)
