@@ -5,29 +5,28 @@ import org.junit.Test
 import watch.rist.assistant.MediaCommandExecutor.Companion.Chapter
 import watch.rist.assistant.MediaCommandExecutor.Companion.queueFor
 
-/** media_player.md 4.1: the playlist is the whole book, and section is the index into it. */
+/** media_player.md 4.1 and 4.2: stream_url now, playlist after it, each chapter its own number. */
 class MediaQueueTest {
 
-    private val book = listOf("ch0.mp3", "ch1.mp3", "ch2.mp3", "ch3.mp3")
-
     @Test
-    fun `resuming mid-book queues the whole book and starts on the saved chapter`() {
-        val q = queueFor("ch2.mp3", 2, book)
-        assertEquals(2, q.startIndex)
-        assertEquals(book, q.chapters.map { it.url })
+    fun `the chapters after the one playing are numbered on from it`() {
+        val q = queueFor("ch3.mp3", 3, listOf("ch4.mp3", "ch5.mp3"))
+        assertEquals(0, q.startIndex)
+        assertEquals(
+            listOf(Chapter("ch3.mp3", 3), Chapter("ch4.mp3", 4), Chapter("ch5.mp3", 5)),
+            q.chapters,
+        )
     }
 
     @Test
-    fun `each chapter carries its own number, so the card follows the book`() {
-        val q = queueFor("ch0.mp3", 0, book)
-        assertEquals(listOf(0, 1, 2, 3), q.chapters.map { it.section })
-        // The chapter after the first is the second, not the first again.
-        assertEquals(Chapter("ch1.mp3", 1), q.chapters[q.startIndex + 1])
+    fun `a fresh play starts at chapter 0 and the next is chapter 1`() {
+        val q = queueFor("ch0.mp3", 0, listOf("ch1.mp3", "ch2.mp3"))
+        assertEquals(listOf(0, 1, 2), q.chapters.map { it.section })
     }
 
     @Test
-    fun `when the index and the file disagree the file wins`() {
-        assertEquals(3, queueFor("ch3.mp3", 1, book).startIndex)
+    fun `the last chapter of a book plays alone`() {
+        assertEquals(listOf(Chapter("ch9.mp3", 9)), queueFor("ch9.mp3", 9, emptyList()).chapters)
     }
 
     @Test
@@ -38,13 +37,17 @@ class MediaQueueTest {
     }
 
     @Test
-    fun `a file that is not in the list plays alone rather than dragging the book in`() {
-        val q = queueFor("other.mp3", 9, book)
-        assertEquals(listOf(Chapter("other.mp3", 9)), q.chapters)
+    fun `the old whole-book form never queues a chapter twice`() {
+        val book = listOf("ch0.mp3", "ch1.mp3", "ch2.mp3", "ch3.mp3")
+        val q = queueFor("ch2.mp3", 2, book)
+        assertEquals(book, q.chapters.map { it.url })
+        assertEquals(listOf(0, 1, 2, 3), q.chapters.map { it.section })
+        assertEquals(2, q.startIndex)
     }
 
     @Test
-    fun `no stream url falls back to the indexed chapter`() {
-        assertEquals(1, queueFor("", 1, book).startIndex)
+    fun `blank urls are dropped and the rest still follow in order`() {
+        val q = queueFor("ch0.mp3", 0, listOf("ch1.mp3", "", "ch2.mp3"))
+        assertEquals(listOf("ch0.mp3", "ch1.mp3", "ch2.mp3"), q.chapters.map { it.url })
     }
 }

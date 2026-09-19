@@ -34,21 +34,20 @@ class MediaCommandExecutor(
         internal data class Queue(val chapters: List<Chapter>, val startIndex: Int)
 
         /**
-         * `playlist` is the WHOLE book in order and `section` indexes into it; `stream_url` is
-         * `playlist[section]` again, sent so playback can start at once. Read as "what comes
-         * next", the list put chapter 1 after whatever was playing and left every chapter
-         * wearing the first one's number.
+         * media_player.md 4.1: `stream_url` is the chapter to play now, `section` is its number
+         * over the whole book, and `playlist` is the chapters AFTER it, so `playlist[i]` is
+         * section `section + 1 + i`. Every queued chapter used to be stamped with the first one's
+         * number, which is why the card never moved on.
+         *
+         * The backend once sent the whole book instead, with `stream_url` inside it. That form is
+         * still recognised, because queueing it behind `stream_url` plays a chapter twice.
          */
         internal fun queueFor(streamUrl: String, section: Int, playlist: List<String>): Queue {
             val urls = playlist.filter { it.isNotBlank() }
-            val at = when {
-                section in urls.indices && (streamUrl.isBlank() || urls[section] == streamUrl) -> section
-                // The two disagree: trust the file we were told to play over the index.
-                streamUrl.isNotBlank() && streamUrl in urls -> urls.indexOf(streamUrl)
-                else -> -1
-            }
-            if (at < 0) return Queue(listOf(Chapter(streamUrl, section)), 0)
-            return Queue(urls.mapIndexed { i, url -> Chapter(url, i) }, at)
+            val inList = if (streamUrl.isBlank()) -1 else urls.indexOf(streamUrl)
+            if (inList >= 0) return Queue(urls.mapIndexed { i, url -> Chapter(url, i) }, inList)
+            val upcoming = urls.mapIndexed { i, url -> Chapter(url, section + 1 + i) }
+            return Queue(listOf(Chapter(streamUrl, section)) + upcoming, 0)
         }
     }
 
