@@ -8,7 +8,7 @@ This product includes software and assets from third parties:
 - Turn-arrow glyphs derived from Material Symbols by Google — Apache License 2.0
   (app/src/main/assets/glyphs/)
 - Volume panel icons from Material Icons by Google — Apache License 2.0
-  (app/src/main/res/drawable/ic_vol_*.xml)
+  (app/src/main/res/drawable/ic_vol_*.xml, ic_close.xml)
 - Time zone boundaries (app/src/main/assets/tz/zones.bin) derived from timezone-boundary-builder
   release 2026c (github.com/evansiroky/timezone-boundary-builder), itself derived from
   OpenStreetMap data, © OpenStreetMap contributors — Open Database License 1.0

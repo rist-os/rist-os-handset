@@ -78,18 +78,24 @@ class PhotoViewerActivity : AppCompatActivity() {
         }
         root.addView(image)
 
-        val close = TextView(this).apply {
-            text = "×"
+        // A plain white cross on a dark disc: big enough to hit at once, and visible over a
+        // light photo as well as the black around it.
+        val closeSize = (64 * d).toInt()
+        val close = android.widget.ImageView(this).apply {
+            setImageResource(R.drawable.ic_close)
             contentDescription = getString(R.string.photo_close)
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 34f)
-            gravity = Gravity.CENTER
-            minWidth = (56 * d).toInt(); minHeight = (56 * d).toInt()
+            val pad = (16 * d).toInt()
+            setPadding(pad, pad, pad, pad)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(0x99000000.toInt())
+            }
             isClickable = true; isFocusable = true
             setOnClickListener { finish() }
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END
-            )
+            layoutParams = FrameLayout.LayoutParams(closeSize, closeSize, Gravity.TOP or Gravity.END).apply {
+                val m = (12 * d).toInt()
+                setMargins(m, m, m, m)
+            }
         }
         root.addView(close)
 
@@ -98,6 +104,9 @@ class PhotoViewerActivity : AppCompatActivity() {
             text = caption
             setTextColor(0xFFDDDDDD.toInt())
             setBackgroundColor(0x99000000.toInt())
+            // The system face, not the theme's pixel one: a credit line has to be easy to read.
+            typeface = android.graphics.Typeface.DEFAULT
+            isAllCaps = false
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             setPadding((16 * d).toInt(), (8 * d).toInt(), (16 * d).toInt(), (8 * d).toInt())
             layoutParams = FrameLayout.LayoutParams(
