@@ -2022,7 +2022,9 @@ class MainActivity : AppCompatActivity() {
                     prompt = e.prompt,
                     time = CommsFeed.entryStamp(e.at, nowMs),
                     pinned = e.pinned,
-                    timeColor = blend(t.inkMuted, t.ground, 0.35f),
+                    // The readable muted, not a fade of it: the day is on this line now, and
+                    // a stamp nobody can read says nothing about when.
+                    timeColor = muted,
                     pinColor = t.accent,
                 )
                 setTextColor(muted); typeface = tf
@@ -2580,6 +2582,9 @@ class MainActivity : AppCompatActivity() {
          * time and pin always follow the last word, however long the prompt. The time is drawn
          * smaller and fainter, as it was when it was a view of its own.
          */
+        /** The stamp against the 11sp request it follows: 10sp. */
+        internal const val STAMP_SCALE = 10f / 11f
+
         internal fun promptLine(
             prompt: String,
             time: String,
@@ -2592,7 +2597,7 @@ class MainActivity : AppCompatActivity() {
             // A no-break space ties the time to the prompt's last word, so a wrap never leaves
             // the time alone at the start of a line with nothing before it.
             out.append("  ").append(time.replace(' ', ' '))
-            out.setSpan(android.text.style.RelativeSizeSpan(8f / 11f), timeStart, out.length,
+            out.setSpan(android.text.style.RelativeSizeSpan(STAMP_SCALE), timeStart, out.length,
                 android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             out.setSpan(android.text.style.ForegroundColorSpan(timeColor), timeStart, out.length,
                 android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)

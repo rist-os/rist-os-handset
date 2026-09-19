@@ -29,6 +29,27 @@ class MediaCommandExecutor(
         const val ACTION_SET_SPEED = "set_speed"
         const val ACTION_NEXT = "next"
         const val ACTION_PREVIOUS = "previous"
+
+        internal data class Chapter(val url: String, val section: Int)
+        internal data class Queue(val chapters: List<Chapter>, val startIndex: Int)
+
+        /**
+         * `playlist` is the WHOLE book in order and `section` indexes into it; `stream_url` is
+         * `playlist[section]` again, sent so playback can start at once. Read as "what comes
+         * next", the list put chapter 1 after whatever was playing and left every chapter
+         * wearing the first one's number.
+         */
+        internal fun queueFor(streamUrl: String, section: Int, playlist: List<String>): Queue {
+            val urls = playlist.filter { it.isNotBlank() }
+            val at = when {
+                section in urls.indices && (streamUrl.isBlank() || urls[section] == streamUrl) -> section
+                // The two disagree: trust the file we were told to play over the index.
+                streamUrl.isNotBlank() && streamUrl in urls -> urls.indexOf(streamUrl)
+                else -> -1
+            }
+            if (at < 0) return Queue(listOf(Chapter(streamUrl, section)), 0)
+            return Queue(urls.mapIndexed { i, url -> Chapter(url, i) }, at)
+        }
     }
 
     // Must be called on the player's application (main) thread.
@@ -50,15 +71,16 @@ class MediaCommandExecutor(
     }
 
     private fun doPlay(cmd: MediaCommand): String {
-        val head = toMediaItem(cmd.itemId, cmd.streamUrl, cmd.section, cmd.title, cmd.author)
-        val tail = cmd.playlistList.map { url ->
-            toMediaItem(itemId = url, streamUrl = url, section = cmd.section, title = cmd.title, author = cmd.author)
+        val queue = queueFor(cmd.streamUrl, cmd.section, cmd.playlistList)
+        // Every chapter is the same book: item_id is the resume key and never changes with the
+        // chapter, and each carries its own section so the card and the progress reports follow.
+        val items = queue.chapters.map {
+            toMediaItem(cmd.itemId, it.url, it.section, cmd.title, cmd.author)
         }
-        val items: List<MediaItem> = listOf(head) + tail
 
         // start_position_s is uint32 seconds.
         val startMs = (cmd.startPositionS.toLong().coerceAtLeast(0L)) * 1000L
-        player.setMediaItems(items,  0,  startMs)
+        player.setMediaItems(items, queue.startIndex, startMs)
         player.prepare()
         player.playWhenReady = true
         return "playing ${items.size} item(s)" + if (startMs > 0) " @${startMs / 1000}s" else ""

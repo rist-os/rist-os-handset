@@ -50,7 +50,7 @@ class PromptLineTest {
         val s = line() as Spanned
         val timeStart = s.indexOf("2:17")
         val size = s.getSpans(timeStart, timeStart + 1, RelativeSizeSpan::class.java).single()
-        assertEquals(8f / 11f, size.sizeChange, 0.0001f)
+        assertEquals(MainActivity.STAMP_SCALE, size.sizeChange, 0.0001f)
         assertEquals(0x111111, s.getSpans(timeStart, timeStart + 1, ForegroundColorSpan::class.java).single().foregroundColor)
         val pinAt = s.indexOf("📌")
         assertEquals(0x222222, s.getSpans(pinAt, pinAt + 1, ForegroundColorSpan::class.java).single().foregroundColor)
