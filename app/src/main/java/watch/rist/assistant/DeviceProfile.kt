@@ -37,6 +37,9 @@ object DeviceProfile {
             .addAllInput(INPUT)
             .addAllComponents(COMPONENTS)
             .addComponents("map_tiles")
+            // Asks for 512-px tiles. Safe to send only because the map places every tile by its
+            // decoded width and fills gaps in a partial set from coarser tiles (TilePlan).
+            .addComponents("map_tiles_hd")
             .setMaxImageBytes(MAX_IMAGE_BYTES)
             // 0 or unset means "cannot do place triggers".
             .setMaxGeofences(Geofences.MAX_FENCES)

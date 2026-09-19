@@ -24,9 +24,20 @@ class DeviceProfileTest {
         assertEquals(listOf("button", "voice", "touch"), caps.inputList)
         assertTrue(caps.componentsList.containsAll(
             listOf("card", "stack", "text", "stat", "list", "image", "chart", "button", "divider",
-                   "map_tiles")
+                   "map_tiles", "map_tiles_hd")
         ))
-        assertEquals(10, caps.componentsCount)
+        assertEquals(11, caps.componentsCount)
+    }
+
+    @Test
+    fun hdMapTiles_areAdvertisedWithPlainTiles_withOrWithoutVideoCalls() {
+        // map_tiles_hd alone gets no tiles at all; the backend needs both to send 512-px tiles.
+        for (vc in listOf(false, true)) {
+            val comps = DeviceProfile.capabilities(1080, 2400, videoCalls = vc).componentsList
+            assertTrue(comps.contains("map_tiles"))
+            assertTrue(comps.contains("map_tiles_hd"))
+            assertEquals(1, comps.count { it == "map_tiles_hd" })
+        }
     }
 
     @Test
