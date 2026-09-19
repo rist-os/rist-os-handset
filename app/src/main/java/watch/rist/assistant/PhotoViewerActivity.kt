@@ -108,7 +108,8 @@ class PhotoViewerActivity : AppCompatActivity() {
             typeface = android.graphics.Typeface.DEFAULT
             isAllCaps = false
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            setPadding((16 * d).toInt(), (8 * d).toInt(), (16 * d).toInt(), (8 * d).toInt())
+            // The end is kept clear of the floating home button, which sits in that corner.
+            setPadding((16 * d).toInt(), (8 * d).toInt(), (100 * d).toInt(), (8 * d).toInt())
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM
             )
