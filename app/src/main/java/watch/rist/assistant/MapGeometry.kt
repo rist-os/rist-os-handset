@@ -25,10 +25,14 @@ internal object MapGeometry {
     }
 
     // Screen = (cx, cy) + rotate(-headingDeg) * scale * world; out is an android.graphics.Matrix value array.
+    // levelsUp > 0 places a coarser tile (zoom z - levelsUp) in the zoom-z view that utx/uty are in,
+    // covering 2^levelsUp slots per side: it stands in for finer tiles that did not arrive.
     fun tileMatrixValues(tx: Int, ty: Int, utx: Double, uty: Double, bmpW: Int, bmpH: Int,
-                         scale: Float, headingDeg: Float, cx: Float, cy: Float, out: FloatArray) {
-        val k = tileDrawScale(bmpW)
-        val l = ((tx - utx) * TILE_WORLD_PX).toFloat(); val t = ((ty - uty) * TILE_WORLD_PX).toFloat()
+                         scale: Float, headingDeg: Float, cx: Float, cy: Float, out: FloatArray,
+                         levelsUp: Int = 0) {
+        val m = (1 shl levelsUp).toDouble()
+        val k = tileDrawScale(bmpW) * m.toFloat()
+        val l = ((tx * m - utx) * TILE_WORLD_PX).toFloat(); val t = ((ty * m - uty) * TILE_WORLD_PX).toFloat()
         val a = Math.toRadians(-headingDeg.toDouble()); val ca = cos(a); val sa = sin(a)
         out[0] = (scale * k * ca).toFloat(); out[1] = (-scale * k * sa).toFloat()
         out[2] = (cx + scale * (ca * l - sa * t)).toFloat()
