@@ -44,8 +44,11 @@ class MediaCommandExecutor(
          */
         internal fun queueFor(streamUrl: String, section: Int, playlist: List<String>): Queue {
             val urls = playlist.filter { it.isNotBlank() }
-            val inList = if (streamUrl.isBlank()) -1 else urls.indexOf(streamUrl)
-            if (inList >= 0) return Queue(urls.mapIndexed { i, url -> Chapter(url, i) }, inList)
+            // Index AND file must agree. Membership alone is fooled by a book that lists the same
+            // file twice, where the chapter playing now turns up again among the upcoming ones.
+            if (streamUrl.isNotBlank() && urls.getOrNull(section) == streamUrl) {
+                return Queue(urls.mapIndexed { i, url -> Chapter(url, i) }, section)
+            }
             val upcoming = urls.mapIndexed { i, url -> Chapter(url, section + 1 + i) }
             return Queue(listOf(Chapter(streamUrl, section)) + upcoming, 0)
         }

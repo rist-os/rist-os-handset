@@ -46,6 +46,15 @@ class MediaQueueTest {
     }
 
     @Test
+    fun `a book that lists the same file twice is not mistaken for the old form`() {
+        // Chapter 0 playing; the same file turns up again as chapter 2.
+        val q = queueFor("intro.mp3", 0, listOf("ch1.mp3", "intro.mp3", "ch3.mp3"))
+        assertEquals(0, q.startIndex)
+        assertEquals(listOf(0, 1, 2, 3), q.chapters.map { it.section })
+        assertEquals(listOf("intro.mp3", "ch1.mp3", "intro.mp3", "ch3.mp3"), q.chapters.map { it.url })
+    }
+
+    @Test
     fun `blank urls are dropped and the rest still follow in order`() {
         val q = queueFor("ch0.mp3", 0, listOf("ch1.mp3", "", "ch2.mp3"))
         assertEquals(listOf("ch0.mp3", "ch1.mp3", "ch2.mp3"), q.chapters.map { it.url })
