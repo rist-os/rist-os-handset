@@ -67,13 +67,19 @@ object KioskManager {
      * permission this app's signature does not carry. Hidden, it also cannot open in the moment
      * after an update when lock task is not yet back.
      */
-    fun setAsDefaultForLinks(context: Context) {
+    fun setAsDefaultForLinks(context: Context, always: Boolean = false) {
         if (!isDeviceOwner(context)) return
         val dpm = dpm(context)
         val admin = admin(context)
+        var acted = always
         for (pkg in BROWSERS) runCatching {
-            if (!dpm.isApplicationHidden(admin, pkg)) Log.i(TAG, "hiding $pkg: ${dpm.setApplicationHidden(admin, pkg, true)}")
+            if (!dpm.isApplicationHidden(admin, pkg)) {
+                acted = true
+                Log.i(TAG, "hiding $pkg: ${dpm.setApplicationHidden(admin, pkg, true)}")
+            }
         }.onFailure { Log.w(TAG, "could not hide $pkg", it) }
+        // Runs on every return to home; the preference is rewritten only when something changed.
+        if (!acted) return
         val filter = IntentFilter(Intent.ACTION_VIEW).apply {
             addCategory(Intent.CATEGORY_DEFAULT)
             addCategory(Intent.CATEGORY_BROWSABLE)
@@ -156,7 +162,7 @@ object KioskManager {
         if (!isDeviceOwner(context)) return
         configureLockTask(context)
         setAsDefaultLauncher(context)
-        setAsDefaultForLinks(context)
+        setAsDefaultForLinks(context, always = true)
         applyUserRestrictions(context)
         Config.setKioskProvisionedFor(context, versionCode(context))
     }

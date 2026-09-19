@@ -34,6 +34,14 @@ object WakeLoop {
     /** How often to look again when there is no token to poll with. */
     internal const val NO_TOKEN_RECHECK_MS = 5L * 60 * 1000
 
+    /** Floor and ceiling on the server's poll_after_s: 0 must not become a tight loop. */
+    internal const val POLL_GAP_MIN_MS = 1_000L
+    internal const val POLL_GAP_MAX_MS = 60L * 60 * 1000
+
+    /** poll_after_s is a uint32, which arrives as a signed Int; read it unsigned, then bound it. */
+    internal fun pollGapMs(pollAfterS: Int): Long =
+        ((pollAfterS.toLong() and 0xFFFF_FFFFL) * 1000).coerceIn(POLL_GAP_MIN_MS, POLL_GAP_MAX_MS)
+
     sealed class Outcome {
         data class Signal(val signal: WakeSignal, val acked: List<String>) : Outcome()
         /** 401: the credential is dead. Enrolment clears it; the loop waits for a new one. */
@@ -168,8 +176,9 @@ object WakeLoop {
                     runCatching { apply(ctx, out.signal, out.acked) }
                         .onFailure { Log.w(TAG, "could not take a signal in", it) }
                     backoff = BACKOFF_MIN_MS
-                    // Ours to set and we honour it: 0 while draining, 240 when idle.
-                    waitOrKick(out.signal.pollAfterS.toLong() * 1000)
+                    // Ours to set and we honour it (0 while draining, 240 when idle), but never
+                    // quicker than a second: an empty 200 parses as 0 and would spin.
+                    waitOrKick(pollGapMs(out.signal.pollAfterS))
                 }
                 Outcome.Unauthorised -> {
                     Log.w(TAG, "401: stopping until the phone has a new credential")
@@ -180,6 +189,9 @@ object WakeLoop {
                     Log.w(TAG, "403: this device is revoked; not polling")
                     runCatching { Enrolment.onRevoked(ctx) }
                     refusedToken = token
+                    // A revoked phone with no token at all passes the refused-token check on
+                    // every turn of the loop; this wait is what keeps that from spinning.
+                    waitOrKick(NO_TOKEN_RECHECK_MS)
                 }
                 is Outcome.Retry -> {
                     Log.i(TAG, "retry in ${backoff}ms (${out.why})")

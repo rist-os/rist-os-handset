@@ -24,6 +24,7 @@ object Config {
     private const val KEY_HAPTICS = "haptics_enabled"
     private const val KEY_CARRIER_VM_WAITING = "carrier_vm_waiting"
     private const val KEY_VM_DISMISSED_AT = "carrier_vm_dismissed_at"
+    private const val KEY_VM_DISMISSED_MS = "carrier_vm_dismissed_ms"
     private const val KEY_VOICEMAIL_PIN = "voicemail_pin"
     private const val KEY_SETUP_DONE = "setup_complete"
     private const val KEY_AUTH_TOKEN = "auth_token"
@@ -373,9 +374,16 @@ object Config {
     fun voicemailDismissedAt(ctx: Context): Int? =
         prefs(ctx).takeIf { it.contains(KEY_VM_DISMISSED_AT) }?.getInt(KEY_VM_DISMISSED_AT, -1)
 
+    /** When the voicemail row was dismissed, or 0 when it is not. */
+    fun voicemailDismissedMs(ctx: Context): Long = prefs(ctx).getLong(KEY_VM_DISMISSED_MS, 0L)
+
     fun setVoicemailDismissedAt(ctx: Context, count: Int?) {
         prefs(ctx).edit().apply {
-            if (count == null) remove(KEY_VM_DISMISSED_AT) else putInt(KEY_VM_DISMISSED_AT, count)
+            if (count == null) {
+                remove(KEY_VM_DISMISSED_AT); remove(KEY_VM_DISMISSED_MS)
+            } else {
+                putInt(KEY_VM_DISMISSED_AT, count); putLong(KEY_VM_DISMISSED_MS, System.currentTimeMillis())
+            }
         }.apply()
     }
 

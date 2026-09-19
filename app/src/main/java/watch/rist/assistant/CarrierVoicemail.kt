@@ -53,16 +53,24 @@ object CarrierVoicemail {
             return false
         }
         val at = Config.voicemailDismissedAt(ctx) ?: return true
-        if (staysDismissed(at, readCount(ctx.applicationContext))) return false
+        val age = System.currentTimeMillis() - Config.voicemailDismissedMs(ctx)
+        if (staysDismissed(at, readCount(ctx.applicationContext), age)) return false
         Config.setVoicemailDismissedAt(ctx, null)
         return true
     }
 
     internal const val COUNT_UNKNOWN = -1
 
-    /** Only a count known both then and now, and higher now, is a new message. */
-    internal fun staysDismissed(dismissedAt: Int, current: Int?): Boolean =
-        !(dismissedAt >= 0 && current != null && current > dismissedAt)
+    /**
+     * With a count known both then and now, only a higher count is a new message. Without one
+     * a new message cannot be told from the old, so the dismissal lapses after a day: at worst
+     * the row comes back once a day, rather than a new voicemail staying hidden for good.
+     */
+    internal const val UNKNOWN_DISMISS_MS = 24L * 60 * 60 * 1000
+
+    internal fun staysDismissed(dismissedAt: Int, current: Int?, ageMs: Long = 0L): Boolean =
+        if (dismissedAt >= 0 && current != null && current >= 0) current <= dismissedAt
+        else ageMs in 0 until UNKNOWN_DISMISS_MS
 
     fun unacknowledged(ctx: Context): Boolean {
         if (!showing(ctx)) return false
@@ -107,6 +115,9 @@ object CarrierVoicemail {
                 "(persisted=${Config.carrierVoicemailWaiting(app)}, " +
                 "notif=${NotificationHub.voicemailPosted()})")
             SystemVoicemail.setCarrierWaiting(app, waiting)
+            // Nothing waiting ends a dismissal here too, not only at the next render: a flag that
+            // clears and sets again while the feed is not drawn is a new voicemail.
+            if (!waiting && Config.voicemailDismissedAt(app) != null) Config.setVoicemailDismissedAt(app, null)
             if (Config.carrierVoicemailWaiting(app) == waiting) return
             Config.setCarrierVoicemailWaiting(app, waiting)
             Log.i(TAG, "voice message count=$count -> waiting=$waiting")

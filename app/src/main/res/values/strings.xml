@@ -67,8 +67,7 @@
     <string name="web_close">Close</string>
     <string name="web_back">Back</string>
     <string name="web_reload">Reload</string>
-    <string name="web_blocked">This page tried to leave %1$s for %2$s.</string>
-    <string name="web_blocked_allow">Allow %1$s</string>
+    <string name="web_blocked">This page tried to leave %1$s for %2$s. It stays on %1$s.</string>
     <string name="web_blocked_stay">Stay</string>
     <string name="web_blocked_other">This page tried to open something that is not a web page. It was stopped.</string>
     <string name="web_no_downloads">Downloads are off in this browser.</string>

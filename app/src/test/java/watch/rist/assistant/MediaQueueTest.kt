@@ -37,21 +37,24 @@ class MediaQueueTest {
     }
 
     @Test
-    fun `the old whole-book form never queues a chapter twice`() {
-        val book = listOf("ch0.mp3", "ch1.mp3", "ch2.mp3", "ch3.mp3")
-        val q = queueFor("ch2.mp3", 2, book)
-        assertEquals(book, q.chapters.map { it.url })
-        assertEquals(listOf(0, 1, 2, 3), q.chapters.map { it.section })
-        assertEquals(2, q.startIndex)
-    }
-
-    @Test
-    fun `a book that lists the same file twice is not mistaken for the old form`() {
-        // Chapter 0 playing; the same file turns up again as chapter 2.
+    fun `a book that lists the same file twice keeps every chapter, numbered in order`() {
         val q = queueFor("intro.mp3", 0, listOf("ch1.mp3", "intro.mp3", "ch3.mp3"))
         assertEquals(0, q.startIndex)
         assertEquals(listOf(0, 1, 2, 3), q.chapters.map { it.section })
         assertEquals(listOf("intro.mp3", "ch1.mp3", "intro.mp3", "ch3.mp3"), q.chapters.map { it.url })
+    }
+
+    @Test
+    fun `a blank entry does not renumber the chapters after it`() {
+        val q = queueFor("ch0.mp3", 0, listOf("ch1.mp3", "", "ch3.mp3"))
+        assertEquals(listOf(0, 1, 3), q.chapters.map { it.section })
+    }
+
+    @Test
+    fun `a blank stream url is not queued`() {
+        val q = queueFor("", 4, listOf("ch5.mp3"))
+        assertEquals(listOf(Chapter("ch5.mp3", 5)), q.chapters)
+        assertEquals(0, queueFor("", 4, emptyList()).chapters.size)
     }
 
     @Test

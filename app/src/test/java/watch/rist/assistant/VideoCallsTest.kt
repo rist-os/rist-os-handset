@@ -160,6 +160,12 @@ class VideoCallsTest {
         assertEquals(null, VideoCalls.meetingLinkIn("lunch at noon? example.com/menu", rist))
         assertEquals(null, VideoCalls.meetingLinkIn("http://meet.google.com/abc", rist))
         assertEquals(null, VideoCalls.meetingLinkIn("https://meet.google.com.evil.example/x", rist))
+        // A service's own pages and an email address are not meetings.
+        assertEquals(null, VideoCalls.meetingLinkIn("get it at zoom.us/download", rist))
+        assertEquals(null, VideoCalls.meetingLinkIn("write to bob@zoom.us", rist))
+        assertEquals(null, VideoCalls.meetingLinkIn("https://meet.google.com/", rist))
+        assertEquals("https://teams.microsoft.com/l/meetup-join/19%3ameeting",
+            VideoCalls.meetingLinkIn("https://teams.microsoft.com/l/meetup-join/19%3ameeting", rist))
     }
 
     @Test

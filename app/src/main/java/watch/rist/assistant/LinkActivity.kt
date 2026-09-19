@@ -40,7 +40,11 @@ class LinkActivity : AppCompatActivity() {
         val host = VideoCalls.ristHost(Config.backendUrl(this))
         // A meeting printed as a code is a call: the join screen, where nothing connects until Join.
         val opened = (VideoCalls.classify(url, host) != null && VideoCalls.join(this, url, "", "", "")) ||
-            runCatching { startActivity(LockedBrowserActivity.intent(this, url)); true }
+            // A task of its own: inside the camera's, reopening the camera would show the old site.
+            runCatching {
+                startActivity(LockedBrowserActivity.intent(this, url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                true
+            }
                 .onFailure { Log.w(TAG, "could not open the scanned site", it) }
                 .getOrDefault(false)
         if (!opened) Toast.makeText(this, R.string.link_failed, Toast.LENGTH_SHORT).show()

@@ -87,9 +87,7 @@ class SiteLockTest {
     fun `an untouched page cannot wander off later either`() {
         val s = session()
         s.onArrived("https://menu.example.com/"); s.onPageDrawn()
-        clock = SiteLock.LANDING_GRACE_MS - 1
-        assertFalse(s.locked)
-        clock = SiteLock.LANDING_GRACE_MS
+        // Locked the moment it is drawn: a script redirecting later cannot move it.
         assertTrue(s.locked)
         assertEquals(Verdict.LEAVES_SITE, s.decide("https://ads.other.org/", true, false))
     }
@@ -102,12 +100,12 @@ class SiteLockTest {
     }
 
     @Test
-    fun `a site let through by name stays open for the visit, and only that site`() {
-        val s = landedOn("https://menu.example.com/")
-        s.allow("pay.stripe.com".let { SiteLock.siteOf("https://$it/")!! })
-        assertEquals(Verdict.ALLOW, s.decide("https://pay.stripe.com/checkout", true, false))
-        assertEquals(Verdict.ALLOW, s.decide("https://menu.example.com/thanks", true, false))
-        assertEquals(Verdict.LEAVES_SITE, s.decide("https://other.org/", true, true))
+    fun `there is no way to let another site through`() {
+        val s = session()
+        s.onArrived("https://menu.example.com/"); s.onPageDrawn()
+        assertEquals(Verdict.LEAVES_SITE, s.decide("https://pay.stripe.com/", true, true))
+        s.onTouched()
+        assertEquals(Verdict.LEAVES_SITE, s.decide("https://pay.stripe.com/", true, true))
     }
 
     @Test

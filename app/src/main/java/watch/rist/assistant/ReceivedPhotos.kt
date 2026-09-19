@@ -115,7 +115,7 @@ object ReceivedPhotos {
         override fun sizeOf(key: String, value: Bitmap) = value.byteCount
     }
 
-    /** A decode no larger than the feed needs. */
+    /** A decode that fits inside the feed's box, whatever shape the picture is. */
     fun preview(file: File, reqW: Int, reqH: Int): Bitmap? {
         cache.get(file.path)?.let { return it }
         return decode(file, reqW, reqH)?.also { cache.put(file.path, it) }
@@ -125,8 +125,9 @@ object ReceivedPhotos {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.path, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-        var sample = 1
-        while (bounds.outWidth / (sample * 2) >= reqW && bounds.outHeight / (sample * 2) >= reqH) sample *= 2
+        // Fits INSIDE reqW x reqH: halving only while both edges stayed large let a panorama or a
+        // 7000 x 4500 photo decode near full size, past what a canvas will draw.
+        val sample = AttachmentView.sampleSizeFor(bounds.outWidth, bounds.outHeight, reqW, reqH)
         BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
     }.getOrNull()
 
@@ -150,7 +151,11 @@ object ReceivedPhotos {
             runCatching { resolver.delete(uri, null, null) }
             return false
         }
-        resolver.update(uri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
-        true
+        val published = runCatching {
+            resolver.update(uri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
+        }.isSuccess
+        // A row left pending is a picture the gallery never shows; remove it rather than keep it.
+        if (!published) runCatching { resolver.delete(uri, null, null) }
+        published
     }.onFailure { Log.w(TAG, "could not save to the photo library", it) }.getOrDefault(false)
 }

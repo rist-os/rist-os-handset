@@ -42,15 +42,18 @@ class PhotoViewerActivity : AppCompatActivity() {
                     title = activity.getString(R.string.photo_menu_title),
                     options = listOf(activity.getString(R.string.photo_save)),
                 ) { which ->
-                    if (which == 0) {
+                    // Off the main thread: the copy can be several megabytes.
+                    if (which == 0) Thread {
                         val ok = ReceivedPhotos.saveToLibrary(activity, photo)
-                        Toast.makeText(
-                            activity,
-                            if (ok) R.string.photo_saved else R.string.photo_save_failed,
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                        if (ok) Haptics.ack(activity)
-                    }
+                        activity.runOnUiThread {
+                            Toast.makeText(
+                                activity,
+                                if (ok) R.string.photo_saved else R.string.photo_save_failed,
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                            if (ok) Haptics.ack(activity)
+                        }
+                    }.start()
                 }
             }
         }
@@ -60,7 +63,7 @@ class PhotoViewerActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         val file = intent.getStringExtra(EXTRA_PATH)?.let { File(it) }
         // Only a picture this app kept; nothing else can be opened through here.
-        val kept = file?.takeIf { it.exists() && it.canonicalPath.startsWith(File(filesDir, "received_photos").canonicalPath) }
+        val kept = file?.takeIf { it.exists() && it.canonicalPath.startsWith(File(filesDir, "received_photos").canonicalPath + File.separator) }
         val bitmap = kept?.let { ReceivedPhotos.decode(it, MAX_EDGE, MAX_EDGE) }
         if (kept == null || bitmap == null) {
             Toast.makeText(this, R.string.photo_gone, Toast.LENGTH_SHORT).show()

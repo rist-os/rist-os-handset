@@ -23,5 +23,10 @@ class VoicemailDismissTest {
         assertTrue(CarrierVoicemail.staysDismissed(dismissedAt = 1, current = null))
         assertTrue(CarrierVoicemail.staysDismissed(dismissedAt = 1, current = CarrierVoicemail.COUNT_UNKNOWN))
         assertTrue(CarrierVoicemail.staysDismissed(dismissedAt = CarrierVoicemail.COUNT_UNKNOWN, current = 3))
+        // Without a count to compare, a day is as long as a dismissal can hide a voicemail.
+        assertFalse(CarrierVoicemail.staysDismissed(
+            dismissedAt = CarrierVoicemail.COUNT_UNKNOWN, current = 3, ageMs = CarrierVoicemail.UNKNOWN_DISMISS_MS))
+        assertFalse(CarrierVoicemail.staysDismissed(
+            dismissedAt = 1, current = null, ageMs = CarrierVoicemail.UNKNOWN_DISMISS_MS + 1))
     }
 }

@@ -33,6 +33,7 @@ class VideoCallJoinActivity : AppCompatActivity() {
         const val EXTRA_ORIGINAL_URL = "watch.rist.assistant.extra.CALL_ORIGINAL_URL"
         const val EXTRA_TITLE = "watch.rist.assistant.extra.CALL_TITLE"
         const val EXTRA_PROVIDER = "watch.rist.assistant.extra.CALL_PROVIDER"
+        const val EXTRA_FROM_ASSISTANT = "watch.rist.assistant.extra.CALL_FROM_ASSISTANT"
 
         /** Nobody answering is a Cancel. */
         internal const val TIMEOUT_MS = 2L * 60 * 1000
@@ -122,6 +123,7 @@ class VideoCallJoinActivity : AppCompatActivity() {
                 provider = provider,
                 camera = cameraOn,
                 mic = micOn,
+                fromAssistant = intent.getBooleanExtra(EXTRA_FROM_ASSISTANT, false),
             )
         )
         finish()

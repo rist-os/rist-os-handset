@@ -62,6 +62,7 @@ class CallBrowserActivity : AppCompatActivity() {
         private const val EXTRA_PROVIDER = "watch.rist.assistant.extra.CALL_PROVIDER"
         private const val EXTRA_CAMERA = "watch.rist.assistant.extra.CALL_CAMERA"
         private const val EXTRA_MIC = "watch.rist.assistant.extra.CALL_MIC"
+        private const val EXTRA_FROM_ASSISTANT = "watch.rist.assistant.extra.CALL_FROM_ASSISTANT"
 
         /**
          * The call's own storage. The QR browser shares this process and its default storage, so
@@ -74,8 +75,9 @@ class CallBrowserActivity : AppCompatActivity() {
 
         fun intent(
             ctx: Context, url: String, originalUrl: String, provider: VideoCalls.Provider,
-            camera: Boolean, mic: Boolean,
+            camera: Boolean, mic: Boolean, fromAssistant: Boolean,
         ): Intent = Intent(ctx, CallBrowserActivity::class.java)
+            .putExtra(EXTRA_FROM_ASSISTANT, fromAssistant)
             .putExtra(EXTRA_URL, url)
             .putExtra(EXTRA_ORIGINAL_URL, originalUrl)
             .putExtra(EXTRA_PROVIDER, provider.name)
@@ -102,14 +104,18 @@ class CallBrowserActivity : AppCompatActivity() {
         /**
          * Keeps hold of the streams the page opens, so a cellular call can silence them, and of
          * its connections, so the phone can tell when the call is over. Streams and connections
-         * are handed back unchanged; nothing else on the page is touched.
+         * are handed back unchanged; nothing else on the page is touched. Only tracks this script
+         * silenced are switched back on, so a mute set on the page survives a phone call, and a
+         * connection is built with the caller's new.target so a page's own subclass still works.
          */
         internal const val TRACKS_JS =
             "(function(){if(window.__ristCall)return;var s=[],p=[],seen=false;window.__ristCall={set:function(k,on){" +
-                "s.forEach(function(m){m.getTracks().forEach(function(t){if(t.kind===k)t.enabled=on;});});}," +
+                "s.forEach(function(m){m.getTracks().forEach(function(t){if(t.kind!==k)return;" +
+                "if(!on){if(t.enabled){t.enabled=false;t.__ristOff=true;}}" +
+                "else if(t.__ristOff){t.enabled=true;delete t.__ristOff;}});});}," +
                 "state:function(){if(!seen)return'idle';for(var i=0;i<p.length;i++){" +
                 "if(p[i].connectionState!=='closed'&&p[i].signalingState!=='closed')return'live';}return'over';}};" +
-                "var R=window.RTCPeerConnection;if(R){var W=function(a,b){var c=new R(a,b);p.push(c);" +
+                "var R=window.RTCPeerConnection;if(R){var W=function(){var c=Reflect.construct(R,arguments,new.target||W);p.push(c);" +
                 "var up=function(){var x=c.connectionState,y=c.iceConnectionState;" +
                 "if(x==='connected'||y==='connected'||y==='completed')seen=true;};" +
                 "c.addEventListener('connectionstatechange',up);c.addEventListener('iceconnectionstatechange',up);return c;};" +
@@ -127,6 +133,7 @@ class CallBrowserActivity : AppCompatActivity() {
     private var triedFallback = false
     private var closing = false
     private var usesProfile = false
+    private var profile = PROFILE
     private var startScriptInstalled = false
 
     // Only a Rist call's toggles are ours; Meet, Zoom and Teams keep their own and get both.
@@ -194,7 +201,8 @@ class CallBrowserActivity : AppCompatActivity() {
         val first = VideoCalls.loadUrl(url, provider, cameraOn, micOn)
         // The header is what lets Rist's page skip its lobby, and only on this first load of a
         // command's own link: a link in a message can carry a fragment but never a header.
-        if (provider == VideoCalls.Provider.RIST) view.loadUrl(first, mapOf(HEADER_CALL_BROWSER to "1"))
+        val fromAssistant = intent.getBooleanExtra(EXTRA_FROM_ASSISTANT, false)
+        if (provider == VideoCalls.Provider.RIST && fromAssistant) view.loadUrl(first, mapOf(HEADER_CALL_BROWSER to "1"))
         else view.loadUrl(first)
         Log.i(TAG, "call opened (${provider.wire}), own profile=$usesProfile")
     }
@@ -257,14 +265,15 @@ class CallBrowserActivity : AppCompatActivity() {
         }
         // The whole profile goes, cookies, storage, cache, service workers and permissions alike.
         // If the engine still holds it, it is deleted before the next call instead.
-        if (usesProfile) runCatching { ProfileStore.getInstance().deleteProfile(PROFILE) }
+        if (usesProfile) runCatching { ProfileStore.getInstance().deleteProfile(profile) }
             .onFailure { Log.i(TAG, "call profile still in use; it is cleared at the next call") }
         phoneListener?.let { l ->
             runCatching { getSystemService(TelephonyManager::class.java)?.unregisterTelephonyCallback(l) }
         }
         phoneListener = null
         runCatching { wakeLock?.takeIf { it.isHeld }?.release() }
-        runCatching { OverlayHomeService.setVisible(this, true) }
+        // Not while another call is up: "Leave and join" opens the new one before this one goes.
+        if (!VideoCalls.isOpen()) runCatching { OverlayHomeService.setVisible(this, true) }
         super.onDestroy()
     }
 
@@ -275,9 +284,14 @@ class CallBrowserActivity : AppCompatActivity() {
         if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
             runCatching {
                 val store = ProfileStore.getInstance()
-                runCatching { store.deleteProfile(PROFILE) }
-                store.getOrCreateProfile(PROFILE)
-                WebViewCompat.setProfile(view, PROFILE)
+                // A name of its own: after "Leave and join" the old call still holds its profile
+                // for a moment, and reusing the name would hand this call the old one's cookies.
+                // Leftovers from calls that ended are cleared here; one still held is skipped.
+                store.allProfileNames.filter { it.startsWith(PROFILE) }
+                    .forEach { name -> runCatching { store.deleteProfile(name) } }
+                profile = "$PROFILE-${android.os.SystemClock.elapsedRealtimeNanos()}"
+                store.getOrCreateProfile(profile)
+                WebViewCompat.setProfile(view, profile)
                 usesProfile = true
             }.onFailure { Log.w(TAG, "could not give the call its own profile", it) }
         }

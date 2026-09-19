@@ -102,8 +102,13 @@ class ProgressReporter(
         io.cancel()
     }
 
+    /**
+     * A stop while playing is reported when playback actually stops. A stop while paused changes
+     * nothing the listener hears, so it is reported now; the flag would otherwise outlive it and
+     * turn the next pause into a stop.
+     */
     fun reportStopping() {
-        stopping = true
+        if (player.isPlaying) stopping = true else { stopping = false; report(A_STOP) }
     }
 
     fun reportCloseAsPause() {

@@ -88,7 +88,6 @@ class LockedBrowserActivity : AppCompatActivity() {
     private lateinit var progress: ProgressBar
     private lateinit var banner: LinearLayout
     private lateinit var bannerText: TextView
-    private lateinit var bannerAllow: TextView
 
     private lateinit var theme: RistTheme
     private var tf: Typeface? = null
@@ -320,8 +319,6 @@ class LockedBrowserActivity : AppCompatActivity() {
             gravity = Gravity.END
             setPadding(0, (8 * d).toInt(), 0, 0)
         }
-        bannerAllow = bannerButton("") {}
-        actions.addView(bannerAllow)
         actions.addView(bannerButton(getString(R.string.web_blocked_stay)) { banner.visibility = View.GONE })
         banner.addView(actions)
         root.addView(View(this).apply {
@@ -365,24 +362,16 @@ class LockedBrowserActivity : AppCompatActivity() {
         setOnClickListener { onClick() }
     }
 
-    /** A page tried to leave. Named, so that letting it through is a decision about a site. */
+    /** A page tried to leave. Said so, and nothing more: the visit stays on its one site. */
     private fun showLeaving(url: String) {
         val target = SiteLock.siteOf(url) ?: return
         bannerText.text = getString(R.string.web_blocked, session.site.orEmpty(), target)
-        bannerAllow.text = getString(R.string.web_blocked_allow, target)
-        bannerAllow.visibility = View.VISIBLE
-        bannerAllow.setOnClickListener {
-            session.allow(target)
-            banner.visibility = View.GONE
-            web?.loadUrl(url)
-        }
         banner.visibility = View.VISIBLE
         bannerText.announceForAccessibility(bannerText.text)
     }
 
     private fun showNote(message: String) {
         bannerText.text = message
-        bannerAllow.visibility = View.GONE
         banner.visibility = View.VISIBLE
         bannerText.announceForAccessibility(message)
     }

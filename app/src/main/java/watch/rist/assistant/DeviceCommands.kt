@@ -75,6 +75,9 @@ object DeviceCommands {
             appliedKeys.remove(appliedKeys.first())
         }
         var handled = false
+        // A later reply with no question in it means the confirmation that held a join back was
+        // answered, by voice as much as by a tap, or dropped: the join screen comes up now.
+        if (!(reply.hasConfirm() && reply.confirm.actionId.isNotBlank())) VideoCalls.releaseDeferred(ctx)
         if (reply.hasTimer()) { timer(ctx, reply.timer); handled = true }
         if (reply.hasStopwatch()) { stopwatch(ctx, reply.stopwatch); handled = true }
         if (reply.hasAlarm()) { alarm(ctx, reply.alarm); handled = true }

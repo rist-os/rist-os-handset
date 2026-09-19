@@ -28,7 +28,7 @@
         <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">true</item>
     </style>
 
-    <!-- Nothing of its own on screen: only the dialog asking whether to open a link. -->
+    <!-- Nothing of its own on screen: a link is opened or refused, and the screen is gone. -->
     <style name="Theme.RistAssistant.Link" parent="Theme.RistAssistant">
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>

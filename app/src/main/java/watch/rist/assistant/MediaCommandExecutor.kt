@@ -36,21 +36,16 @@ class MediaCommandExecutor(
         /**
          * media_player.md 4.1: `stream_url` is the chapter to play now, `section` is its number
          * over the whole book, and `playlist` is the chapters AFTER it, so `playlist[i]` is
-         * section `section + 1 + i`. Every queued chapter used to be stamped with the first one's
-         * number, which is why the card never moved on.
-         *
-         * The backend once sent the whole book instead, with `stream_url` inside it. That form is
-         * still recognised, because queueing it behind `stream_url` plays a chapter twice.
+         * section `section + 1 + i`. Numbered by position in the list as sent, so a blank entry
+         * the backend left in does not shift every chapter after it; blanks are then skipped, and
+         * so is a blank `stream_url`, which no player can open.
          */
         internal fun queueFor(streamUrl: String, section: Int, playlist: List<String>): Queue {
-            val urls = playlist.filter { it.isNotBlank() }
-            // Index AND file must agree. Membership alone is fooled by a book that lists the same
-            // file twice, where the chapter playing now turns up again among the upcoming ones.
-            if (streamUrl.isNotBlank() && urls.getOrNull(section) == streamUrl) {
-                return Queue(urls.mapIndexed { i, url -> Chapter(url, i) }, section)
+            val now = if (streamUrl.isNotBlank()) listOf(Chapter(streamUrl, section)) else emptyList()
+            val upcoming = playlist.mapIndexedNotNull { i, url ->
+                url.takeIf { it.isNotBlank() }?.let { Chapter(it, section + 1 + i) }
             }
-            val upcoming = urls.mapIndexed { i, url -> Chapter(url, section + 1 + i) }
-            return Queue(listOf(Chapter(streamUrl, section)) + upcoming, 0)
+            return Queue(now + upcoming, 0)
         }
     }
 
@@ -66,7 +61,13 @@ class MediaCommandExecutor(
             ACTION_SEEK -> doSeek(cmd)
             ACTION_SET_SPEED -> doSetSpeed(cmd)
             ACTION_NEXT -> { if (player.hasNextMediaItem()) player.seekToNextMediaItem(); "next" }
-            ACTION_PREVIOUS -> { if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem(); "previous" }
+            // The queue holds the chapter played first and the ones after it, so from that first
+            // chapter there is nothing earlier on the phone: it starts again from the top.
+            ACTION_PREVIOUS -> if (player.hasPreviousMediaItem()) {
+                player.seekToPreviousMediaItem(); "previous"
+            } else {
+                player.seekTo(0L); "previous: from the start of this chapter"
+            }
             "" -> { Log.w(TAG, "empty media action — ignored"); null }
             else -> { Log.w(TAG, "unknown media action '$action' — ignored"); null }
         }
@@ -76,6 +77,10 @@ class MediaCommandExecutor(
         val queue = queueFor(cmd.streamUrl, cmd.section, cmd.playlistList)
         // Every chapter is the same book: item_id is the resume key and never changes with the
         // chapter, and each carries its own section so the card and the progress reports follow.
+        if (queue.chapters.isEmpty()) {
+            Log.w(TAG, "play with nothing to play; ignored")
+            return "nothing to play"
+        }
         val items = queue.chapters.map {
             toMediaItem(cmd.itemId, it.url, it.section, cmd.title, cmd.author)
         }

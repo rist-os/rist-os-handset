@@ -2133,13 +2133,22 @@ class MainActivity : AppCompatActivity() {
      * A picture the assistant sent, under its answer. Tap or start a pinch to open it full
      * screen and zoom; hold to save it to the photo library.
      */
+    private var photoOpenedAt = 0L
+
     @android.annotation.SuppressLint("ClickableViewAccessibility")
     private fun photoCard(
         photo: ReceivedPhotos.Photo, t: RistTheme, muted: Int, tf: android.graphics.Typeface?, d: Float,
     ): View? {
         val maxH = (AttachmentView.MAX_IMAGE_HEIGHT_DP * d).toInt()
         val bmp = ReceivedPhotos.preview(photo.file, resources.displayMetrics.widthPixels, maxH) ?: return null
-        val open = { startActivity(PhotoViewerActivity.intent(this, photo.file, photo.title)) }
+        // One viewer per gesture: a pinch opens it, and the lift that ends the pinch is a click.
+        val open = {
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - photoOpenedAt > PHOTO_OPEN_GUARD_MS) {
+                photoOpenedAt = now
+                startActivity(PhotoViewerActivity.intent(this, photo.file, photo.title))
+            }
+        }
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, (8 * d).toInt(), 0, (4 * d).toInt())
@@ -2171,7 +2180,11 @@ class MainActivity : AppCompatActivity() {
                     }
                 })
             setOnTouchListener { v, ev ->
-                if (ev.pointerCount > 1) v.parent?.requestDisallowInterceptTouchEvent(true)
+                if (ev.pointerCount > 1) {
+                    v.parent?.requestDisallowInterceptTouchEvent(true)
+                    // A pinch is not a hold: no save menu over the viewer it opens.
+                    v.cancelLongPress()
+                }
                 pinch.onTouchEvent(ev)
                 false
             }
@@ -2665,6 +2678,7 @@ class MainActivity : AppCompatActivity() {
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
     internal companion object {
+        private const val PHOTO_OPEN_GUARD_MS = 1_000L
         private const val TAG = "RistMain"
 
         /**
@@ -2674,8 +2688,6 @@ class MainActivity : AppCompatActivity() {
          */
         /** The stamp against the 11sp request it follows: 10sp. */
         internal const val STAMP_SCALE = 10f / 11f
-
-        /** A code can hold kilobytes; the dialog shows enough to recognise it by. */
 
         internal fun promptLine(
             prompt: String,

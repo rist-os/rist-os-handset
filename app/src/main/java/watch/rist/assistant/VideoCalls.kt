@@ -104,9 +104,24 @@ object VideoCalls {
         LINK.findAll(text).map { m ->
             val raw = m.value.trimEnd('.', ',', ')', ']', '!', '?', ';', ':', '"', '\'', '>')
             if (raw.startsWith("http", ignoreCase = true)) raw else "https://$raw"
-        }.firstOrNull { classify(it, ristHost) != null }
+        }.firstOrNull { classify(it, ristHost) != null && isMeetingPath(it) }
 
-    private val LINK = Regex("""(?i)\b(?:https?://)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?:/\S*)?""")
+    // Not after "@" or a dot: bob@zoom.us is an address, not a link.
+    private val LINK = Regex("""(?i)(?<![@\w.])(?:https?://)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?:/\S*)?""")
+
+    /** The page of a meeting, not the service's home, download or sign-in page. */
+    internal fun isMeetingPath(url: String): Boolean {
+        val u = url.trim().toHttpUrlOrNull() ?: return false
+        val path = u.encodedPath.lowercase()
+        return when (EXACT_HOSTS[u.host.lowercase()]) {
+            Provider.MEET -> Regex("""/[a-z]{3}-[a-z]{4}-[a-z]{3}/?""").matches(path) ||
+                path.startsWith("/lookup/")
+            Provider.TEAMS -> "meetup-join" in path || path.startsWith("/meet/")
+            else -> if (u.host.lowercase().endsWith(ZOOM_SUFFIX) || u.host.lowercase() == "zoom.us")
+                Regex("""/(j|w|wc|my|s)/.+""").matches(path)
+            else path.startsWith(RIST_PATH) && path.length > RIST_PATH.length
+        }
+    }
 
     /**
      * What the page reports about its call, polled by the call browser. A call is over once it
@@ -199,13 +214,16 @@ object VideoCalls {
     fun onCommand(ctx: Context, cmd: VideoCallCommand) {
         when (cmd.action.trim().lowercase()) {
             ACTION_END -> end()
-            ACTION_JOIN -> join(ctx, cmd.url, cmd.originalUrl, cmd.title, cmd.provider)
+            ACTION_JOIN -> join(ctx, cmd.url, cmd.originalUrl, cmd.title, cmd.provider, fromAssistant = true)
             else -> Log.w(TAG, "unknown video call action; ignored")
         }
     }
 
     /** Puts the join screen up. Returns false for an address the call browser will not load. */
-    fun join(ctx: Context, url: String, originalUrl: String, title: String, providerWire: String): Boolean {
+    fun join(
+        ctx: Context, url: String, originalUrl: String, title: String, providerWire: String,
+        fromAssistant: Boolean = false,
+    ): Boolean {
         val host = ristHost(Config.backendUrl(ctx))
         val byHost = classify(url, host)
         if (byHost == null) {
@@ -222,6 +240,8 @@ object VideoCalls {
             .putExtra(VideoCallJoinActivity.EXTRA_TITLE, title.take(TITLE_MAX))
             // The HOST picks the handling, not the label sent with it: the host is what was checked.
             .putExtra(VideoCallJoinActivity.EXTRA_PROVIDER, byHost.name)
+            // Only a command's own link may skip Rist's lobby; a texted or scanned one may not.
+            .putExtra(VideoCallJoinActivity.EXTRA_FROM_ASSISTANT, fromAssistant)
         return runCatching { ctx.startActivity(intent); true }
             .onFailure { Log.w(TAG, "could not show the join screen", it) }
             .getOrDefault(false)

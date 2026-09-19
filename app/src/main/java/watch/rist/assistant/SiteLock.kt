@@ -14,8 +14,6 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
  */
 object SiteLock {
 
-    /** After the first page has drawn, this long without a touch also ends the landing chain. */
-    internal const val LANDING_GRACE_MS = 8_000L
 
     /**
      * What a scanned code opens, or null when it is not a web link. Always https: the phone
@@ -57,15 +55,14 @@ object SiteLock {
 
     /**
      * One visit. The site is not fixed by the scanned link but by where that link LANDS: codes
-     * are routinely short links and trackers that redirect. So until the person first touches
-     * the page (or [LANDING_GRACE_MS] passes with the page drawn) each navigation moves the lock
-     * along with it; from then on it is fixed.
+     * are routinely short links and trackers that redirect. So until the first page is drawn, or
+     * the person touches it, each navigation moves the lock along with it; from then on it is
+     * fixed, and nothing the page does later (an ad, a script) can carry the lock elsewhere.
      *
      * Synchronized: the page's own requests are judged on WebView's network thread.
      */
     class Session(private val now: () -> Long = { android.os.SystemClock.elapsedRealtime() }) {
 
-        private val allowed = LinkedHashSet<String>()
         private var landed = false
         private var firstDrawnAt = -1L
 
@@ -74,7 +71,7 @@ object SiteLock {
         var site: String? = null
             private set
 
-        val locked: Boolean @Synchronized get() = landed || (firstDrawnAt >= 0 && now() - firstDrawnAt >= LANDING_GRACE_MS)
+        val locked: Boolean @Synchronized get() = landed || firstDrawnAt >= 0
 
         @Synchronized fun onTouched() { if (site != null) landed = true }
 
@@ -85,9 +82,6 @@ object SiteLock {
             val s = siteOf(url) ?: return
             if (!locked || site == null) site = s
         }
-
-        /** The person chose to let [site] through for the rest of this visit. */
-        @Synchronized fun allow(site: String) { allowed += site.lowercase() }
 
         @Synchronized fun decide(url: String, mainFrame: Boolean, gesture: Boolean): Verdict {
             val lower = url.trim().lowercase()
@@ -100,7 +94,7 @@ object SiteLock {
             val home = site
             return when {
                 home == null || !locked -> Verdict.ALLOW
-                target == home || target in allowed -> Verdict.ALLOW
+                target == home -> Verdict.ALLOW
                 else -> Verdict.LEAVES_SITE
             }
         }

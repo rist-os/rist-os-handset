@@ -169,12 +169,17 @@ object NotificationQueue {
         Config.setNotifications(ctx, encode(trim(list)))
     }
 
+    // The wake loop and a turn both read-modify-write the store; one at a time, or a save
+    // from a stale read drops the other's notice.
+    private val lock = Any()
+
     // The persist half of "persist, then ack"; nothing is acked here.
     fun store(ctx: Context, wire: List<rist.v1.Notification>) {
         if (wire.isEmpty()) return
         val nowMs = System.currentTimeMillis()
-        val merged = upsert(load(ctx), fromWire(wire, nowMs))
-        save(ctx, merged)
+        val merged = synchronized(lock) {
+            upsert(load(ctx), fromWire(wire, nowMs)).also { save(ctx, it) }
+        }
         // Ids and counts only. The TITLE carries a correspondent's name and never goes to logcat.
         Log.i(TAG, "stored ${wire.size} notification(s); ${merged.size} held, " +
             "${pendingAcks(merged).size} awaiting ack")
@@ -197,7 +202,7 @@ object NotificationQueue {
 
     fun markAcked(ctx: Context, ids: Collection<String>) {
         if (ids.isEmpty()) return
-        save(ctx, markAcked(load(ctx), ids))
+        synchronized(lock) { save(ctx, markAcked(load(ctx), ids)) }
     }
 
     // Called on every response, including zeros; the repaint is gated on the value changing.
