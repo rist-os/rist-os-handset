@@ -1,7 +1,10 @@
 package watch.rist.assistant
 
+import kotlin.math.cos
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sin
 
 // Tiles and frames may arrive at 1x or 2x pixel density; everything here works in the 1x units.
 internal object MapGeometry {
@@ -19,6 +22,55 @@ internal object MapGeometry {
         val l = ((tx - utx) * TILE_WORLD_PX).toFloat()
         val t = ((ty - uty) * TILE_WORLD_PX).toFloat()
         out[0] = l; out[1] = t; out[2] = l + bmpW * k; out[3] = t + bmpH * k
+    }
+
+    // Screen = (cx, cy) + rotate(-headingDeg) * scale * world; out is an android.graphics.Matrix value array.
+    fun tileMatrixValues(tx: Int, ty: Int, utx: Double, uty: Double, bmpW: Int, bmpH: Int,
+                         scale: Float, headingDeg: Float, cx: Float, cy: Float, out: FloatArray) {
+        val k = tileDrawScale(bmpW)
+        val l = ((tx - utx) * TILE_WORLD_PX).toFloat(); val t = ((ty - uty) * TILE_WORLD_PX).toFloat()
+        val a = Math.toRadians(-headingDeg.toDouble()); val ca = cos(a); val sa = sin(a)
+        out[0] = (scale * k * ca).toFloat(); out[1] = (-scale * k * sa).toFloat()
+        out[2] = (cx + scale * (ca * l - sa * t)).toFloat()
+        out[3] = (scale * k * sa).toFloat(); out[4] = (scale * k * ca).toFloat()
+        out[5] = (cy + scale * (sa * l + ca * t)).toFloat()
+        out[6] = 0f; out[7] = 0f; out[8] = 1f
+    }
+
+    // Inverse of the draw transform: screen point -> fractional tile coordinate.
+    fun screenToTile(sx: Double, sy: Double, utx: Double, uty: Double, scale: Float, headingDeg: Float,
+                     cx: Float, cy: Float, out: DoubleArray) {
+        val a = Math.toRadians(-headingDeg.toDouble()); val ca = cos(a); val sa = sin(a)
+        val dx = (sx - cx) / scale; val dy = (sy - cy) / scale
+        out[0] = utx + (ca * dx + sa * dy) / TILE_WORLD_PX
+        out[1] = uty + (-sa * dx + ca * dy) / TILE_WORLD_PX
+    }
+
+    // out = {minTx, minTy, maxTx, maxTy}: the tile-aligned bounding box of the screen in tile space.
+    fun visibleTileRange(utx: Double, uty: Double, viewW: Int, viewH: Int, scale: Float, headingDeg: Float,
+                         cx: Float, cy: Float, out: IntArray) {
+        val a = Math.toRadians(-headingDeg.toDouble()); val ca = cos(a); val sa = sin(a)
+        var x0 = Double.MAX_VALUE; var y0 = Double.MAX_VALUE; var x1 = -Double.MAX_VALUE; var y1 = -Double.MAX_VALUE
+        for (i in 0..3) {
+            val dx = ((if (i and 1 == 0) 0 else viewW) - cx).toDouble() / scale
+            val dy = ((if (i < 2) 0 else viewH) - cy).toDouble() / scale
+            val px = utx + (ca * dx + sa * dy) / TILE_WORLD_PX; val py = uty + (-sa * dx + ca * dy) / TILE_WORLD_PX
+            x0 = min(x0, px); y0 = min(y0, py); x1 = max(x1, px); y1 = max(y1, py)
+        }
+        out[0] = floor(x0).toInt(); out[1] = floor(y0).toInt(); out[2] = floor(x1).toInt(); out[3] = floor(y1).toInt()
+    }
+
+    // With visibleTileRange this is the full separating-axis test between the tile and the screen.
+    fun tileOnScreen(tx: Int, ty: Int, utx: Double, uty: Double, viewW: Int, viewH: Int, scale: Float,
+                     headingDeg: Float, cx: Float, cy: Float): Boolean {
+        val a = Math.toRadians(-headingDeg.toDouble()); val ca = cos(a); val sa = sin(a)
+        var x0 = Double.MAX_VALUE; var y0 = Double.MAX_VALUE; var x1 = -Double.MAX_VALUE; var y1 = -Double.MAX_VALUE
+        for (i in 0..3) {
+            val wx = (tx + (i and 1) - utx) * TILE_WORLD_PX; val wy = (ty + (i shr 1) - uty) * TILE_WORLD_PX
+            val sx = cx + scale * (ca * wx - sa * wy); val sy = cy + scale * (sa * wx + ca * wy)
+            x0 = min(x0, sx); y0 = min(y0, sy); x1 = max(x1, sx); y1 = max(y1, sy)
+        }
+        return x1 >= 0.0 && y1 >= 0.0 && x0 <= viewW && y0 <= viewH
     }
 
     fun panTiles(deltaScreenPx: Float, screenScale: Float): Double = deltaScreenPx / screenScale / TILE_WORLD_PX
@@ -43,6 +95,12 @@ internal object MapGeometry {
 
     fun georefSize(protoPx: Int, bmpPx: Int, fallback: Int): Int =
         if (protoPx > 0) protoPx else if (bmpPx > 0) bmpPx else fallback
+
+    // out = {width, height} of the georeferenced frame; tilePx is the width, tilePxH the height.
+    fun frameGeoSize(tilePx: Int, tilePxH: Int, bmpW: Int, bmpH: Int, out: IntArray) {
+        out[0] = georefSize(tilePx, bmpW, BASE_FRAME_W)
+        out[1] = georefSize(tilePxH, bmpH, BASE_FRAME_H)
+    }
 
     // px/py are in the georeferenced image's pixels (geoW x geoH); returns true if on the frame.
     fun frameToScreen(px: Double, py: Double, geoW: Int, geoH: Int, dst: FloatArray, out: FloatArray): Boolean {

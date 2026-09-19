@@ -2,9 +2,14 @@ package watch.rist.assistant
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.floor
+import kotlin.math.hypot
 import kotlin.math.ln
+import kotlin.math.sin
 import kotlin.math.tan
 
 class MapGeometryTest {
@@ -75,6 +80,95 @@ class MapGeometryTest {
         MapGeometry.frameToScreen(sdPx[0], sdPx[1], 240, 320, sdDst, sdOut)
         MapGeometry.frameToScreen(hdPx[0], hdPx[1], 480, 640, hdDst, hdOut)
         assertArrayEquals(sdOut, hdOut, 1e-2f)
+    }
+
+    @Test
+    fun frameDensity_floorsTheWidthRatio() {
+        val want = mapOf(239 to 1, 240 to 1, 300 to 1, 479 to 1, 480 to 2, 481 to 2, 640 to 2)
+        for ((w, d) in want) assertEquals("width $w", d, MapGeometry.frameDensity(w))
+        val out = FloatArray(4)
+        assertEquals(3, MapGeometry.frameLayout(1080f, 2400f, 300, 300, out))
+        assertArrayEquals(floatArrayOf(90f, 750f, 990f, 1650f), out, 1e-3f)
+    }
+
+    @Test
+    fun frameGeoSize_keepsWidthAndHeightApart() {
+        val out = IntArray(2)
+        MapGeometry.frameGeoSize(480, 640, 480, 640, out); assertArrayEquals(intArrayOf(480, 640), out)
+        MapGeometry.frameGeoSize(360, 0, 480, 640, out); assertArrayEquals(intArrayOf(360, 640), out)
+        MapGeometry.frameGeoSize(0, 0, 480, 640, out); assertArrayEquals(intArrayOf(480, 640), out)
+        MapGeometry.frameGeoSize(0, 0, 0, 0, out); assertArrayEquals(intArrayOf(240, 320), out)
+    }
+
+    private fun apply(m: FloatArray, x: Float, y: Float) =
+        floatArrayOf(m[0] * x + m[1] * y + m[2], m[3] * x + m[4] * y + m[5])
+
+    @Test
+    fun tileMatrix_drawsSdAndHdTilesOntoTheSameScreenQuad() {
+        val sd = FloatArray(9); val hd = FloatArray(9)
+        for (heading in listOf(0f, 37f, 90f, 181f)) for (scale in listOf(1.8f, 0.72f, 7.2f)) {
+            MapGeometry.tileMatrixValues(11, 19, 10.37, 20.81, 256, 256, scale, heading, 540f, 1440f, sd)
+            MapGeometry.tileMatrixValues(11, 19, 10.37, 20.81, 512, 512, scale, heading, 540f, 1440f, hd)
+            for ((u, v) in listOf(0f to 0f, 1f to 0f, 0f to 1f, 1f to 1f)) {
+                assertArrayEquals(apply(sd, 256f * u, 256f * v), apply(hd, 512f * u, 512f * v), 1e-2f)
+            }
+        }
+    }
+
+    @Test
+    fun tileMatrix_matchesTheRouteProjection() {
+        val m = FloatArray(9)
+        val utx = 10.37; val uty = 20.81; val scale = 1.8f; val heading = 45f; val cx = 540f; val cy = 1440f
+        MapGeometry.tileMatrixValues(11, 21, utx, uty, 512, 512, scale, heading, cx, cy, m)
+        val a = Math.toRadians(-heading.toDouble())
+        for ((u, v) in listOf(0 to 0, 512 to 0, 0 to 512, 512 to 512, 256 to 128)) {
+            val wx = (11 + u / 512.0 - utx) * 256.0; val wy = (21 + v / 512.0 - uty) * 256.0
+            val want = floatArrayOf((cx + (wx * cos(a) - wy * sin(a)) * scale).toFloat(),
+                (cy + (wx * sin(a) + wy * cos(a)) * scale).toFloat())
+            assertArrayEquals(want, apply(m, u.toFloat(), v.toFloat()), 1e-2f)
+        }
+    }
+
+    private fun visibleTiles(utx: Double, uty: Double, w: Int, h: Int, scale: Float, heading: Float,
+                             cx: Float, cy: Float): Set<Pair<Int, Int>> {
+        val r = IntArray(4); val out = HashSet<Pair<Int, Int>>()
+        MapGeometry.visibleTileRange(utx, uty, w, h, scale, heading, cx, cy, r)
+        for (ty in r[1]..r[3]) for (tx in r[0]..r[2])
+            if (MapGeometry.tileOnScreen(tx, ty, utx, uty, w, h, scale, heading, cx, cy)) out.add(tx to ty)
+        return out
+    }
+
+    @Test
+    fun visibleTiles_coverEveryScreenPixelAndBeatTheOldWindow() {
+        val w = 1080; val h = 2400; val cx = w / 2f; val cy = h * 0.60f
+        val utx = 2625.37; val uty = 5720.81
+        val p = DoubleArray(2)
+        for (heading in listOf(0f, 45f, 90f, 180f)) for (zoom in listOf(0.4f, 1f, 4f)) {
+            val scale = 1.8f * zoom
+            val sel = visibleTiles(utx, uty, w, h, scale, heading, cx, cy)
+            val hit = HashSet<Pair<Int, Int>>()
+            for (sy in (0..h step 6) + h) for (sx in (0..w step 6) + w) {
+                MapGeometry.screenToTile(sx.toDouble(), sy.toDouble(), utx, uty, scale, heading, cx, cy, p)
+                hit.add(floor(p[0]).toInt() to floor(p[1]).toInt())
+            }
+            val tag = "heading $heading zoom $zoom"
+            assertTrue("$tag missing ${hit - sel}", sel.containsAll(hit))
+            assertTrue("$tag selects ${sel.size} for ${hit.size} on screen", sel.size <= hit.size + 4)
+            val radius = (hypot(w.toDouble(), h.toDouble()) / scale / 256.0).toInt() + 1
+            val oldWindow = (2 * radius + 1) * (2 * radius + 1)
+            assertTrue("$tag ${sel.size} vs $oldWindow", sel.size * 3 < oldWindow)
+        }
+    }
+
+    @Test
+    fun screenToTile_invertsTheTileMatrix() {
+        val m = FloatArray(9); val p = DoubleArray(2)
+        for (heading in listOf(0f, 45f, 90f, 180f, 313f)) {
+            MapGeometry.tileMatrixValues(7, 9, 6.5, 8.25, 256, 256, 3.6f, heading, 540f, 1440f, m)
+            val s = apply(m, 64f, 192f)
+            MapGeometry.screenToTile(s[0].toDouble(), s[1].toDouble(), 6.5, 8.25, 3.6f, heading, 540f, 1440f, p)
+            assertEquals(7.25, p[0], 1e-4); assertEquals(9.75, p[1], 1e-4)
+        }
     }
 
     // Mirrors rn_project's north-up branch.

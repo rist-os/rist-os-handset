@@ -76,7 +76,8 @@ class CorridorMapView @JvmOverloads constructor(
     private val tileBytes = HashMap<Long, ByteArray>()
     private var availZooms = intArrayOf()
     private val tileMatrix = Matrix()
-    private val tileRect = FloatArray(4)
+    private val tileMatrixVals = FloatArray(9)
+    private val tileRange = IntArray(4)
     private var routePts = DoubleArray(0)
     private var routeN = 0
     private val routePath = Path()
@@ -86,8 +87,8 @@ class CorridorMapView @JvmOverloads constructor(
     private val routeCasingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFFFFFFFF.toInt(); style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
     }
-    private val tileCache = object : android.util.LruCache<Long, Bitmap>(24) {
-        override fun sizeOf(k: Long, v: Bitmap) = 1
+    private val tileCache = object : android.util.LruCache<Long, Bitmap>(TILE_CACHE_BYTES) {
+        override fun sizeOf(k: Long, v: Bitmap) = v.allocationByteCount
         override fun entryRemoved(e: Boolean, k: Long, o: Bitmap, n: Bitmap?) { if (o != n) runCatching { o.recycle() } }
     }
     private var animStart = 0L
@@ -359,16 +360,14 @@ class CorridorMapView @JvmOverloads constructor(
         val cx = width / 2f; val cy = height * 0.60f
         val scale = TILE_SCREEN_SCALE * (if (manual) manualZoomMul else 1f)
         val ang = Math.toRadians(-heading.toDouble()); val ca = cos(ang); val sa = sin(ang)
-        val radius = ((Math.hypot(width.toDouble(), height.toDouble()) / scale) / MapGeometry.TILE_WORLD_PX).toInt() + 1
-        val cxt = utx.toInt(); val cyt = uty.toInt()
-        for (ty in cyt - radius..cyt + radius) for (tx in cxt - radius..cxt + radius) {
+        MapGeometry.visibleTileRange(utx, uty, width, height, scale, heading, cx, cy, tileRange)
+        for (ty in tileRange[1]..tileRange[3]) for (tx in tileRange[0]..tileRange[2]) {
+            if (!tileBytes.containsKey(tileKey(z, tx, ty))) continue
+            if (!MapGeometry.tileOnScreen(tx, ty, utx, uty, width, height, scale, heading, cx, cy)) continue
             val bmp = decodedTile(z, tx, ty) ?: continue
-            MapGeometry.tileWorldRect(tx, ty, utx, uty, bmp.width, bmp.height, tileRect)
-            val k = MapGeometry.tileDrawScale(bmp.width)
-            tileMatrix.setScale(k, k)
-            tileMatrix.postTranslate(tileRect[0], tileRect[1])
-            tileMatrix.postScale(scale, scale); tileMatrix.postRotate(-heading); tileMatrix.postTranslate(cx, cy)
-            canvas.drawBitmap(bmp, tileMatrix, if (k < 1f) hdTilePaint else tilePaint)
+            MapGeometry.tileMatrixValues(tx, ty, utx, uty, bmp.width, bmp.height, scale, heading, cx, cy, tileMatrixVals)
+            tileMatrix.setValues(tileMatrixVals)
+            canvas.drawBitmap(bmp, tileMatrix, if (MapGeometry.tileDrawScale(bmp.width) < 1f) hdTilePaint else tilePaint)
         }
         val tmp = FloatArray(2)
         fun proj(plat: Double, plon: Double) {
@@ -515,6 +514,7 @@ class CorridorMapView @JvmOverloads constructor(
     }
 
     private val projBuf = DoubleArray(2)
+    private val geoBuf = IntArray(2)
     private fun projectToPixel(latDeg: Double, lonDeg: Double, out: FloatArray): Boolean {
         val w = if (activeImgW > 0) activeImgW else 1
         val h = if (activeImgH > 0) activeImgH else 1
@@ -570,8 +570,8 @@ class CorridorMapView @JvmOverloads constructor(
         if (fr != null && bmp != null) {
             applyActiveBounds()
             computeDstRect(bmp)
-            activeImgW = MapGeometry.georefSize(fr.tilePx, bmp.width, MapGeometry.BASE_FRAME_W)
-            activeImgH = MapGeometry.georefSize(fr.tilePxH, bmp.height, MapGeometry.BASE_FRAME_H)
+            MapGeometry.frameGeoSize(fr.tilePx, fr.tilePxH, bmp.width, bmp.height, geoBuf)
+            activeImgW = geoBuf[0]; activeImgH = geoBuf[1]
             canvas.drawBitmap(bmp, null, dstRect, if (MapGeometry.frameDensity(bmp.width) > 1) hdTilePaint else tilePaint)
 
             val p = FloatArray(2)
@@ -772,5 +772,6 @@ class CorridorMapView @JvmOverloads constructor(
         private const val MANEUVER_SWITCH_M = 200.0
         private const val MANUAL_TIMEOUT_MS = 8000L
         private const val BITMAP_CACHE = 6
+        private const val TILE_CACHE_BYTES = 32 * 1024 * 1024
     }
 }
