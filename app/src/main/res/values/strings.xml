@@ -47,8 +47,11 @@
     <string name="call_leave_and_join">Leave and join</string>
     <string name="call_cancel">Cancel</string>
     <string name="call_hang_up">Hang up</string>
-    <string name="call_speaker_on">Speaker on</string>
-    <string name="call_speaker_off">Speaker off</string>
+    <string name="call_camera_allowed">Camera on</string>
+    <string name="call_camera_blocked">Camera off</string>
+    <string name="call_mic_allowed">Mic on</string>
+    <string name="call_mic_blocked">Mic off</string>
+    <string name="call_invite_ready">Invitation ready — tap to send it</string>
     <string name="call_failed">The call could not be opened.</string>
     <string name="camera_scan_hint">POINT AT\nA QR CODE</string>
     <string name="qr_open_title">Open this site?</string>

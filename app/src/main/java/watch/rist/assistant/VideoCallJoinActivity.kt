@@ -62,9 +62,25 @@ class VideoCallJoinActivity : AppCompatActivity() {
         d = resources.displayMetrics.density
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
+        show()
+    }
+
+    /** A second join while this screen is up replaces it, silently: the newest command wins. */
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        show()
+    }
+
+    private fun show() {
         val provider = provider()
         if (provider == null || intent.getStringExtra(EXTRA_URL).isNullOrBlank()) { finish(); return }
+        // Outside services have their own camera and microphone switches on their own pre-join
+        // page; a native switch that denied the permission would contradict them. Always on.
+        cameraOn = true
+        micOn = true
         setContentView(build(provider, intent.getStringExtra(EXTRA_TITLE).orEmpty().trim()))
+        timeout.removeCallbacks(cancelForSilence)
         timeout.postDelayed(cancelForSilence, TIMEOUT_MS)
     }
 
@@ -127,19 +143,27 @@ class VideoCallJoinActivity : AppCompatActivity() {
         }
 
         val replacing = VideoCalls.isOpen()
-        root.addView(text(provider.label.uppercase(), 14f, Themes.readableMuted(theme)).apply { letterSpacing = 0.1f })
-        root.addView(text(title.ifEmpty { getString(R.string.call_untitled) }, 30f, theme.ink).apply {
-            setPadding(0, (6 * d).toInt(), 0, (10 * d).toInt())
+        // The service and the host come from what was checked; the title is whatever a calendar
+        // entry or an email said, so it is plain text, under them, never in their place.
+        root.addView(text(provider.label, 30f, theme.ink))
+        val host = intent.getStringExtra(EXTRA_URL)?.let { android.net.Uri.parse(it).host }.orEmpty()
+        if (host.isNotEmpty()) root.addView(text(host, 13f, Themes.readableMuted(theme)).apply {
+            setPadding(0, (2 * d).toInt(), 0, 0)
+        })
+        if (title.isNotEmpty()) root.addView(text(title.take(VideoCalls.TITLE_MAX), 20f, theme.ink).apply {
+            setPadding(0, (12 * d).toInt(), 0, 0)
         })
         root.addView(
             text(
                 getString(if (replacing) R.string.call_join_replace else R.string.call_join_note),
                 16f, if (replacing) theme.accent else Themes.readableMuted(theme),
-            ).apply { setPadding(0, 0, 0, (22 * d).toInt()) }
+            ).apply { setPadding(0, (14 * d).toInt(), 0, (22 * d).toInt()) }
         )
 
-        root.addView(toggle(R.string.call_camera, { cameraOn }) { cameraOn = !cameraOn })
-        root.addView(toggle(R.string.call_microphone, { micOn }) { micOn = !micOn })
+        if (provider == VideoCalls.Provider.RIST) {
+            root.addView(toggle(R.string.call_camera, { cameraOn }) { cameraOn = !cameraOn })
+            root.addView(toggle(R.string.call_microphone, { micOn }) { micOn = !micOn })
+        }
 
         val actions = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL

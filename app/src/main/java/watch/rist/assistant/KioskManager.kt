@@ -76,6 +76,9 @@ object KioskManager {
             Manifest.permission.READ_CALL_LOG,
             Manifest.permission.READ_CONTACTS,
             Manifest.permission.ADD_VOICEMAIL,
+            // Video calls: a kiosk cannot count on a runtime dialog, and a call page that is
+            // refused a headset or a microphone fails without a word (video_calls.md 5.4).
+            Manifest.permission.BLUETOOTH_CONNECT,
         )
         for (p in perms) {
             runCatching {

@@ -88,7 +88,46 @@ class VideoCallJoinTest {
     }
 
     @Test
-    fun `a call command in a reply is applied after any message it arrives with`() {
+    fun `with a confirmation, the join screen waits for the answer, and comes either way`() {
+        val reply = rist.v1.DeviceResponse.newBuilder().setRequestId("vc-confirm")
+            .setConfirm(rist.v1.ConfirmRequest.newBuilder().setActionId("a1").setPrompt("Email Sarah the link?"))
+            .setVideoCall(join("https://app.zoom.us/wc/123/join")).build()
+        assertTrue(DeviceCommands.handle(ctx, reply))
+        assertNull(shadowOf(app).nextStartedActivity)
+        // Answered (yes or no, it does not matter here): now the join screen.
+        VideoCalls.releaseDeferred(ctx)
+        assertEquals(VideoCallJoinActivity::class.java.name, shadowOf(app).nextStartedActivity.component?.className)
+        VideoCalls.releaseDeferred(ctx)
+        assertNull(shadowOf(app).nextStartedActivity)
+    }
+
+    @Test
+    fun `the join screen goes up first, so the composer lands on top of it`() {
+        val reply = rist.v1.DeviceResponse.newBuilder().setRequestId("vc-sms")
+            .setComms(rist.v1.CommsCommand.newBuilder().setAction("sms").setNumber("+15551230000").setBody("https://x/c/1"))
+            .setVideoCall(join("https://app.zoom.us/wc/123/join")).build()
+        assertTrue(DeviceCommands.handle(ctx, reply))
+        // Robolectric hands back the most recent start first: the composer, on top, then the join
+        // screen underneath it.
+        assertEquals(android.content.Intent.ACTION_SENDTO, shadowOf(app).nextStartedActivity.action)
+        assertEquals(VideoCallJoinActivity::class.java.name, shadowOf(app).nextStartedActivity.component?.className)
+    }
+
+    @Test
+    fun `a second join replaces the join screen instead of stacking another`() {
+        VideoCalls.join(ctx, "https://app.zoom.us/wc/1/join", "", "", "zoom")
+        val flags = shadowOf(app).nextStartedActivity.flags
+        assertTrue(flags and android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP != 0)
+    }
+
+    @Test
+    fun `a title is cut to the length the join screen shows`() {
+        VideoCalls.join(ctx, "https://app.zoom.us/wc/1/join", "", "x".repeat(300), "zoom")
+        assertEquals(VideoCalls.TITLE_MAX, shadowOf(app).nextStartedActivity.getStringExtra(VideoCallJoinActivity.EXTRA_TITLE)!!.length)
+    }
+
+    @Test
+    fun `a call command delivered twice opens one join screen`() {
         val reply = rist.v1.DeviceResponse.newBuilder().setRequestId("vc-1")
             .setVideoCall(join("https://app.zoom.us/wc/123/join")).build()
         assertTrue(DeviceCommands.handle(ctx, reply))

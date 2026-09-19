@@ -24,7 +24,21 @@ class VideoCallsTest {
         assertEquals(Provider.TEAMS, VideoCalls.classify("https://teams.microsoft.com/l/meetup-join/x", rist))
         assertEquals(Provider.TEAMS, VideoCalls.classify("https://teams.live.com/meet/123", rist))
         assertEquals(Provider.RIST, VideoCalls.classify("https://api.example.net/c/abcdef", rist))
-        assertEquals(Provider.RIST, VideoCalls.classify("https://api.example.net/call-assets/call.js", rist))
+        // Microsoft is moving Teams on the web here; a meeting can redirect through it.
+        assertEquals(Provider.TEAMS, VideoCalls.classify("https://teams.cloud.microsoft/v2/", rist))
+    }
+
+    @Test
+    fun `outside services are judged by host alone, so their pages can move between paths`() {
+        assertEquals(Provider.TEAMS, VideoCalls.classify("https://teams.microsoft.com/dl/launcher/launcher.html", rist))
+        assertEquals(Provider.ZOOM, VideoCalls.classify("https://app.zoom.us/wc/leave", rist))
+        assertEquals(Provider.MEET, VideoCalls.classify("https://meet.google.com/", rist))
+    }
+
+    @Test
+    fun `a backslash is a slash, as the engine reads it`() {
+        // To a browser this is evil.com with a path, not a host under zoom.us.
+        assertNull(VideoCalls.classify("https://evil.com\\.zoom.us/j/1", rist))
     }
 
     @Test
@@ -44,6 +58,8 @@ class VideoCallsTest {
         assertNull(VideoCalls.classify("https://api.example.net/v1/device", rist))
         assertNull(VideoCalls.classify("https://api.example.net/", rist))
         assertNull(VideoCalls.classify("https://api.example.net/c", rist))
+        // The call page's scripts load as subresources; the main frame is never there.
+        assertNull(VideoCalls.classify("https://api.example.net/call-assets/call.js", rist))
         // With no backend configured there is no Rist host at all.
         assertNull(VideoCalls.classify("https://api.example.net/c/abcdef", null))
         assertEquals("api.example.net", VideoCalls.ristHost("https://api.example.net/v1/device"))
@@ -116,6 +132,16 @@ class VideoCallsTest {
         val with = DeviceProfile.capabilities(1080, 2424, videoCalls = true)
         assertTrue(VideoCalls.COMPONENT in with.componentsList)
         assertEquals(15, with.schemaVersion)
+    }
+
+    @Test
+    fun `capture goes only to the main frame's own origin`() {
+        val main = "https://meet.google.com/abc-defg-hij"
+        assertTrue(CallBrowserActivity.sameOrigin("https://meet.google.com/", main))
+        assertFalse(CallBrowserActivity.sameOrigin("https://accounts.google.com/", main))
+        assertFalse(CallBrowserActivity.sameOrigin("http://meet.google.com/", main))
+        assertFalse(CallBrowserActivity.sameOrigin("https://meet.google.com:8443/", main))
+        assertFalse(CallBrowserActivity.sameOrigin("null", main))
     }
 
     @Test

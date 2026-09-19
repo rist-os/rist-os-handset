@@ -6,14 +6,8 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.media.AudioAttributes
-import android.media.AudioDeviceInfo
-import android.media.AudioFocusRequest
-import android.media.AudioManager
 import android.net.http.SslError
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.os.PowerManager
 import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
@@ -43,12 +37,19 @@ import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.webkit.ProfileStore
+import androidx.webkit.UserAgentMetadata
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.io.ByteArrayInputStream
 
 /**
- * The call browser (video_calls.md section 5): a web view that can be on a meeting page and
- * nowhere else. No address bar, tabs, history, downloads or new windows; the only controls are
- * ours, and hang-up works even when the page does not. Nothing a call stores outlives it.
+ * The call browser (video_calls.md section 5): a web view whose main frame can be on a meeting
+ * page and nowhere else. No address bar, tabs, history, downloads or new windows; the only
+ * controls are ours, and hang-up works even when the page does not, by destroying the view.
+ * Everything the call stores lives in a storage profile of its own, deleted when it closes.
  *
  * Opened only by [VideoCallJoinActivity], after the person's tap.
  */
@@ -62,8 +63,14 @@ class CallBrowserActivity : AppCompatActivity() {
         private const val EXTRA_CAMERA = "watch.rist.assistant.extra.CALL_CAMERA"
         private const val EXTRA_MIC = "watch.rist.assistant.extra.CALL_MIC"
 
-        /** How long Rist's "this link is no longer valid" page stays up before the browser closes. */
-        private const val DEAD_LINK_SHOWN_MS = 4_000L
+        /**
+         * The call's own storage. The QR browser shares this process and its default storage, so
+         * wiping the default store would wipe it too; a profile is separate and deleted whole.
+         */
+        internal const val PROFILE = "rist-call"
+
+        /** Tells Rist's call page the join tap already happened. A link cannot set a header. */
+        internal const val HEADER_CALL_BROWSER = "X-Rist-Call-Browser"
 
         fun intent(
             ctx: Context, url: String, originalUrl: String, provider: VideoCalls.Provider,
@@ -76,9 +83,8 @@ class CallBrowserActivity : AppCompatActivity() {
             .putExtra(EXTRA_MIC, mic)
 
         /**
-         * A page may use the camera and microphone and nothing else, and only what the person
-         * left switched on. Denying the permission is the one switch a page cannot ignore, so
-         * the toggles are enforced here and not left to the page's goodwill.
+         * A page may use the camera and microphone and nothing else, and only what is switched
+         * on. Denying the permission is the one switch a page cannot ignore.
          */
         internal fun grantable(requested: Array<String>, camera: Boolean, mic: Boolean): Array<String> =
             requested.filter {
@@ -86,9 +92,16 @@ class CallBrowserActivity : AppCompatActivity() {
                     (it == PermissionRequest.RESOURCE_AUDIO_CAPTURE && mic)
             }.toTypedArray()
 
+        /** Capture goes only to the page the call is on, never to a frame from somewhere else. */
+        internal fun sameOrigin(origin: String, mainFrameUrl: String): Boolean {
+            val a = origin.trim().toHttpUrlOrNull() ?: return false
+            val b = mainFrameUrl.trim().toHttpUrlOrNull() ?: return false
+            return a.scheme == b.scheme && a.host.equals(b.host, ignoreCase = true) && a.port == b.port
+        }
+
         /**
-         * Keeps hold of the streams the page opens, so that the phone can silence them when a
-         * cellular call arrives or the screen locks. It passes everything through unchanged.
+         * Keeps hold of the streams the page opens, so a cellular call can silence them. It hands
+         * every stream back unchanged; nothing else on the page is touched.
          */
         internal const val TRACKS_JS =
             "(function(){if(window.__ristCall)return;var s=[];window.__ristCall={set:function(k,on){" +
@@ -100,24 +113,26 @@ class CallBrowserActivity : AppCompatActivity() {
     private var web: WebView? = null
     private var provider = VideoCalls.Provider.OTHER
     private var ristHost: String? = null
-    private var firstUrl = ""
+    private var mainFrameUrl = ""
     private var fallbackUrl = ""
     private var triedFallback = false
     private var closing = false
+    private var usesProfile = false
+    private var startScriptInstalled = false
 
+    // Only a Rist call's toggles are ours; Meet, Zoom and Teams keep their own and get both.
     private var cameraOn = true
     private var micOn = true
-    private var speakerOn = false
     private var phoneCallActive = false
 
     private lateinit var theme: RistTheme
     private var tf: Typeface? = null
     private var d = 1f
-    private lateinit var speakerButton: TextView
+    private lateinit var banner: TextView
+    private var cameraButton: TextView? = null
+    private var micButton: TextView? = null
 
-    private val main = Handler(Looper.getMainLooper())
     private var wakeLock: PowerManager.WakeLock? = null
-    private var focus: AudioFocusRequest? = null
     private var phoneListener: TelephonyCallback? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -130,8 +145,10 @@ class CallBrowserActivity : AppCompatActivity() {
         ristHost = VideoCalls.ristHost(Config.backendUrl(this))
         provider = runCatching { VideoCalls.Provider.valueOf(intent.getStringExtra(EXTRA_PROVIDER).orEmpty()) }
             .getOrDefault(VideoCalls.Provider.OTHER)
-        cameraOn = intent.getBooleanExtra(EXTRA_CAMERA, true)
-        micOn = intent.getBooleanExtra(EXTRA_MIC, true)
+        if (provider == VideoCalls.Provider.RIST) {
+            cameraOn = intent.getBooleanExtra(EXTRA_CAMERA, true)
+            micOn = intent.getBooleanExtra(EXTRA_MIC, true)
+        }
         val url = intent.getStringExtra(EXTRA_URL).orEmpty()
         fallbackUrl = intent.getStringExtra(EXTRA_ORIGINAL_URL).orEmpty()
 
@@ -152,18 +169,21 @@ class CallBrowserActivity : AppCompatActivity() {
 
         VideoCalls.onOpened(this)
         runCatching { OverlayHomeService.setVisible(this, false) }
-        LockedBrowserActivity.forgetEverything(view)
+        isolate(view)
         configure(view)
-        beginAudio()
         watchForPhoneCalls()
         wakeLock = runCatching {
             (getSystemService(Context.POWER_SERVICE) as PowerManager)
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "rist:videocall").apply { acquire(4L * 60 * 60 * 1000) }
         }.getOrNull()
 
-        firstUrl = VideoCalls.loadUrl(url, provider, cameraOn, micOn)
-        view.loadUrl(firstUrl)
-        Log.i(TAG, "call opened (${provider.wire}), camera=$cameraOn mic=$micOn")
+        mainFrameUrl = url
+        val first = VideoCalls.loadUrl(url, provider, cameraOn, micOn)
+        // The header is what lets Rist's page skip its lobby, and only on this first load of a
+        // command's own link: a link in a message can carry a fragment but never a header.
+        if (provider == VideoCalls.Provider.RIST) view.loadUrl(first, mapOf(HEADER_CALL_BROWSER to "1"))
+        else view.loadUrl(first)
+        Log.i(TAG, "call opened (${provider.wire}), own profile=$usesProfile")
     }
 
     /** Leaves the call. Safe to call twice, from any of the ways a call can end. */
@@ -179,33 +199,21 @@ class CallBrowserActivity : AppCompatActivity() {
         hangUp("could not be opened")
     }
 
-    override fun onStart() {
-        super.onStart()
-        // Back from a locked screen: the camera returns only if it was on.
-        if (!phoneCallActive) setTracks("video", cameraOn)
-    }
-
-    override fun onStop() {
-        // Locked: the call's audio carries on, the camera does not. (A page behind a lock
-        // screen filming the room is not something anyone agreed to.)
-        val interactive = (getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
-        if (!isFinishing && !interactive) setTracks("video", false)
-        super.onStop()
-    }
-
     override fun onDestroy() {
-        main.removeCallbacksAndMessages(null)
         VideoCalls.onClosed(this)
         val w = web
         web = null
         if (w != null) {
             runCatching { w.stopLoading() }
             runCatching { w.loadUrl("about:blank") }
-            LockedBrowserActivity.forgetEverything(w)
+            if (!usesProfile) LockedBrowserActivity.forgetEverything(w)
             runCatching { (w.parent as? ViewGroup)?.removeView(w) }
             runCatching { w.destroy() }
         }
-        endAudio()
+        // The whole profile goes, cookies, storage, cache, service workers and permissions alike.
+        // If the engine still holds it, it is deleted before the next call instead.
+        if (usesProfile) runCatching { ProfileStore.getInstance().deleteProfile(PROFILE) }
+            .onFailure { Log.i(TAG, "call profile still in use; it is cleared at the next call") }
         phoneListener?.let { l ->
             runCatching { getSystemService(TelephonyManager::class.java)?.unregisterTelephonyCallback(l) }
         }
@@ -217,30 +225,59 @@ class CallBrowserActivity : AppCompatActivity() {
 
     // --- the page -----------------------------------------------------------------------------
 
+    /** A fresh storage profile for this call, with nothing left in it from the last one. */
+    private fun isolate(view: WebView) {
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+            runCatching {
+                val store = ProfileStore.getInstance()
+                runCatching { store.deleteProfile(PROFILE) }
+                store.getOrCreateProfile(PROFILE)
+                WebViewCompat.setProfile(view, PROFILE)
+                usesProfile = true
+            }.onFailure { Log.w(TAG, "could not give the call its own profile", it) }
+        }
+        if (!usesProfile) {
+            // The engine has no profiles: fall back to wiping the shared store, as the QR browser
+            // already does, so nothing of the call survives it either way.
+            Log.w(TAG, "no multi-profile support; the call uses the shared store and wipes it")
+            LockedBrowserActivity.forgetEverything(view)
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun configure(view: WebView) {
-        view.settings.apply {
-            javaScriptEnabled = true
-            domStorageEnabled = true
-            allowFileAccess = false
-            allowContentAccess = false
-            setGeolocationEnabled(false)
-            setSupportMultipleWindows(false)
-            javaScriptCanOpenWindowsAutomatically = false
-            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            // The other person's voice has to start by itself.
-            mediaPlaybackRequiresUserGesture = false
-            if (provider.desktop) {
-                userAgentString = VideoCalls.desktopUserAgent(WebSettings.getDefaultUserAgent(this@CallBrowserActivity))
-                // A desktop page laid out at desktop width and scaled to the screen.
-                useWideViewPort = true
-                loadWithOverviewMode = true
-                setSupportZoom(true)
-                builtInZoomControls = true
-                displayZoomControls = false
-            }
+        val settings = view.settings
+        settings.javaScriptEnabled = true
+        settings.domStorageEnabled = true
+        settings.allowFileAccess = false
+        settings.allowContentAccess = false
+        settings.setGeolocationEnabled(false)
+        // true, and then refused in onCreateWindow: with false, window.open would navigate the
+        // call's own view instead of being stopped.
+        settings.setSupportMultipleWindows(true)
+        settings.javaScriptCanOpenWindowsAutomatically = false
+        settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+        // Otherwise the other person's voice is blocked on any call not tapped into on the page.
+        settings.mediaPlaybackRequiresUserGesture = false
+        settings.setSupportZoom(true)
+        settings.builtInZoomControls = true
+        settings.displayZoomControls = false
+        // A Rist link is a credential; nothing about visited addresses leaves the phone.
+        runCatching { settings.safeBrowsingEnabled = false }
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
+            // No X-Requested-With: it tells a site it is inside an app.
+            runCatching { WebSettingsCompat.setRequestedWithHeaderOriginAllowList(settings, emptySet()) }
+        }
+        if (provider.desktop) {
+            settings.userAgentString = VideoCalls.desktopUserAgent(WebSettings.getDefaultUserAgent(this))
+            settings.useWideViewPort = true
+            settings.loadWithOverviewMode = true
+            desktopClientHints(settings)
         }
         runCatching { CookieManager.getInstance().setAcceptThirdPartyCookies(view, true) }
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            runCatching { WebViewCompat.addDocumentStartJavaScript(view, TRACKS_JS, setOf("*")); startScriptInstalled = true }
+        }
         // Text selection brings up "Share" and "Web search", which are ways out of the call.
         view.isLongClickable = false
         view.setOnLongClickListener { true }
@@ -249,33 +286,59 @@ class CallBrowserActivity : AppCompatActivity() {
         view.webChromeClient = Chrome()
     }
 
+    /** The user-agent says desktop; without this the Sec-CH-UA-Mobile hint would still say phone. */
+    private fun desktopClientHints(settings: WebSettings) {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) return
+        runCatching {
+            val now = WebSettingsCompat.getUserAgentMetadata(settings)
+            WebSettingsCompat.setUserAgentMetadata(
+                settings,
+                UserAgentMetadata.Builder()
+                    .setBrandVersionList(now.brandVersionList)
+                    .setFullVersion(now.fullVersion)
+                    .setPlatform("Linux")
+                    .setPlatformVersion("")
+                    .setArchitecture("x86")
+                    .setModel("")
+                    .setMobile(false)
+                    .setBitness(64)
+                    .setWow64(false)
+                    .build(),
+            )
+        }.onFailure { Log.w(TAG, "could not set desktop client hints", it) }
+    }
+
     private fun setTracks(kind: String, on: Boolean) {
         runCatching { web?.evaluateJavascript("window.__ristCall&&window.__ristCall.set('$kind',$on);", null) }
     }
 
-    private fun onTopLevel(url: String): VideoCalls.Nav = VideoCalls.navigation(url, ristHost)
+    /** Every report of where the main frame now is comes through here. */
+    private fun onMainFrame(url: String): VideoCalls.Nav {
+        val nav = VideoCalls.navigation(url, ristHost)
+        if (nav == VideoCalls.Nav.ALLOW) mainFrameUrl = url
+        return nav
+    }
 
     private inner class Client : WebViewClient() {
 
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
             val url = request.url.toString()
-            if (!request.isForMainFrame) {
-                // Frames inside a trusted page load what they like over https; an app link
-                // (zoommtg:, msteams:, intent:) is dropped wherever it comes from.
-                return !url.startsWith("https://", ignoreCase = true) && !url.startsWith("about:", ignoreCase = true)
-            }
-            return when (onTopLevel(url)) {
+            // Frames are not filtered: Zoom's captcha and the sign-in frames live in them, and a
+            // filtered frame is a call that never connects. App links are dropped wherever they are.
+            if (!request.isForMainFrame) return !url.startsWith("https://", ignoreCase = true) &&
+                !url.startsWith("about:", ignoreCase = true)
+            return when (onMainFrame(url)) {
                 VideoCalls.Nav.ALLOW -> false
                 VideoCalls.Nav.ENDED -> { hangUp("the call page said it was over"); true }
-                // Silently. Zoom and Teams both try their app first and carry on when it fails.
+                // Silently: Zoom and Teams try their app first and carry on when it fails.
                 VideoCalls.Nav.SWALLOW -> true
             }
         }
 
-        // Form posts skip shouldOverrideUrlLoading; this sees them, before anything is sent.
+        // Form posts and loadUrl skip shouldOverrideUrlLoading; this sees them before anything is sent.
         override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
             if (!request.isForMainFrame) return null
-            return when (onTopLevel(request.url.toString())) {
+            return when (VideoCalls.navigation(request.url.toString(), ristHost)) {
                 VideoCalls.Nav.ALLOW -> null
                 VideoCalls.Nav.ENDED -> { runOnUiThread { hangUp("the call page said it was over") }; empty() }
                 VideoCalls.Nav.SWALLOW -> empty()
@@ -285,16 +348,23 @@ class CallBrowserActivity : AppCompatActivity() {
         private fun empty() = WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
 
         override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
-            when (onTopLevel(url)) {
+            if (url.startsWith("about:")) return
+            when (onMainFrame(url)) {
                 VideoCalls.Nav.ENDED -> { hangUp("the call page said it was over"); return }
-                VideoCalls.Nav.SWALLOW -> if (!url.startsWith("about:")) { view.stopLoading(); return }
+                VideoCalls.Nav.SWALLOW -> { view.stopLoading(); return }
                 VideoCalls.Nav.ALLOW -> Unit
             }
-            view.evaluateJavascript(TRACKS_JS, null)
+            if (!startScriptInstalled) view.evaluateJavascript(TRACKS_JS, null)
         }
 
-        override fun onPageFinished(view: WebView, url: String) {
-            view.evaluateJavascript(TRACKS_JS, null)
+        // Single-page navigations report here and nowhere else.
+        override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
+            if (url.startsWith("about:")) return
+            when (onMainFrame(url)) {
+                VideoCalls.Nav.ENDED -> hangUp("the call page said it was over")
+                VideoCalls.Nav.SWALLOW -> hangUp("the page left the call")
+                VideoCalls.Nav.ALLOW -> Unit
+            }
         }
 
         override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
@@ -305,19 +375,15 @@ class CallBrowserActivity : AppCompatActivity() {
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
             if (!request.isForMainFrame) return
             // A rewritten link is a best guess; the link as the person had it gets one try.
-            if (!triedFallback && fallbackUrl.isNotBlank() && onTopLevel(fallbackUrl) == VideoCalls.Nav.ALLOW) {
+            if (!triedFallback && fallbackUrl.isNotBlank() && VideoCalls.navigation(fallbackUrl, ristHost) == VideoCalls.Nav.ALLOW) {
                 triedFallback = true
                 Log.i(TAG, "the rewritten address failed; trying the original once")
                 view.loadUrl(fallbackUrl)
             } else fail()
         }
 
-        override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
-            // Rist's page for a dead link explains itself; show it briefly, then go.
-            if (request.isForMainFrame && provider == VideoCalls.Provider.RIST && response.statusCode == 404) {
-                main.postDelayed({ hangUp("the call link is no longer valid") }, DEAD_LINK_SHOWN_MS)
-            }
-        }
+        // An expired Rist link, an unreachable server or a full room: the page says why and
+        // stays up with its own Join; it is not a failed load. Hang-up closes it.
 
         override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
             Log.w(TAG, "the call page's renderer went away (crashed=${detail.didCrash()})")
@@ -332,15 +398,21 @@ class CallBrowserActivity : AppCompatActivity() {
     private inner class Chrome : WebChromeClient() {
 
         override fun onPermissionRequest(request: PermissionRequest) {
-            // The page's own origin only: a frame from somewhere else inside it gets nothing.
-            val fromCallPage = VideoCalls.classify(request.origin.toString(), ristHost) != null
-            val grant = if (fromCallPage && !phoneCallActive) grantable(request.resources, cameraOn, micOn) else emptyArray()
+            // Asked again on every getUserMedia, so the answer follows the switches mid-call.
+            val fromCallPage = sameOrigin(request.origin.toString(), mainFrameUrl) &&
+                VideoCalls.classify(mainFrameUrl, ristHost) != null
+            val grant = when {
+                !fromCallPage || phoneCallActive -> emptyArray()
+                provider == VideoCalls.Provider.RIST -> grantable(request.resources, cameraOn, micOn)
+                else -> grantable(request.resources, camera = true, mic = true)
+            }
             if (grant.isEmpty()) request.deny() else request.grant(grant)
         }
 
         override fun onGeolocationPermissionsShowPrompt(origin: String, callback: GeolocationPermissions.Callback) =
             callback.invoke(origin, false, false)
 
+        // Every new window is refused.
         override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message) = false
 
         override fun onShowFileChooser(
@@ -349,52 +421,6 @@ class CallBrowserActivity : AppCompatActivity() {
             callback.onReceiveValue(null)
             return true
         }
-    }
-
-    // --- sound ----------------------------------------------------------------------------------
-
-    /** A call, not a video: earpiece by default, echo cancellation on, headsets honoured. */
-    private fun beginAudio() {
-        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        runCatching {
-            val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build()
-                )
-                .build()
-            am.requestAudioFocus(req)
-            focus = req
-        }
-        runCatching { am.mode = AudioManager.MODE_IN_COMMUNICATION }
-        route(am)
-    }
-
-    private fun route(am: AudioManager) {
-        runCatching {
-            val devices = am.availableCommunicationDevices
-            val headset = devices.firstOrNull {
-                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
-                    it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET || it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
-                    it.type == AudioDeviceInfo.TYPE_USB_HEADSET
-            }
-            val wanted = when {
-                speakerOn -> devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
-                headset != null -> headset
-                else -> devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE }
-            }
-            if (wanted != null) am.setCommunicationDevice(wanted) else am.clearCommunicationDevice()
-        }.onFailure { Log.w(TAG, "could not route the call's audio", it) }
-    }
-
-    private fun endAudio() {
-        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        runCatching { am.clearCommunicationDevice() }
-        runCatching { am.mode = AudioManager.MODE_NORMAL }
-        focus?.let { f -> runCatching { am.abandonAudioFocusRequest(f) } }
-        focus = null
     }
 
     // --- a phone call wins ------------------------------------------------------------------
@@ -417,10 +443,18 @@ class CallBrowserActivity : AppCompatActivity() {
         Log.i(TAG, if (active) "a phone call took over; video call muted" else "phone call over; video call restored")
         setTracks("audio", !active && micOn)
         setTracks("video", !active && cameraOn)
-        if (!active) {
-            val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            runCatching { am.mode = AudioManager.MODE_IN_COMMUNICATION }
-            route(am)
+    }
+
+    // --- the invitation, when it arrives during the call --------------------------------------
+
+    /** Shown as a banner, never over the call. Tapping it opens the composer. */
+    fun offerComposer(compose: Intent) {
+        banner.text = getString(R.string.call_invite_ready)
+        banner.visibility = View.VISIBLE
+        banner.setOnClickListener {
+            banner.visibility = View.GONE
+            runCatching { startActivity(compose.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                .onFailure { Log.w(TAG, "could not open the composer", it) }
         }
     }
 
@@ -440,36 +474,61 @@ class CallBrowserActivity : AppCompatActivity() {
         view.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
         root.addView(view)
 
+        banner = TextView(this).apply {
+            setTextColor(theme.ground); typeface = tf
+            setBackgroundColor(theme.accent)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            gravity = Gravity.CENTER
+            minHeight = (48 * d).toInt()
+            setPadding((16 * d).toInt(), 0, (16 * d).toInt(), 0)
+            isClickable = true; isFocusable = true
+            visibility = View.GONE
+        }
+        root.addView(banner)
+
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding((12 * d).toInt(), (8 * d).toInt(), (12 * d).toInt(), (8 * d).toInt())
         }
-        speakerButton = chromeButton("", filled = false, weight = 1f) {
-            speakerOn = !speakerOn
-            route(getSystemService(Context.AUDIO_SERVICE) as AudioManager)
-            paintSpeaker()
+        if (provider == VideoCalls.Provider.RIST) {
+            // What these change is only what the phone will answer when the page asks; the
+            // page's own camera and mute buttons then do the rest.
+            cameraButton = chromeButton("", filled = false, weight = 1f) {
+                cameraOn = !cameraOn
+                if (!cameraOn) setTracks("video", false)
+                paintToggles()
+            }.also { bar.addView(it) }
+            micButton = chromeButton("", filled = false, weight = 1f) {
+                micOn = !micOn
+                if (!micOn) setTracks("audio", false)
+                paintToggles()
+            }.also {
+                (it.layoutParams as LinearLayout.LayoutParams).marginStart = (8 * d).toInt()
+                bar.addView(it)
+            }
+            paintToggles()
         }
-        paintSpeaker()
-        bar.addView(speakerButton)
         bar.addView(
-            chromeButton(getString(R.string.call_hang_up), filled = true, weight = 2f) { hangUp("hang-up") }
-                .apply { (layoutParams as LinearLayout.LayoutParams).marginStart = (12 * d).toInt() }
+            chromeButton(getString(R.string.call_hang_up), filled = true, weight = 2f) { hangUp("hang-up") }.apply {
+                if (provider == VideoCalls.Provider.RIST) (layoutParams as LinearLayout.LayoutParams).marginStart = (8 * d).toInt()
+            }
         )
         root.addView(bar)
         return root
     }
 
-    private fun paintSpeaker() {
-        speakerButton.text = getString(if (speakerOn) R.string.call_speaker_on else R.string.call_speaker_off)
+    private fun paintToggles() {
+        cameraButton?.text = getString(if (cameraOn) R.string.call_camera_allowed else R.string.call_camera_blocked)
+        micButton?.text = getString(if (micOn) R.string.call_mic_allowed else R.string.call_mic_blocked)
     }
 
     private fun chromeButton(label: String, filled: Boolean, weight: Float, onClick: () -> Unit) = TextView(this).apply {
         text = label
         isAllCaps = true
-        letterSpacing = 0.08f
+        letterSpacing = 0.06f
         typeface = tf
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
         gravity = Gravity.CENTER
         minHeight = (56 * d).toInt()
         setTextColor(if (filled) theme.ground else theme.ink)

@@ -1886,6 +1886,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun sendActionConfirm(actionId: String) {
+        VideoCalls.releaseDeferred(applicationContext)
         val entryId = runCatching { Transcript.begin(this, "(confirmed)", EntryState.WAITING) }.getOrDefault(0L)
         renderTranscript()
         uiScope.launch {
@@ -1971,6 +1972,8 @@ class MainActivity : AppCompatActivity() {
                 pendingActionId = ""; pendingPrompt = ""
                 renderTranscript()
                 status("that confirmation expired — ask again")
+                // A call that waited on this confirmation still exists; only the invitation lapsed.
+                VideoCalls.releaseDeferred(applicationContext)
             }
         }, CONFIRM_TTL_MS)
     }
@@ -1981,6 +1984,8 @@ class MainActivity : AppCompatActivity() {
     private fun commitPending(approved: Boolean) {
         val actionId = pendingActionId
         if (actionId.isBlank()) return
+        // Yes or No, the join screen held behind this confirmation comes up now.
+        VideoCalls.releaseDeferred(applicationContext)
         if (pendingExpired()) {
             pendingActionId = ""; pendingPrompt = ""
             pendingHandler.removeCallbacksAndMessages(null)

@@ -50,18 +50,29 @@ object VideoCalls {
         "zoom.us" to Provider.ZOOM,
         "teams.microsoft.com" to Provider.TEAMS,
         "teams.live.com" to Provider.TEAMS,
+        // Microsoft is moving Teams on the web here during September 2026. The backend never
+        // sends it, but a meeting can redirect to it, and a blocked redirect is a blank page.
+        "teams.cloud.microsoft" to Provider.TEAMS,
     )
     private const val ZOOM_SUFFIX = ".zoom.us"
-    private val RIST_PATHS = listOf("/c/", "/call-assets/")
+    /** Only the call itself. The page's own scripts under /call-assets/ load as subresources. */
+    private const val RIST_PATH = "/c/"
     private const val RIST_ENDED_PATH = "/c/ended"
+
+    /** The join screen shows at most this much of a title a stranger may have written. */
+    const val TITLE_MAX = 80
 
     /** The host Rist's own call pages are served from: the backend this phone talks to. */
     fun ristHost(backendUrl: String): String? = backendUrl.trim().toHttpUrlOrNull()?.host?.lowercase()
 
     /**
-     * Which service a TOP-LEVEL address belongs to, or null when the call browser must not be
+     * Which service a MAIN-FRAME address belongs to, or null when the call browser must not be
      * there. https only, no user name, and a host matched exactly or as a dot-suffix, so that
-     * evilzoom.us is not zoom.us and meet.google.com.evil.example is not Meet.
+     * evilzoom.us is not zoom.us and meet.google.com.evil.example is not Meet. Hosts only for the
+     * three outside services: their pages move between paths during a call.
+     *
+     * Parsed the way the engine parses, never by string suffix: to a browser a backslash is a
+     * slash, so https://evil.com\.zoom.us/ is evil.com, and OkHttp's parser agrees.
      */
     fun classify(url: String, ristHost: String?): Provider? {
         val u = url.trim().toHttpUrlOrNull() ?: return null
@@ -69,7 +80,7 @@ object VideoCalls {
         val host = u.host.lowercase()
         EXACT_HOSTS[host]?.let { return it }
         if (host.endsWith(ZOOM_SUFFIX)) return Provider.ZOOM
-        if (ristHost != null && host == ristHost && RIST_PATHS.any { u.encodedPath.startsWith(it) }) {
+        if (ristHost != null && host == ristHost && u.encodedPath.startsWith(RIST_PATH)) {
             return Provider.RIST
         }
         return null
@@ -115,6 +126,32 @@ object VideoCalls {
 
     @Volatile private var open: WeakReference<CallBrowserActivity>? = null
 
+    /**
+     * A join that arrived with a confirmation ("...and email her the link"). The confirmation
+     * goes first; the join screen follows whichever way it is answered, because the call exists
+     * either way and only the invitation was in question.
+     */
+    @Volatile private var deferred: VideoCallCommand? = null
+
+    fun defer(cmd: VideoCallCommand) { deferred = cmd }
+
+    /** Called once the confirmation that held a join back has been answered or has lapsed. */
+    fun releaseDeferred(ctx: Context) {
+        val cmd = deferred ?: return
+        deferred = null
+        onCommand(ctx, cmd)
+    }
+
+    /**
+     * The composer for an invitation that arrived while a call is open. It waits behind a banner
+     * in the call rather than covering it.
+     */
+    internal fun queueComposer(intent: Intent): Boolean {
+        val a = open?.get()?.takeIf { !it.isFinishing && !it.isDestroyed } ?: return false
+        a.runOnUiThread { a.offerComposer(intent) }
+        return true
+    }
+
     fun isOpen(): Boolean = open?.get()?.let { !it.isFinishing && !it.isDestroyed } == true
 
     internal fun onOpened(a: CallBrowserActivity) { open = WeakReference(a) }
@@ -144,11 +181,13 @@ object VideoCalls {
             Log.w(TAG, "refusing a call link that is not on the list")
             return false
         }
+        // SINGLE_TOP: a second join while the screen is up replaces it silently (a turn re-sent
+        // after a location request brings a fresh one).
         val intent = Intent(ctx, VideoCallJoinActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             .putExtra(VideoCallJoinActivity.EXTRA_URL, url)
             .putExtra(VideoCallJoinActivity.EXTRA_ORIGINAL_URL, originalUrl.takeIf { classify(it, host) != null }.orEmpty())
-            .putExtra(VideoCallJoinActivity.EXTRA_TITLE, title.take(120))
+            .putExtra(VideoCallJoinActivity.EXTRA_TITLE, title.take(TITLE_MAX))
             // The HOST picks the handling, not the label sent with it: the host is what was checked.
             .putExtra(VideoCallJoinActivity.EXTRA_PROVIDER, byHost.name)
         return runCatching { ctx.startActivity(intent); true }

@@ -78,10 +78,15 @@ object DeviceCommands {
         if (reply.hasTimer()) { timer(ctx, reply.timer); handled = true }
         if (reply.hasStopwatch()) { stopwatch(ctx, reply.stopwatch); handled = true }
         if (reply.hasAlarm()) { alarm(ctx, reply.alarm); handled = true }
+        // The join screen is put up BEFORE the composer, so the composer lands on top of it: the
+        // person sends the invitation, and the join screen is what is left underneath
+        // (video_calls.md section 3). With a confirmation, the join waits for the answer.
+        if (reply.hasVideoCall()) {
+            if (reply.hasConfirm() && reply.confirm.actionId.isNotBlank()) VideoCalls.defer(reply.videoCall)
+            else VideoCalls.onCommand(ctx, reply.videoCall)
+            handled = true
+        }
         if (reply.hasComms()) { comms(ctx, reply.comms); handled = true }
-        // After comms, never before: "start a video call with Sarah" carries her invitation and
-        // the call together, and the invitation goes first (video_calls.md section 3).
-        if (reply.hasVideoCall()) { VideoCalls.onCommand(ctx, reply.videoCall); handled = true }
         return handled
     }
 
@@ -267,9 +272,16 @@ object DeviceCommands {
                 }
             }
             "sms" -> {
-                val opened = open(ctx, Intent(Intent.ACTION_SENDTO, android.net.Uri.parse("smsto:$number")).apply {
+                val compose = Intent(Intent.ACTION_SENDTO, android.net.Uri.parse("smsto:$number")).apply {
                     if (c.body.isNotBlank()) putExtra("sms_body", c.body)
-                })
+                }
+                // Never over a live call: it waits behind a banner the person can tap.
+                if (VideoCalls.queueComposer(compose)) {
+                    Log.i(TAG, "comms: composer to $who held behind the call")
+                    CommsResults.record(ctx, c.correlationId, "sms", true, "")
+                    return
+                }
+                val opened = open(ctx, compose)
                 Log.i(TAG, "comms: composing to $who")
                 CommsResults.record(ctx, c.correlationId, "sms", opened,
                     if (opened) "" else "could not open the composer")

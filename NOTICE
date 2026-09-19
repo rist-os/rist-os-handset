@@ -19,7 +19,7 @@ This product includes software and assets from third parties:
 - Protocol Buffers Lite (com.google.protobuf) — BSD 3-Clause
 - AndroidX libraries bundled into the APK — Apache License 2.0:
   core-ktx, appcompat, activity-ktx, constraintlayout, localbroadcastmanager,
-  security-crypto, media3 (exoplayer / session / common)
+  security-crypto, media3 (exoplayer / session / common), webkit
 - Material Components for Android (com.google.android.material) — Apache License 2.0
 - Kotlin standard library and kotlinx-coroutines-android (JetBrains) — Apache License 2.0
 - Navigation deviation-detection thresholds in app/src/main/cpp/ristnav/ follow the
