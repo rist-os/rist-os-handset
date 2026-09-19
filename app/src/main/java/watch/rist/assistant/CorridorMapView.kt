@@ -29,6 +29,8 @@ import kotlin.math.sin
 import kotlin.math.min
 import kotlin.math.tan
 
+internal const val OSM_ATTRIBUTION = "\u00a9 OpenStreetMap contributors"
+
 class CorridorMapView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
@@ -539,6 +541,30 @@ class CorridorMapView @JvmOverloads constructor(
         return out[0].toDouble()
     }
 
+    private val attributionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF3A3A3A.toInt()
+        textSize = 10f * resources.displayMetrics.scaledDensity
+        textAlign = Paint.Align.RIGHT
+    }
+    // Set by drawStatusBar in the same frame; read and cleared by onDrawForeground.
+    private var statusBarTop = -1f
+    private val attributionBg = Paint().apply { color = 0xB3FFFFFF.toInt(); style = Paint.Style.FILL }
+
+    // Every map this view shows is drawn from OpenStreetMap data, and the ODbL makes crediting it
+    // a condition of showing it. Drawn last, over every kind of frame, so no path can leave it off.
+    override fun onDrawForeground(canvas: Canvas) {
+        super.onDrawForeground(canvas)
+        if (width <= 0 || height <= 0) return
+        val pad = 3f * resources.displayMetrics.density
+        val w = attributionPaint.measureText(OSM_ATTRIBUTION)
+        // Above the ETA bar when one is up, so neither covers the other.
+        val floor = statusBarTop.takeIf { it > 0f && it < height } ?: height.toFloat()
+        statusBarTop = -1f
+        val baseline = floor - pad - attributionPaint.descent()
+        canvas.drawRect(width - w - 2 * pad, baseline + attributionPaint.ascent() - pad, width.toFloat(), floor, attributionBg)
+        canvas.drawText(OSM_ATTRIBUTION, width - pad, baseline, attributionPaint)
+    }
+
     override fun onDraw(canvas: Canvas) {
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
         if (tileMode && hasFix) {
@@ -663,6 +689,7 @@ class CorridorMapView @JvmOverloads constructor(
         val s = frameScale.toFloat()
         val barH = 40f * s
         val top = dstRect.bottom - barH
+        statusBarTop = top
         canvas.drawRect(dstRect.left, top, dstRect.right, dstRect.bottom, statusBarPaint)
         statusTextPaint.textSize = 12f * s
         val txt = listOf(statusTime, statusDist, statusEta).filter { it.isNotEmpty() }.joinToString("  ·  ")
