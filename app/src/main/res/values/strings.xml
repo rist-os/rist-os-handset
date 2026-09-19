@@ -53,6 +53,10 @@
     <string name="call_leave_and_join">Leave and join</string>
     <string name="call_cancel">Cancel</string>
     <string name="call_hang_up">Hang up</string>
+    <string name="call_leave_ask">Leave the call?</string>
+    <string name="call_leave">Leave</string>
+    <string name="call_stay">Stay</string>
+    <string name="call_join_from_text">Join call</string>
     <string name="call_camera_allowed">Camera on</string>
     <string name="call_camera_blocked">Camera off</string>
     <string name="call_mic_allowed">Mic on</string>

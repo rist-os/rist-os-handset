@@ -149,4 +149,24 @@ class VideoCallsTest {
         assertEquals(Provider.OTHER, VideoCalls.provider("webex"))
         assertEquals(Provider.ZOOM, VideoCalls.provider(" Zoom "))
     }
+
+    @Test
+    fun `a meeting link is found in a text, bare or in full, and nothing else is`() {
+        val rist = "rist.example"
+        assertEquals("https://meet.google.com/ari-frsk-xzk",
+            VideoCalls.meetingLinkIn("Join me: meet.google.com/ari-frsk-xzk.", rist))
+        assertEquals("https://us02web.zoom.us/j/123?pwd=abc",
+            VideoCalls.meetingLinkIn("see https://example.com then https://us02web.zoom.us/j/123?pwd=abc", rist))
+        assertEquals(null, VideoCalls.meetingLinkIn("lunch at noon? example.com/menu", rist))
+        assertEquals(null, VideoCalls.meetingLinkIn("http://meet.google.com/abc", rist))
+        assertEquals(null, VideoCalls.meetingLinkIn("https://meet.google.com.evil.example/x", rist))
+    }
+
+    @Test
+    fun `only a page that reports its call over ends it`() {
+        assertEquals(VideoCalls.PageCall.OVER, VideoCalls.pageCall("\"over\""))
+        assertEquals(VideoCalls.PageCall.LIVE, VideoCalls.pageCall("\"live\""))
+        assertEquals(VideoCalls.PageCall.IDLE, VideoCalls.pageCall("null"))
+        assertEquals(VideoCalls.PageCall.IDLE, VideoCalls.pageCall(null))
+    }
 }

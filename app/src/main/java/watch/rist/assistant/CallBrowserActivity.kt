@@ -100,12 +100,21 @@ class CallBrowserActivity : AppCompatActivity() {
         }
 
         /**
-         * Keeps hold of the streams the page opens, so a cellular call can silence them. It hands
-         * every stream back unchanged; nothing else on the page is touched.
+         * Keeps hold of the streams the page opens, so a cellular call can silence them, and of
+         * its connections, so the phone can tell when the call is over. Streams and connections
+         * are handed back unchanged; nothing else on the page is touched.
          */
         internal const val TRACKS_JS =
-            "(function(){if(window.__ristCall)return;var s=[];window.__ristCall={set:function(k,on){" +
-                "s.forEach(function(m){m.getTracks().forEach(function(t){if(t.kind===k)t.enabled=on;});});}};" +
+            "(function(){if(window.__ristCall)return;var s=[],p=[],seen=false;window.__ristCall={set:function(k,on){" +
+                "s.forEach(function(m){m.getTracks().forEach(function(t){if(t.kind===k)t.enabled=on;});});}," +
+                "state:function(){if(!seen)return'idle';for(var i=0;i<p.length;i++){" +
+                "if(p[i].connectionState!=='closed'&&p[i].signalingState!=='closed')return'live';}return'over';}};" +
+                "var R=window.RTCPeerConnection;if(R){var W=function(a,b){var c=new R(a,b);p.push(c);" +
+                "var up=function(){var x=c.connectionState,y=c.iceConnectionState;" +
+                "if(x==='connected'||y==='connected'||y==='completed')seen=true;};" +
+                "c.addEventListener('connectionstatechange',up);c.addEventListener('iceconnectionstatechange',up);return c;};" +
+                "W.prototype=R.prototype;Object.setPrototypeOf(W,R);window.RTCPeerConnection=W;" +
+                "if(window.webkitRTCPeerConnection)window.webkitRTCPeerConnection=W;}" +
                 "var d=navigator.mediaDevices;if(!d||!d.getUserMedia)return;var g=d.getUserMedia.bind(d);" +
                 "d.getUserMedia=function(c){return g(c).then(function(m){s.push(m);return m;});};})();"
     }
@@ -162,10 +171,14 @@ class CallBrowserActivity : AppCompatActivity() {
         web = view
         setContentView(buildLayout(view))
 
-        // Hang-up is the only way out. Back does nothing, so a stray gesture cannot drop a call.
+        // A Rist call has its own Hang up, so back does nothing there: a stray gesture cannot drop
+        // it. Meet, Zoom and Teams end themselves; back asks first, for a page that never does.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {}
+            override fun handleOnBackPressed() {
+                if (provider != VideoCalls.Provider.RIST) confirmLeave()
+            }
         })
+        if (provider != VideoCalls.Provider.RIST) watchForCallEnd()
 
         VideoCalls.onOpened(this)
         runCatching { OverlayHomeService.setVisible(this, false) }
@@ -194,12 +207,44 @@ class CallBrowserActivity : AppCompatActivity() {
         finish()
     }
 
+    private val poller = android.os.Handler(android.os.Looper.getMainLooper())
+    private var overPolls = 0
+
+    /** Closes the browser once the page has ended its call: left, hung up on, or ended by the host. */
+    private fun watchForCallEnd() {
+        poller.postDelayed(object : Runnable {
+            override fun run() {
+                val w = web ?: return
+                if (closing) return
+                w.evaluateJavascript("window.__ristCall&&window.__ristCall.state?window.__ristCall.state():'idle'") { r ->
+                    if (VideoCalls.pageCall(r) == VideoCalls.PageCall.OVER) overPolls++ else overPolls = 0
+                    if (overPolls >= VideoCalls.OVER_POLLS) hangUp("the page ended its call")
+                }
+                poller.postDelayed(this, VideoCalls.POLL_MS)
+            }
+        }, VideoCalls.POLL_MS)
+    }
+
+    private fun confirmLeave() {
+        runCatching {
+            RistDialog.ask(
+                this, theme, tf, d,
+                title = null,
+                message = getString(R.string.call_leave_ask),
+                positive = getString(R.string.call_leave),
+                onPositive = { hangUp("left with back") },
+                negative = getString(R.string.call_stay),
+            )
+        }
+    }
+
     private fun fail() {
         Toast.makeText(this, R.string.call_failed, Toast.LENGTH_LONG).show()
         hangUp("could not be opened")
     }
 
     override fun onDestroy() {
+        poller.removeCallbacksAndMessages(null)
         VideoCalls.onClosed(this)
         val w = web
         web = null
@@ -383,7 +428,7 @@ class CallBrowserActivity : AppCompatActivity() {
         }
 
         // An expired Rist link, an unreachable server or a full room: the page says why and
-        // stays up with its own Join; it is not a failed load. Hang-up closes it.
+        // stays up with its own Join; it is not a failed load. Hang-up (or back, off Rist) closes it.
 
         override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
             Log.w(TAG, "the call page's renderer went away (crashed=${detail.didCrash()})")
@@ -486,12 +531,16 @@ class CallBrowserActivity : AppCompatActivity() {
         }
         root.addView(banner)
 
+        // Meet, Zoom and Teams have their own leave button and close the browser themselves;
+        // the whole screen goes to the call.
+        if (provider != VideoCalls.Provider.RIST) return root
+
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding((12 * d).toInt(), (8 * d).toInt(), (12 * d).toInt(), (8 * d).toInt())
         }
-        if (provider == VideoCalls.Provider.RIST) {
+        run {
             // What these change is only what the phone will answer when the page asks; the
             // page's own camera and mute buttons then do the rest.
             cameraButton = chromeButton("", filled = false, weight = 1f) {
@@ -511,7 +560,7 @@ class CallBrowserActivity : AppCompatActivity() {
         }
         bar.addView(
             chromeButton(getString(R.string.call_hang_up), filled = true, weight = 2f) { hangUp("hang-up") }.apply {
-                if (provider == VideoCalls.Provider.RIST) (layoutParams as LinearLayout.LayoutParams).marginStart = (8 * d).toInt()
+                (layoutParams as LinearLayout.LayoutParams).marginStart = (8 * d).toInt()
             }
         )
         root.addView(bar)

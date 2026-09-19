@@ -96,6 +96,36 @@ object VideoCalls {
         ENDED,
     }
 
+    /**
+     * The first meeting link in a text, or null. A bare `meet.google.com/…` counts; what the
+     * call browser would refuse does not, so the button only appears where Join would work.
+     */
+    fun meetingLinkIn(text: String, ristHost: String?): String? =
+        LINK.findAll(text).map { m ->
+            val raw = m.value.trimEnd('.', ',', ')', ']', '!', '?', ';', ':', '"', '\'', '>')
+            if (raw.startsWith("http", ignoreCase = true)) raw else "https://$raw"
+        }.firstOrNull { classify(it, ristHost) != null }
+
+    private val LINK = Regex("""(?i)\b(?:https?://)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?:/\S*)?""")
+
+    /**
+     * What the page reports about its call, polled by the call browser. A call is over once it
+     * has connected and every connection the page made is closed: that is what Meet, Zoom and
+     * Teams do when someone leaves or the host ends it. Muting and turning the camera off do not
+     * close a connection, so neither ends the call here.
+     */
+    enum class PageCall { IDLE, LIVE, OVER }
+
+    fun pageCall(reported: String?): PageCall = when (reported?.trim()?.trim('"')) {
+        "live" -> PageCall.LIVE
+        "over" -> PageCall.OVER
+        else -> PageCall.IDLE
+    }
+
+    /** Over for this many polls in a row before the browser closes: a reconnect is not an end. */
+    const val OVER_POLLS = 2
+    const val POLL_MS = 2_000L
+
     fun navigation(url: String, ristHost: String?): Nav {
         val provider = classify(url, ristHost) ?: return Nav.SWALLOW
         if (provider == Provider.RIST && url.trim().toHttpUrlOrNull()?.encodedPath == RIST_ENDED_PATH) return Nav.ENDED

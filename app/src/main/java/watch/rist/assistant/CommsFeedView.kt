@@ -349,6 +349,19 @@ object CommsFeedView {
             ) { placeCall(activity, item.number) }
         )
 
+        // A meeting link in a text: Join puts up the same join screen a spoken request does,
+        // so nothing connects until it is tapped there too.
+        val meeting = if (isOpen && item.kind == FeedKind.TEXT)
+            VideoCalls.meetingLinkIn(item.body, VideoCalls.ristHost(Config.backendUrl(activity))) else null
+        if (meeting != null) col.addView(
+            actionButton(
+                activity, t, tf, d,
+                label = activity.getString(R.string.call_join_from_text),
+                spoken = "Join the video call in this text",
+                glyph = R.drawable.ic_app_cam,
+            ) { VideoCalls.join(activity, meeting, "", "", "") }
+        )
+
         if (isOpen && item.kind == FeedKind.TEXT) col.addView(
             actionButton(
                 activity, t, tf, d,
