@@ -7,14 +7,14 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
 /**
- * Where a web link tapped anywhere on the phone lands; Rist holds the browser role so that every
- * one comes here ([KioskManager.setAsDefaultForLinks]). Only a link from the camera's QR scanner
+ * Where a web link tapped anywhere on the phone lands; the browser is hidden so that every one
+ * comes here ([KioskManager.setAsDefaultForLinks]). Only a link from the camera's QR scanner
  * opens: the site it names, locked to that site, or a meeting's join screen. A link from anywhere
  * else (Messages, a saved page, an answer) goes nowhere.
  *
- * The sender is the one the system recorded for this launch, not anything in the intent: a
- * referrer extra can be written by the sender, the launch record cannot. Rist is platform-signed,
- * which is what lets it read that record for another app.
+ * The sender is the one the system recorded for this launch, not anything in the intent. The
+ * referrer reports that record unless the sender wrote its own referrer extra, so a link carrying
+ * one is refused outright; what is left cannot be forged.
  */
 class LinkActivity : AppCompatActivity() {
 
@@ -28,7 +28,7 @@ class LinkActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val link = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString
-        val sender = runCatching { launchedFromPackage }.getOrNull()
+        val sender = recordedSender()
         val url = link?.let { SiteLock.openable(it) }
         if (url == null || !opensFrom(sender)) {
             // Which app and whether a link came, never the link itself.
@@ -45,5 +45,15 @@ class LinkActivity : AppCompatActivity() {
                 .getOrDefault(false)
         if (!opened) Toast.makeText(this, R.string.link_failed, Toast.LENGTH_SHORT).show()
         finish()
+    }
+
+    /** The launching app as the system recorded it, or null when that cannot be known for sure. */
+    private fun recordedSender(): String? {
+        runCatching { launchedFromPackage }.getOrNull()?.let { return it }
+        val extras = intent?.extras
+        if (extras != null && (extras.containsKey(Intent.EXTRA_REFERRER) || extras.containsKey(Intent.EXTRA_REFERRER_NAME))) {
+            return null
+        }
+        return referrer?.takeIf { it.scheme == "android-app" }?.host
     }
 }

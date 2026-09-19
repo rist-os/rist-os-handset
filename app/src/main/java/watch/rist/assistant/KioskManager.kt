@@ -2,18 +2,13 @@ package watch.rist.assistant
 
 import android.Manifest
 import android.app.KeyguardManager
-import android.app.role.RoleManager
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.os.Process
-import android.os.UserHandle
 import android.util.Log
-import java.util.concurrent.Executor
-import java.util.function.Consumer
 
 object KioskManager {
 
@@ -62,27 +57,32 @@ object KioskManager {
         }.onFailure { Log.w(TAG, "setAsDefaultLauncher failed", it) }
     }
 
+    /** Full browsers on the image. Hidden, not removed: the web engine Rist uses is separate. */
+    internal val BROWSERS = listOf("app.vanadium.browser")
+
     /**
-     * Web links open in Rist, not the phone's browser, which the kiosk would block: a link from
-     * the camera's QR scanner or from Messages otherwise goes nowhere. [LinkActivity] asks first.
-     *
-     * The browser role, not a preferred activity: while another app holds the role, a web link
-     * goes straight to it and a preference is never consulted. The call is a system API, so it
-     * is reached by reflection; the platform signature grants MANAGE_ROLE_HOLDERS.
+     * Web links reach [LinkActivity], which opens only the camera's QR result. The browser is
+     * hidden rather than outranked: while a browser holds the browser role a web link goes
+     * straight to it and no preferred activity is consulted, and taking the role needs a
+     * permission this app's signature does not carry. Hidden, it also cannot open in the moment
+     * after an update when lock task is not yet back.
      */
     fun setAsDefaultForLinks(context: Context) {
         if (!isDeviceOwner(context)) return
-        val roles = context.getSystemService(RoleManager::class.java) ?: return
-        if (runCatching { roles.isRoleHeld(RoleManager.ROLE_BROWSER) }.getOrDefault(false)) return
+        val dpm = dpm(context)
+        val admin = admin(context)
+        for (pkg in BROWSERS) runCatching {
+            if (!dpm.isApplicationHidden(admin, pkg)) Log.i(TAG, "hiding $pkg: ${dpm.setApplicationHidden(admin, pkg, true)}")
+        }.onFailure { Log.w(TAG, "could not hide $pkg", it) }
+        val filter = IntentFilter(Intent.ACTION_VIEW).apply {
+            addCategory(Intent.CATEGORY_DEFAULT)
+            addCategory(Intent.CATEGORY_BROWSABLE)
+            addDataScheme("http")
+            addDataScheme("https")
+        }
         runCatching {
-            RoleManager::class.java.getMethod(
-                "addRoleHolderAsUser", String::class.java, String::class.java, Int::class.javaPrimitiveType,
-                UserHandle::class.java, Executor::class.java, Consumer::class.java,
-            ).invoke(
-                roles, RoleManager.ROLE_BROWSER, context.packageName, 0, Process.myUserHandle(),
-                context.mainExecutor, Consumer<Boolean> { ok -> Log.i(TAG, "browser role for links: $ok") },
-            )
-        }.onFailure { Log.w(TAG, "could not take the browser role; links will not open", it) }
+            dpm.addPersistentPreferredActivity(admin, filter, ComponentName(context, LinkActivity::class.java))
+        }.onFailure { Log.w(TAG, "could not make Rist the handler for links", it) }
     }
 
     fun grantSelfPermissions(context: Context) {
@@ -202,7 +202,7 @@ object KioskManager {
     fun ensureConfigured(context: Context) {
         if (!isDeviceOwner(context)) return
         val vc = versionCode(context)
-        // Checked every time: a browser installed or reset later would take links back.
+        // Checked every time: a browser shown again or restored later would take links back.
         setAsDefaultForLinks(context)
         if (vc != 0L && Config.kioskProvisionedFor(context) == vc && allowlistIsCurrent(context)) return
         Log.i(TAG, "kiosk policy stale (vc=$vc); provisioning")
