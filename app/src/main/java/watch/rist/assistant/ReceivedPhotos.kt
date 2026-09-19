@@ -27,9 +27,17 @@ object ReceivedPhotos {
 
     private fun dir(ctx: Context) = File(ctx.filesDir, DIR).apply { mkdirs() }
 
-    /** Only a picture that actually decoded is kept; a broken one stays a failure card. */
-    fun isKeepable(a: RistAttachment): Boolean =
-        a.kind == "image" && a.error.isNullOrBlank() && a.bitmap != null && (a.bytes?.isNotEmpty() == true)
+    /**
+     * Only a picture that decodes is kept; a broken one stays a failure card. Judged on the bytes
+     * as they arrived, before the feed's own decode, which lets the bytes go to save memory.
+     */
+    fun isKeepable(a: RistAttachment): Boolean {
+        val bytes = a.bytes ?: return false
+        if (a.kind != "image" || !a.error.isNullOrBlank() || bytes.isEmpty()) return false
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds) }
+        return bounds.outWidth > 0 && bounds.outHeight > 0
+    }
 
     internal fun extensionFor(mime: String): String = when (mime.trim().lowercase()) {
         "image/png" -> "png"

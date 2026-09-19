@@ -2254,23 +2254,21 @@ class MainActivity : AppCompatActivity() {
         return box
     }
 
-    internal fun paintAttachmentsIfCurrent(generation: Int, items: List<RistAttachment>) {
+    /**
+     * The reply's attachments other than its pictures, which were already kept under the answer
+     * and are drawn there on every repaint, so they stay on the feed after the next question.
+     */
+    internal fun paintAttachmentsIfCurrent(
+        generation: Int, items: List<RistAttachment>, entryId: Long = 0L, keptPhotos: Boolean = false,
+    ) {
         if (generation != attachmentGeneration) return
         if (isFinishing || isDestroyed) return
-        val entryId = runCatching { Transcript.all(this).lastOrNull()?.localId ?: 0L }.getOrDefault(0L)
-        // Pictures are kept with their answer and drawn under it on every repaint, so they stay
-        // on the feed after the next question. Everything else is still shown for the latest
-        // answer only, as before. With no answer to keep them under, they stay cards.
-        val (photos, others) =
-            if (entryId == 0L) emptyList<RistAttachment>() to items
-            else items.partition { ReceivedPhotos.isKeepable(it) }
-        lastAttachments = others
-        lastAttachmentsEntryId = entryId
-        runCatching { AttachmentView.render(replyContainer, others, insertAfter = 0) }
-        if (photos.isNotEmpty()) uiScope.launch {
-            withContext(Dispatchers.IO) { ReceivedPhotos.save(applicationContext, entryId, photos) }
-            if (!isFinishing && !isDestroyed) renderTranscript()
-        }
+        lastAttachments = items
+        lastAttachmentsEntryId =
+            if (entryId != 0L) entryId
+            else runCatching { Transcript.all(this).lastOrNull()?.localId ?: 0L }.getOrDefault(0L)
+        if (keptPhotos) renderTranscript()
+        else runCatching { AttachmentView.render(replyContainer, items, insertAfter = 0) }
     }
 
     private fun renderReply(reply: DeviceResponse?, fallbackText: String, clear: Boolean = true) {
@@ -2296,13 +2294,23 @@ class MainActivity : AppCompatActivity() {
 
         if (reply != null && reply.attachmentsCount > 0) {
             val pending = reply.attachmentsList
+            // The answer this reply belongs to: its pictures are kept under it.
+            val entryId = runCatching { Transcript.all(this).lastOrNull()?.localId ?: 0L }.getOrDefault(0L)
             attachmentJob = uiScope.launch {
+                var keptAny = false
                 val items = withContext(Dispatchers.IO) {
                     runCatching {
-                        AttachmentView.predecode(
-                            this@MainActivity,
-                            Attachments.resolve(this@MainActivity, pending) { isActive },
-                        )
+                        val resolved = Attachments.resolve(this@MainActivity, pending) { isActive }
+                        // Kept before the feed's decode, which lets the picture's bytes go. With
+                        // no answer to keep them under, they stay cards as before.
+                        val (photos, rest) =
+                            if (entryId == 0L) emptyList<RistAttachment>() to resolved
+                            else resolved.partition { ReceivedPhotos.isKeepable(it) }
+                        if (photos.isNotEmpty()) {
+                            ReceivedPhotos.save(applicationContext, entryId, photos)
+                            keptAny = true
+                        }
+                        AttachmentView.predecode(this@MainActivity, rest)
                     }.getOrElse { t ->
                         // getOrElse, not getOrDefault: an OOM must paint the fallback card; cancellation stays silent.
                         if (t is kotlinx.coroutines.CancellationException) throw t
@@ -2317,7 +2325,7 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 }
-                paintAttachmentsIfCurrent(generation, items)
+                paintAttachmentsIfCurrent(generation, items, entryId, keptAny)
             }
         }
 

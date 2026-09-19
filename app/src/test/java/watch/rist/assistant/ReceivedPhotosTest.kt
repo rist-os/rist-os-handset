@@ -21,23 +21,31 @@ class ReceivedPhotosTest {
     @After
     fun wipe() = ReceivedPhotos.clearAll(ctx)
 
-    private fun image(title: String = "Photo by Ana, CC BY 4.0", mime: String = "image/jpeg") = RistAttachment(
+    private val png: ByteArray by lazy {
+        val out = java.io.ByteArrayOutputStream()
+        Bitmap.createBitmap(8, 6, Bitmap.Config.ARGB_8888).compress(Bitmap.CompressFormat.PNG, 100, out)
+        out.toByteArray()
+    }
+
+    // As it arrives from the backend, before the feed's own decode: bytes, no bitmap yet.
+    private fun image(title: String = "Photo by Ana, CC BY 4.0", mime: String = "image/png") = RistAttachment(
         kind = "image", mime = mime, title = title, text = "",
-        bytes = byteArrayOf(1, 2, 3, 4), toolId = "image-search", error = null,
-        bitmap = Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888),
+        bytes = png, toolId = "image-search", error = null,
     )
 
     @Test
-    fun `only a picture that decoded is kept`() {
+    fun `only a picture that decodes is kept, judged on the bytes as they arrived`() {
         assertTrue(ReceivedPhotos.isKeepable(image()))
-        assertFalse(ReceivedPhotos.isKeepable(image().copy(bitmap = null)))
+        // Bytes that are not a picture cannot be tested here: Robolectric's decoder reports a
+        // size for anything. On the phone the bounds decode is what rejects them.
+        assertFalse(ReceivedPhotos.isKeepable(image().copy(bytes = null)))
         assertFalse(ReceivedPhotos.isKeepable(image().copy(error = "too large")))
         assertFalse(ReceivedPhotos.isKeepable(image().copy(kind = "text")))
     }
 
     @Test
     fun `pictures are kept under their answer, in order, with their credit`() {
-        ReceivedPhotos.save(ctx, 42L, listOf(image("first"), image("second", "image/png")))
+        ReceivedPhotos.save(ctx, 42L, listOf(image("first", "image/jpeg"), image("second")))
         val kept = ReceivedPhotos.byEntry(ctx)[42L]!!
         assertEquals(listOf("first", "second"), kept.map { it.title })
         assertEquals(listOf("image/jpeg", "image/png"), kept.map { it.mime })
