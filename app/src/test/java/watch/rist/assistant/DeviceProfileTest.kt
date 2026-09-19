@@ -18,7 +18,9 @@ class DeviceProfileTest {
     fun phoneCapabilities_advertiseFullColorTouchProfile() {
         val caps: Capabilities = DeviceProfile.capabilities(screenW = 1080, screenH = 2400)
 
-        assertEquals(DeviceProfile.RCS_SCHEMA_VERSION, caps.schemaVersion)
+        // Video calls, once declared, bring v15 with them; without them the phone stays at its own.
+        val expected = if (VideoCalls.SHIPPED) VideoCalls.SCHEMA_VERSION else DeviceProfile.RCS_SCHEMA_VERSION
+        assertEquals(expected, caps.schemaVersion)
         assertEquals(24, caps.colorDepth)
         assertEquals(3 * 1024 * 1024, caps.maxImageBytes)
         assertEquals(listOf("button", "voice", "touch"), caps.inputList)
@@ -26,7 +28,7 @@ class DeviceProfileTest {
             listOf("card", "stack", "text", "stat", "list", "image", "chart", "button", "divider",
                    "map_tiles", "map_tiles_hd")
         ))
-        assertEquals(11, caps.componentsCount)
+        assertEquals(if (VideoCalls.SHIPPED) 12 else 11, caps.componentsCount)
     }
 
     @Test

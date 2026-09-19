@@ -21,11 +21,13 @@ object VideoCalls {
 
     /**
      * Whether requests declare the `video_call` component (and schema v15). The backend sends no
-     * call command to a device that does not, and says so in words instead. It stays false until
-     * the services have been joined from a real handset (video_calls.md section 8): a build that
-     * declared it early would hear "joining" while nothing worked.
+     * call command to a device that does not, and says so in words instead.
+     *
+     * Switched on by the owner on 2026-09-19 to test by voice, before the section 8 live test.
+     * The join screen still stands between any command and a live camera, so an early "join"
+     * that fails costs a failed page, not a call nobody agreed to.
      */
-    const val SHIPPED = false
+    const val SHIPPED = true
 
     const val COMPONENT = "video_call"
     const val SCHEMA_VERSION = 15

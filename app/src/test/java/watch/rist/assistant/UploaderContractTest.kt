@@ -178,7 +178,8 @@ class UploaderContractTest {
         assertEquals(DeviceRequest.InputCase.TEXT, req.inputCase)
         assertEquals("what breed is this?", req.text)
         assertTrue(!req.hasImage())
-        assertEquals(rist.v1.SchemaVersion.SCHEMA_VERSION_13_VALUE, req.caps.schemaVersion)
+        // At least v13, which is what carries `images`; video calls, when declared, raise it to 15.
+        assertTrue(req.caps.schemaVersion >= rist.v1.SchemaVersion.SCHEMA_VERSION_13_VALUE)
     }
 
     @Test
