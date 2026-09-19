@@ -179,6 +179,9 @@ class CameraActivity : AppCompatActivity() {
             switchButton.visibility = View.GONE
             findViewById<TextView>(R.id.shutterButton).apply {
                 text = getString(R.string.camera_scan_hint)
+                // Two short lines at the start: the floating home button sits over the far end.
+                gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
+                setPadding((8 * resources.displayMetrics.density).toInt(), 0, 0, 0)
                 isClickable = false
                 isFocusable = false
                 background = null

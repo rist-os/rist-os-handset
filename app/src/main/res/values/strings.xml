@@ -36,7 +36,7 @@
     <string name="photo_source_camera">Take a photo</string>
     <string name="photo_source_library">Choose from photos</string>
     <string name="photo_source_qr">Scan a QR code</string>
-    <string name="camera_scan_hint">POINT AT A QR CODE</string>
+    <string name="camera_scan_hint">POINT AT\nA QR CODE</string>
     <string name="qr_open_title">Open this site?</string>
     <string name="qr_open_body">%1$s\n\nYou will be able to move around %1$s and nowhere else.\n\n%2$s</string>
     <string name="qr_open_yes">Open</string>
