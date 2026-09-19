@@ -48,8 +48,8 @@ class CorridorMapView @JvmOverloads constructor(
         val segmentIndex: Int,
         val turnIndex: Int,
     ) {
-        private val pxW: Double get() = if (tilePx > 0) tilePx.toDouble() else 240.0
-        private val pxH: Double get() = if (tilePxH > 0) tilePxH.toDouble() else 320.0
+        private val pxW: Double get() = MapGeometry.georefSize(tilePx, 0, MapGeometry.BASE_FRAME_W).toDouble()
+        private val pxH: Double get() = MapGeometry.georefSize(tilePxH, 0, MapGeometry.BASE_FRAME_H).toDouble()
         // mPerPx > 0 = track-up centre/scale georeference; 0 = north-up bounds.
         val valid: Boolean get() = bytes.isNotEmpty() &&
             (mPerPx > 0.0 || (maxLon > minLon && maxLat > minLat))
@@ -76,6 +76,7 @@ class CorridorMapView @JvmOverloads constructor(
     private val tileBytes = HashMap<Long, ByteArray>()
     private var availZooms = intArrayOf()
     private val tileMatrix = Matrix()
+    private val tileRect = FloatArray(4)
     private var routePts = DoubleArray(0)
     private var routeN = 0
     private val routePath = Path()
@@ -111,8 +112,8 @@ class CorridorMapView @JvmOverloads constructor(
             val ctx = (manualCenterLon + 180.0) / 360.0 * nn
             val latR = Math.toRadians(manualCenterLat)
             val cty = (1.0 - ln(tan(latR) + 1.0 / cos(latR)) / PI) / 2.0 * nn
-            val nctx = ctx + dx / sUsed / 256.0
-            val ncty = cty + dy / sUsed / 256.0
+            val nctx = ctx + MapGeometry.panTiles(dx, sUsed)
+            val ncty = cty + MapGeometry.panTiles(dy, sUsed)
             manualCenterLon = nctx / nn * 360.0 - 180.0
             manualCenterLat = Math.toDegrees(atan(sinh(PI * (1.0 - 2.0 * ncty / nn))))
             invalidate(); return true
@@ -173,6 +174,7 @@ class CorridorMapView @JvmOverloads constructor(
 
     private val bgPaint = Paint().apply { color = paperColor; style = Paint.Style.FILL }
     private val tilePaint = Paint()
+    private val hdTilePaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accentColor; style = Paint.Style.FILL }
     private val dotRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = paperColor; style = Paint.Style.STROKE; strokeWidth = dp(2f)
@@ -301,8 +303,8 @@ class CorridorMapView @JvmOverloads constructor(
             frameDesc[o + 5] = fr.bearingDeg; frameDesc[o + 6] = fr.mPerPx
             frameDesc[o + 7] = fr.minLat; frameDesc[o + 8] = fr.minLon
             frameDesc[o + 9] = fr.maxLat; frameDesc[o + 10] = fr.maxLon
-            frameDesc[o + 11] = (if (fr.tilePx > 0) fr.tilePx else 240).toDouble()
-            frameDesc[o + 12] = (if (fr.tilePxH > 0) fr.tilePxH else 320).toDouble()
+            frameDesc[o + 11] = MapGeometry.georefSize(fr.tilePx, 0, MapGeometry.BASE_FRAME_W).toDouble()
+            frameDesc[o + 12] = MapGeometry.georefSize(fr.tilePxH, 0, MapGeometry.BASE_FRAME_H).toDouble()
         }
     }
 
@@ -357,21 +359,23 @@ class CorridorMapView @JvmOverloads constructor(
         val cx = width / 2f; val cy = height * 0.60f
         val scale = TILE_SCREEN_SCALE * (if (manual) manualZoomMul else 1f)
         val ang = Math.toRadians(-heading.toDouble()); val ca = cos(ang); val sa = sin(ang)
-        val radius = ((Math.hypot(width.toDouble(), height.toDouble()) / scale) / 256.0).toInt() + 1
+        val radius = ((Math.hypot(width.toDouble(), height.toDouble()) / scale) / MapGeometry.TILE_WORLD_PX).toInt() + 1
         val cxt = utx.toInt(); val cyt = uty.toInt()
         for (ty in cyt - radius..cyt + radius) for (tx in cxt - radius..cxt + radius) {
             val bmp = decodedTile(z, tx, ty) ?: continue
-            tileMatrix.reset()
-            tileMatrix.postTranslate(((tx - utx) * 256.0).toFloat(), ((ty - uty) * 256.0).toFloat())
+            MapGeometry.tileWorldRect(tx, ty, utx, uty, bmp.width, bmp.height, tileRect)
+            val k = MapGeometry.tileDrawScale(bmp.width)
+            tileMatrix.setScale(k, k)
+            tileMatrix.postTranslate(tileRect[0], tileRect[1])
             tileMatrix.postScale(scale, scale); tileMatrix.postRotate(-heading); tileMatrix.postTranslate(cx, cy)
-            canvas.drawBitmap(bmp, tileMatrix, tilePaint)
+            canvas.drawBitmap(bmp, tileMatrix, if (k < 1f) hdTilePaint else tilePaint)
         }
         val tmp = FloatArray(2)
         fun proj(plat: Double, plon: Double) {
             val prad = Math.toRadians(plat)
             val ptx = (plon + 180.0) / 360.0 * n
             val pty = (1.0 - ln(tan(prad) + 1.0 / cos(prad)) / PI) / 2.0 * n
-            val wx = (ptx - utx) * 256.0; val wy = (pty - uty) * 256.0
+            val wx = (ptx - utx) * MapGeometry.TILE_WORLD_PX; val wy = (pty - uty) * MapGeometry.TILE_WORLD_PX
             tmp[0] = (cx + (wx * ca - wy * sa) * scale).toFloat()
             tmp[1] = (cy + (wx * sa + wy * ca) * scale).toFloat()
         }
@@ -504,21 +508,10 @@ class CorridorMapView @JvmOverloads constructor(
 
     private fun mercY(latDeg: Double): Double = ln(tan(Math.PI / 4.0 + Math.toRadians(latDeg) / 2.0))
 
+    private val layoutBuf = FloatArray(4)
     private fun computeDstRect(bmp: Bitmap) {
-        val vw = width.toFloat()
-        val vh = height.toFloat()
-        val bw = bmp.width.toFloat()
-        val bh = bmp.height.toFloat()
-        if (bw <= 0f || bh <= 0f || vw <= 0f || vh <= 0f) {
-            dstRect.set(0f, 0f, vw, vh)
-            return
-        }
-        frameScale = maxOf(1, minOf((vw / bw).toInt(), (vh / bh).toInt()))
-        val dw = bw * frameScale
-        val dh = bh * frameScale
-        val left = (vw - dw) / 2f
-        val top = (vh - dh) / 2f
-        dstRect.set(left, top, left + dw, top + dh)
+        frameScale = MapGeometry.frameLayout(width.toFloat(), height.toFloat(), bmp.width, bmp.height, layoutBuf)
+        dstRect.set(layoutBuf[0], layoutBuf[1], layoutBuf[2], layoutBuf[3])
     }
 
     private val projBuf = DoubleArray(2)
@@ -527,12 +520,8 @@ class CorridorMapView @JvmOverloads constructor(
         val h = if (activeImgH > 0) activeImgH else 1
         Ristnav.nProject(activeBearing, activeCenterLat, activeCenterLon, activeMPerPx,
             minLat, minLon, maxLat, maxLon, w, h, latDeg, lonDeg, projBuf)
-        val u = projBuf[0] / w
-        val v = projBuf[1] / h
-        val onFrame = u in 0.0..1.0 && v in 0.0..1.0
-        out[0] = (dstRect.left + u.coerceIn(0.0, 1.0) * dstRect.width()).toFloat()
-        out[1] = (dstRect.top + v.coerceIn(0.0, 1.0) * dstRect.height()).toFloat()
-        return onFrame
+        layoutBuf[0] = dstRect.left; layoutBuf[1] = dstRect.top; layoutBuf[2] = dstRect.right; layoutBuf[3] = dstRect.bottom
+        return MapGeometry.frameToScreen(projBuf[0], projBuf[1], w, h, layoutBuf, out)
     }
 
     private fun distanceM(la1: Double, lo1: Double, la2: Double, lo2: Double): Double {
@@ -581,8 +570,9 @@ class CorridorMapView @JvmOverloads constructor(
         if (fr != null && bmp != null) {
             applyActiveBounds()
             computeDstRect(bmp)
-            activeImgW = bmp.width; activeImgH = bmp.height
-            canvas.drawBitmap(bmp, null, dstRect, tilePaint)
+            activeImgW = MapGeometry.georefSize(fr.tilePx, bmp.width, MapGeometry.BASE_FRAME_W)
+            activeImgH = MapGeometry.georefSize(fr.tilePxH, bmp.height, MapGeometry.BASE_FRAME_H)
+            canvas.drawBitmap(bmp, null, dstRect, if (MapGeometry.frameDensity(bmp.width) > 1) hdTilePaint else tilePaint)
 
             val p = FloatArray(2)
             if (hasDest && projectToPixel(destLat, destLon, p)) {

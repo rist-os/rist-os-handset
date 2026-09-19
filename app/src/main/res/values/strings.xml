@@ -125,6 +125,7 @@
     <string name="nav_banner_fmt">%1$s · %2$s</string>
     <string name="nav_eta_local_fmt">%1$.1f mi · about %2$d min</string>
     <string name="nav_no_basemap">NO BASEMAP · HEADING ONLY</string>
+    <string name="map_attribution">Map data © OpenStreetMap contributors (openstreetmap.org/copyright)</string>
     <string name="nav_rerouting">off route — rerouting…</string>
     <string name="nav_arrived">Arrived.</string>
 
