@@ -98,6 +98,9 @@ dependencies {
 
     implementation("com.google.protobuf:protobuf-javalite:3.25.5")
 
+    // QR decoding on the phone itself; pure Java, no Google services.
+    implementation("com.google.zxing:core:3.5.3")
+
     testImplementation("junit:junit:4.13.2")
 
     // android.jar ships org.json as stubs; tests need the real one.

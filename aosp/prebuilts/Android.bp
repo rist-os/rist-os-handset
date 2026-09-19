@@ -32,6 +32,13 @@ java_import {
     // okio-jvm needs kotlin-stdlib at runtime; provided by the Kotlin android_app.
 }
 
+// QR decoding (CameraActivity scan mode). Pure Java with no dependencies of its own.
+java_import {
+    name: "rist-zxing-core-prebuilt",
+    jars: ["zxing-core-3.5.3.jar"],
+    sdk_version: "current",
+}
+
 java_import {
     name: "rist-okhttp3-prebuilt",
     jars: ["okhttp-4.12.0.jar"],

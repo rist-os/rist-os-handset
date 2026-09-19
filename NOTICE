@@ -15,6 +15,7 @@ This product includes software and assets from third parties:
   (opendatacommons.org/licenses/odbl/1-0/). zones.bin is a derived database, simplified and
   re-encoded by tools/build_tz_index.py, and is made available under the same licence.
 - OkHttp (com.squareup.okhttp3) — Apache License 2.0
+- ZXing core (com.google.zxing) — Apache License 2.0
 - Protocol Buffers Lite (com.google.protobuf) — BSD 3-Clause
 - AndroidX libraries bundled into the APK — Apache License 2.0:
   core-ktx, appcompat, activity-ktx, constraintlayout, localbroadcastmanager,

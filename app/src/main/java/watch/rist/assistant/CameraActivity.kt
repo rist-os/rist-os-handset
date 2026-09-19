@@ -42,6 +42,15 @@ class CameraActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_JPEG_PATH = "watch.rist.assistant.extra.JPEG_PATH"
+
+        /** In: look for a QR code instead of taking a photo. Out: [EXTRA_QR_TEXT]. */
+        const val EXTRA_SCAN_QR = "watch.rist.assistant.extra.SCAN_QR"
+        const val EXTRA_QR_TEXT = "watch.rist.assistant.extra.QR_TEXT"
+
+        // A frame this wide reads a code filling a fifth of the view, and decodes in well under
+        // the interval on the slowest core.
+        private const val SCAN_FRAME_WIDTH = 720
+        private const val SCAN_INTERVAL_MS = 300L
         private const val TAG = "RistCamera"
         private const val CAPTURE_FILE = "rist_capture.jpg"
         private const val TARGET_LONG_EDGE = 2560
@@ -84,6 +93,46 @@ class CameraActivity : AppCompatActivity() {
     private var bgThread: HandlerThread? = null
     private var bgHandler: Handler? = null
 
+    private var scanMode = false
+    private val scanHandler = Handler(android.os.Looper.getMainLooper())
+    // Its own thread: a slow decode must not hold up the camera's callbacks.
+    private var scanExecutor: java.util.concurrent.ExecutorService? = null
+    @Volatile private var decoding = false
+
+    private val scanTick = object : Runnable {
+        override fun run() {
+            if (!scanMode || isFinishing) return
+            scanFrame()
+            scanHandler.postDelayed(this, SCAN_INTERVAL_MS)
+        }
+    }
+
+    /** The viewfinder itself is the frame source: no second camera stream, no image formats. */
+    private fun scanFrame() {
+        if (decoding || !textureView.isAvailable || textureView.width <= 0) return
+        val w = minOf(SCAN_FRAME_WIDTH, textureView.width)
+        val h = (w.toLong() * textureView.height / textureView.width).toInt().coerceAtLeast(1)
+        val frame = runCatching { textureView.getBitmap(w, h) }.getOrNull() ?: return
+        val pool = scanExecutor ?: run { frame.recycle(); return }
+        decoding = true
+        runCatching {
+            pool.execute {
+                val text = runCatching { QrDecode.decode(frame) }.getOrNull()
+                frame.recycle()
+                decoding = false
+                if (text != null) runOnUiThread { onQrRead(text) }
+            }
+        }.onFailure { decoding = false }
+    }
+
+    private fun onQrRead(text: String) {
+        if (!scanMode || isFinishing) return
+        scanMode = false
+        Haptics.ack(this)
+        setResult(RESULT_OK, Intent().putExtra(EXTRA_QR_TEXT, text))
+        finish()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_camera)
@@ -123,6 +172,19 @@ class CameraActivity : AppCompatActivity() {
         }
 
         switchButton.visibility = if (hasFrontAndBack()) View.VISIBLE else View.GONE
+
+        scanMode = intent.getBooleanExtra(EXTRA_SCAN_QR, false)
+        if (scanMode) {
+            // The same screen with nothing to press: it reads the code the moment it sees one.
+            switchButton.visibility = View.GONE
+            findViewById<TextView>(R.id.shutterButton).apply {
+                text = getString(R.string.camera_scan_hint)
+                isClickable = false
+                isFocusable = false
+                background = null
+                setOnClickListener(null)
+            }
+        }
     }
 
     override fun onResume() {
@@ -133,6 +195,11 @@ class CameraActivity : AppCompatActivity() {
             toast(getString(R.string.camera_permission_denied)); finish(); return
         }
         startBackgroundThread()
+        if (scanMode) {
+            scanExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+            decoding = false
+            scanHandler.postDelayed(scanTick, SCAN_INTERVAL_MS)
+        }
         if (textureView.isAvailable) {
             openCamera()
         } else {
@@ -151,6 +218,9 @@ class CameraActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        scanHandler.removeCallbacks(scanTick)
+        scanExecutor?.shutdownNow()
+        scanExecutor = null
         closeCamera()
         stopBackgroundThread()
         super.onPause()
@@ -186,7 +256,7 @@ class CameraActivity : AppCompatActivity() {
             if (map != null) configureSizes(map)
 
             runOnUiThread {
-                flashButton.visibility = if (hasFlash) View.VISIBLE else View.GONE
+                flashButton.visibility = if (hasFlash && !scanMode) View.VISIBLE else View.GONE
                 if (hasFlash) updateFlashLabel()
                 configureTransform(textureView.width, textureView.height)
             }

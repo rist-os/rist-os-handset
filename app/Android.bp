@@ -40,6 +40,7 @@ android_app {
         "com.google.android.material_material",
 
         "rist-okhttp3-prebuilt",          // pulls okio3
+        "rist-zxing-core-prebuilt",       // QrDecode.kt
         "rist-security-crypto",           // EncryptedSharedPreferences (Config.kt); pulls tink
         "rist-localbroadcastmanager",     // MainActivity.kt, PushService.kt
         "rist-media3-exoplayer",          // PlaybackService.kt; pulls common/container/database/

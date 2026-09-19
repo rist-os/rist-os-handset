@@ -129,6 +129,16 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.RistAssistant" />
 
+        <!-- The site a scanned QR code points at, and nowhere else. Never exported: the only way
+             in is a link RIST itself has just read and the person has just agreed to open. -->
+        <activity
+            android:name=".LockedBrowserActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|uiMode"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.RistAssistant" />
+
         <!-- The caption screen between choosing a photo and sending it. -->
         <activity
             android:name=".PhotoComposeActivity"
