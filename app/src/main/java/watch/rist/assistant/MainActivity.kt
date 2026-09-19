@@ -884,8 +884,13 @@ class MainActivity : AppCompatActivity() {
         override fun onReceive(context: Context, intent: Intent) {
             updateGlance()
             CommsFeedView.render(this@MainActivity)
+            // Midnight passed, or the clock or zone moved the day: the answers' times need
+            // their "Yesterday" now, not on the next turn.
+            if (CommsFeed.dayKey(System.currentTimeMillis()) != transcriptDrawnOn) renderTranscript()
         }
     }
+
+    private var transcriptDrawnOn = 0
 
     private var knobDrawable: KnobDrawable? = null
 
@@ -1966,7 +1971,8 @@ class MainActivity : AppCompatActivity() {
         val d = resources.displayMetrics.density
         val muted = Themes.readableMuted(t)
         var attachmentsPainted = false
-        val tsFmt = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+        val nowMs = System.currentTimeMillis()
+        transcriptDrawnOn = CommsFeed.dayKey(nowMs)
         // Everything is KEPT; not everything is inflated. With retention at "Forever" the store
         // can hold the count cap, and ~8 views plus a markdown parse per entry on every repaint
         // would stall an e-ink handset. The newest RENDER_CAP unpinned entries and every pinned
@@ -2014,7 +2020,7 @@ class MainActivity : AppCompatActivity() {
             col.addView(TextView(this).apply {
                 text = promptLine(
                     prompt = e.prompt,
-                    time = tsFmt.format(java.util.Date(e.at)),
+                    time = CommsFeed.entryStamp(e.at, nowMs),
                     pinned = e.pinned,
                     timeColor = blend(t.inkMuted, t.ground, 0.35f),
                     pinColor = t.accent,

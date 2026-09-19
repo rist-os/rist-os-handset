@@ -193,6 +193,33 @@ object CommsFeed {
             " at $at"
     }
 
+    /**
+     * The time on an answer. Bare while it is still the day it was given; once midnight has
+     * passed, "2:17 PM" alone would read as today, so it gains "Yesterday" and then the date.
+     */
+    fun entryStamp(
+        atMs: Long,
+        nowMs: Long,
+        tz: TimeZone = TimeZone.getDefault(),
+        locale: Locale = Locale.getDefault(),
+    ): String {
+        fun fmt(pattern: String) = SimpleDateFormat(pattern, locale).apply { timeZone = tz }.format(Date(atMs))
+        val at = fmt("h:mm a")
+        return when (calendarDaysBetween(atMs, nowMs, tz)) {
+            // A clock set backwards can put an entry in the future; it is still just a time.
+            in Int.MIN_VALUE..0 -> at
+            1 -> "Yesterday $at"
+            else -> {
+                val sameYear = fmt("yyyy") == SimpleDateFormat("yyyy", locale).apply { timeZone = tz }.format(Date(nowMs))
+                fmt(if (sameYear) "MMM d" else "MMM d, yyyy") + ", $at"
+            }
+        }
+    }
+
+    /** Changes when the calendar day does; a feed drawn on another day has stale stamps. */
+    fun dayKey(nowMs: Long, tz: TimeZone = TimeZone.getDefault()): Int =
+        Calendar.getInstance(tz).apply { timeInMillis = nowMs }.let { it.get(Calendar.YEAR) * 1000 + it.get(Calendar.DAY_OF_YEAR) }
+
     private fun calendarDaysBetween(atMs: Long, nowMs: Long, tz: TimeZone): Int {
         fun midnight(ms: Long): Long = Calendar.getInstance(tz).apply {
             timeInMillis = ms
