@@ -25,9 +25,12 @@ object DeviceProfile {
         return capabilities(dm.widthPixels, dm.heightPixels)
     }
 
-    internal fun capabilities(screenW: Int, screenH: Int): Capabilities =
+    internal fun capabilities(screenW: Int, screenH: Int, videoCalls: Boolean = VideoCalls.SHIPPED): Capabilities =
         Capabilities.newBuilder()
-            .setSchemaVersion(RCS_SCHEMA_VERSION)
+            // Declared together or not at all: the component is what makes the backend send a
+            // call, and v15 is the version that carries it.
+            .setSchemaVersion(if (videoCalls) VideoCalls.SCHEMA_VERSION else RCS_SCHEMA_VERSION)
+            .apply { if (videoCalls) addComponents(VideoCalls.COMPONENT) }
             .setScreenW(screenW)
             .setScreenH(screenH)
             .setColorDepth(COLOR_DEPTH_BITS)

@@ -152,6 +152,22 @@ message DeviceResponse {
 
   // Unread mail count for the badge; sent every turn including zero.
   uint32 mail_unread = 29;
+
+  // 30 is the contacts cursor (v14), which this handset does not read yet.
+  reserved 30;
+
+  // Open or leave a video call (v15). Sent only to a device listing the `video_call` component.
+  VideoCallCommand video_call = 31;
+}
+
+// join: show the join screen; nothing loads and no camera or microphone opens before the tap.
+// end:  leave the open call; a no-op when none is open.
+message VideoCallCommand {
+  string action       = 1;   // join | end
+  string url          = 2;   // the address to load: https, on a host the device also allows
+  string provider     = 3;   // meet | zoom | teams | rist
+  string title        = 4;   // for the join screen; may be empty
+  string original_url = 5;   // the link as the user had it, when `url` was rewritten
 }
 
 // One inert notification; no command fields.

@@ -1,0 +1,158 @@
+package watch.rist.assistant
+
+import android.content.Context
+import android.content.Intent
+import android.util.Log
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import rist.v1.VideoCallCommand
+import java.lang.ref.WeakReference
+
+/**
+ * Video calls (video_calls.md). A call is a web page in a browser that can show nothing but a
+ * call: the backend sends the link, the person taps Join on a native screen, and only then does
+ * anything load or any camera open.
+ *
+ * The backend checks every link before sending it. This is the handset's own copy of the same
+ * list, because the handset is what stands between a link a stranger wrote and a live camera.
+ */
+object VideoCalls {
+
+    private const val TAG = "RistCall"
+
+    /**
+     * Whether requests declare the `video_call` component (and schema v15). The backend sends no
+     * call command to a device that does not, and says so in words instead. It stays false until
+     * the services have been joined from a real handset (video_calls.md section 8): a build that
+     * declared it early would hear "joining" while nothing worked.
+     */
+    const val SHIPPED = false
+
+    const val COMPONENT = "video_call"
+    const val SCHEMA_VERSION = 15
+
+    const val ACTION_JOIN = "join"
+    const val ACTION_END = "end"
+
+    enum class Provider(val wire: String, val label: String, val desktop: Boolean) {
+        MEET("meet", "Google Meet", true),
+        ZOOM("zoom", "Zoom", true),
+        TEAMS("teams", "Microsoft Teams", true),
+        RIST("rist", "Rist call", false),
+        /** A value this build has not heard of: a plain page under the same rules, not a refusal. */
+        OTHER("", "Video call", false),
+    }
+
+    fun provider(wire: String): Provider =
+        Provider.values().firstOrNull { it != Provider.OTHER && it.wire == wire.trim().lowercase() } ?: Provider.OTHER
+
+    private val EXACT_HOSTS = mapOf(
+        "meet.google.com" to Provider.MEET,
+        "zoom.us" to Provider.ZOOM,
+        "teams.microsoft.com" to Provider.TEAMS,
+        "teams.live.com" to Provider.TEAMS,
+    )
+    private const val ZOOM_SUFFIX = ".zoom.us"
+    private val RIST_PATHS = listOf("/c/", "/call-assets/")
+    private const val RIST_ENDED_PATH = "/c/ended"
+
+    /** The host Rist's own call pages are served from: the backend this phone talks to. */
+    fun ristHost(backendUrl: String): String? = backendUrl.trim().toHttpUrlOrNull()?.host?.lowercase()
+
+    /**
+     * Which service a TOP-LEVEL address belongs to, or null when the call browser must not be
+     * there. https only, no user name, and a host matched exactly or as a dot-suffix, so that
+     * evilzoom.us is not zoom.us and meet.google.com.evil.example is not Meet.
+     */
+    fun classify(url: String, ristHost: String?): Provider? {
+        val u = url.trim().toHttpUrlOrNull() ?: return null
+        if (!u.isHttps || u.username.isNotEmpty() || u.password.isNotEmpty()) return null
+        val host = u.host.lowercase()
+        EXACT_HOSTS[host]?.let { return it }
+        if (host.endsWith(ZOOM_SUFFIX)) return Provider.ZOOM
+        if (ristHost != null && host == ristHost && RIST_PATHS.any { u.encodedPath.startsWith(it) }) {
+            return Provider.RIST
+        }
+        return null
+    }
+
+    enum class Nav {
+        ALLOW,
+        /** Off the list, or not a web page at all (zoommtg://, msteams://, intent:). Dropped without a word. */
+        SWALLOW,
+        /** Rist's own page saying the call is over. */
+        ENDED,
+    }
+
+    fun navigation(url: String, ristHost: String?): Nav {
+        val provider = classify(url, ristHost) ?: return Nav.SWALLOW
+        if (provider == Provider.RIST && url.trim().toHttpUrlOrNull()?.encodedPath == RIST_ENDED_PATH) return Nav.ENDED
+        return Nav.ALLOW
+    }
+
+    /**
+     * The address actually loaded. A Rist call gets a fragment so the page skips its own lobby
+     * (the person has already tapped Join) and honours the toggles. A fragment, not a query: it
+     * is never sent to a server or written to a log.
+     */
+    fun loadUrl(url: String, provider: Provider, camera: Boolean, mic: Boolean, name: String = ""): String {
+        if (provider != Provider.RIST) return url
+        val base = url.substringBefore('#')
+        val who = name.trim().takeIf { it.isNotEmpty() }
+            ?.let { "&name=" + java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") }.orEmpty()
+        return "$base#go=1$who&camera=${if (camera) 1 else 0}&mic=${if (mic) 1 else 0}"
+    }
+
+    /**
+     * Meet, Zoom and Teams hand a phone browser an app-store page; with a desktop Chrome
+     * user-agent they serve the web client. Built from the engine's own, so the version is real.
+     */
+    fun desktopUserAgent(engineDefault: String): String {
+        val chrome = Regex("Chrome/([0-9.]+)").find(engineDefault)?.groupValues?.get(1) ?: "140.0.0.0"
+        return "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$chrome Safari/537.36"
+    }
+
+    // --- the open call, and commands from the backend -----------------------------------------
+
+    @Volatile private var open: WeakReference<CallBrowserActivity>? = null
+
+    fun isOpen(): Boolean = open?.get()?.let { !it.isFinishing && !it.isDestroyed } == true
+
+    internal fun onOpened(a: CallBrowserActivity) { open = WeakReference(a) }
+
+    internal fun onClosed(a: CallBrowserActivity) { if (open?.get() === a) open = null }
+
+    /** Leaves the open call. Nothing to do, and nothing said, when there is none. */
+    fun end() {
+        val a = open?.get() ?: return
+        a.runOnUiThread { a.hangUp("ended by the assistant") }
+    }
+
+    fun onCommand(ctx: Context, cmd: VideoCallCommand) {
+        when (cmd.action.trim().lowercase()) {
+            ACTION_END -> end()
+            ACTION_JOIN -> join(ctx, cmd.url, cmd.originalUrl, cmd.title, cmd.provider)
+            else -> Log.w(TAG, "unknown video call action; ignored")
+        }
+    }
+
+    /** Puts the join screen up. Returns false for an address the call browser will not load. */
+    fun join(ctx: Context, url: String, originalUrl: String, title: String, providerWire: String): Boolean {
+        val host = ristHost(Config.backendUrl(ctx))
+        val byHost = classify(url, host)
+        if (byHost == null) {
+            // The url is a credential for a Rist call, so it is never logged; the verdict is.
+            Log.w(TAG, "refusing a call link that is not on the list")
+            return false
+        }
+        val intent = Intent(ctx, VideoCallJoinActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .putExtra(VideoCallJoinActivity.EXTRA_URL, url)
+            .putExtra(VideoCallJoinActivity.EXTRA_ORIGINAL_URL, originalUrl.takeIf { classify(it, host) != null }.orEmpty())
+            .putExtra(VideoCallJoinActivity.EXTRA_TITLE, title.take(120))
+            // The HOST picks the handling, not the label sent with it: the host is what was checked.
+            .putExtra(VideoCallJoinActivity.EXTRA_PROVIDER, byHost.name)
+        return runCatching { ctx.startActivity(intent); true }
+            .onFailure { Log.w(TAG, "could not show the join screen", it) }
+            .getOrDefault(false)
+    }
+}

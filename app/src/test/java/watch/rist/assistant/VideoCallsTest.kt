@@ -1,0 +1,126 @@
+package watch.rist.assistant
+
+import android.webkit.PermissionRequest
+import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import watch.rist.assistant.VideoCalls.Nav
+import watch.rist.assistant.VideoCalls.Provider
+
+/** video_calls.md 5.1: where the call browser may be, and what it is given there. */
+class VideoCallsTest {
+
+    private val rist = "api.example.net"
+
+    @Test
+    fun `the listed hosts are recognised, by exact name or dot-suffix`() {
+        assertEquals(Provider.MEET, VideoCalls.classify("https://meet.google.com/abc-defg-hij", rist))
+        assertEquals(Provider.ZOOM, VideoCalls.classify("https://zoom.us/j/123?pwd=x", rist))
+        assertEquals(Provider.ZOOM, VideoCalls.classify("https://app.zoom.us/wc/123/join?pwd=x", rist))
+        assertEquals(Provider.ZOOM, VideoCalls.classify("https://us02web.zoom.us/j/123", rist))
+        assertEquals(Provider.TEAMS, VideoCalls.classify("https://teams.microsoft.com/l/meetup-join/x", rist))
+        assertEquals(Provider.TEAMS, VideoCalls.classify("https://teams.live.com/meet/123", rist))
+        assertEquals(Provider.RIST, VideoCalls.classify("https://api.example.net/c/abcdef", rist))
+        assertEquals(Provider.RIST, VideoCalls.classify("https://api.example.net/call-assets/call.js", rist))
+    }
+
+    @Test
+    fun `look-alikes and everything else are refused`() {
+        for (url in listOf(
+            "https://evilzoom.us/j/1", "https://zoom.us.evil.example/j/1",
+            "https://meet.google.com.evil.example/abc", "https://accounts.google.com/signin",
+            "https://www.google.com/", "https://notteams.microsoft.com.evil.net/",
+            "http://meet.google.com/abc-defg-hij", "https://user@meet.google.com/abc",
+            "zoommtg://zoom.us/join?confno=1", "msteams://teams.microsoft.com/l/x",
+            "intent://x#Intent;end", "javascript:alert(1)", "file:///sdcard/x", "",
+        )) assertNull(url, VideoCalls.classify(url, rist))
+    }
+
+    @Test
+    fun `the backend's host is a call page only under its call paths`() {
+        assertNull(VideoCalls.classify("https://api.example.net/v1/device", rist))
+        assertNull(VideoCalls.classify("https://api.example.net/", rist))
+        assertNull(VideoCalls.classify("https://api.example.net/c", rist))
+        // With no backend configured there is no Rist host at all.
+        assertNull(VideoCalls.classify("https://api.example.net/c/abcdef", null))
+        assertEquals("api.example.net", VideoCalls.ristHost("https://api.example.net/v1/device"))
+        assertNull(VideoCalls.ristHost(""))
+    }
+
+    @Test
+    fun `navigation is allowed on the list, swallowed off it, and ended by Rist's own page`() {
+        assertEquals(Nav.ALLOW, VideoCalls.navigation("https://app.zoom.us/wc/1/join", rist))
+        assertEquals(Nav.SWALLOW, VideoCalls.navigation("zoommtg://zoom.us/join?confno=1", rist))
+        assertEquals(Nav.SWALLOW, VideoCalls.navigation("https://play.google.com/store/apps/details?id=x", rist))
+        assertEquals(Nav.ENDED, VideoCalls.navigation("https://api.example.net/c/ended", rist))
+        // Only Rist's page can say a call is over; the same path elsewhere is just a page.
+        assertEquals(Nav.SWALLOW, VideoCalls.navigation("https://example.org/c/ended", rist))
+    }
+
+    @Test
+    fun `a Rist call skips its lobby and carries the toggles in a fragment`() {
+        assertEquals(
+            "https://api.example.net/c/abc#go=1&camera=1&mic=0",
+            VideoCalls.loadUrl("https://api.example.net/c/abc", Provider.RIST, camera = true, mic = false),
+        )
+        assertEquals(
+            "https://api.example.net/c/abc#go=1&name=Ana%20Mar%C3%ADa&camera=0&mic=1",
+            VideoCalls.loadUrl("https://api.example.net/c/abc#old", Provider.RIST, false, true, " Ana María "),
+        )
+    }
+
+    @Test
+    fun `an outside meeting's address is loaded exactly as sent`() {
+        val zoom = "https://app.zoom.us/wc/123/join?pwd=abc"
+        assertEquals(zoom, VideoCalls.loadUrl(zoom, Provider.ZOOM, camera = false, mic = false))
+    }
+
+    @Test
+    fun `the three outside services get a desktop user-agent, with the engine's real version`() {
+        val engine = "Mozilla/5.0 (Linux; Android 16; Pixel) AppleWebKit/537.36 (KHTML, like Gecko) " +
+            "Version/4.0 Chrome/152.0.7977.84 Mobile Safari/537.36"
+        val ua = VideoCalls.desktopUserAgent(engine)
+        assertTrue(ua.contains("Chrome/152.0.7977.84"))
+        assertFalse(ua.contains("Mobile"))
+        assertFalse(ua.contains("Android"))
+        assertTrue(Provider.MEET.desktop && Provider.ZOOM.desktop && Provider.TEAMS.desktop)
+        assertFalse(Provider.RIST.desktop)
+    }
+
+    @Test
+    fun `a page is granted only what the person left on, and never anything else`() {
+        val all = arrayOf(
+            PermissionRequest.RESOURCE_VIDEO_CAPTURE, PermissionRequest.RESOURCE_AUDIO_CAPTURE,
+            PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID, PermissionRequest.RESOURCE_MIDI_SYSEX,
+        )
+        assertArrayEquals(
+            arrayOf(PermissionRequest.RESOURCE_VIDEO_CAPTURE, PermissionRequest.RESOURCE_AUDIO_CAPTURE),
+            CallBrowserActivity.grantable(all, camera = true, mic = true),
+        )
+        assertArrayEquals(
+            arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE),
+            CallBrowserActivity.grantable(all, camera = false, mic = true),
+        )
+        assertEquals(0, CallBrowserActivity.grantable(all, camera = false, mic = false).size)
+    }
+
+    @Test
+    fun `the capability is declared with v15 or not at all`() {
+        val without = DeviceProfile.capabilities(1080, 2424, videoCalls = false)
+        assertFalse(VideoCalls.COMPONENT in without.componentsList)
+        assertEquals(DeviceProfile.RCS_SCHEMA_VERSION, without.schemaVersion)
+
+        val with = DeviceProfile.capabilities(1080, 2424, videoCalls = true)
+        assertTrue(VideoCalls.COMPONENT in with.componentsList)
+        assertEquals(15, with.schemaVersion)
+    }
+
+    @Test
+    fun `an unknown provider label is a plain page, not a refusal`() {
+        assertEquals(Provider.OTHER, VideoCalls.provider("webex"))
+        assertEquals(Provider.ZOOM, VideoCalls.provider(" Zoom "))
+    }
+}

@@ -47,6 +47,8 @@ object DeviceCommands {
             if (reply.hasStopwatch()) append("s:${reply.stopwatch.action};")
             if (reply.hasAlarm()) append("a:${reply.alarm.action}/${reply.alarm.fireAtEpochS}/${reply.alarm.alarmId};")
             if (reply.hasComms()) append("c:${reply.comms.action}/${reply.comms.number};")
+            // Not the url: for a Rist call it is the credential, and this key can reach a log.
+            if (reply.hasVideoCall()) append("v:${reply.videoCall.action}/${reply.videoCall.url.hashCode()};")
         }
     }
 
@@ -61,7 +63,9 @@ object DeviceCommands {
 
     @Synchronized
     fun handle(ctx: Context, reply: rist.v1.DeviceResponse): Boolean {
-        if (!reply.hasTimer() && !reply.hasStopwatch() && !reply.hasAlarm() && !reply.hasComms()) return false
+        if (!reply.hasTimer() && !reply.hasStopwatch() && !reply.hasAlarm() && !reply.hasComms() &&
+            !reply.hasVideoCall()
+        ) return false
         val key = commandKey(reply)
         if (key.isNotBlank() && !appliedKeys.add(key)) {
             Log.i(TAG, "device commands for '$key' already applied; skipping")
@@ -75,6 +79,9 @@ object DeviceCommands {
         if (reply.hasStopwatch()) { stopwatch(ctx, reply.stopwatch); handled = true }
         if (reply.hasAlarm()) { alarm(ctx, reply.alarm); handled = true }
         if (reply.hasComms()) { comms(ctx, reply.comms); handled = true }
+        // After comms, never before: "start a video call with Sarah" carries her invitation and
+        // the call together, and the invitation goes first (video_calls.md section 3).
+        if (reply.hasVideoCall()) { VideoCalls.onCommand(ctx, reply.videoCall); handled = true }
         return handled
     }
 

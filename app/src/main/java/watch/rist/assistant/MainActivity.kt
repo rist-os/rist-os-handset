@@ -1234,6 +1234,11 @@ class MainActivity : AppCompatActivity() {
         val d = resources.displayMetrics.density
         val url = SiteLock.openable(text)
         val site = url?.let { SiteLock.siteOf(it) }
+        // A meeting link printed as a code is a call, not a web page: it gets the join screen
+        // and the call browser, which can hold a camera and cannot leave the meeting.
+        val isMeeting = url != null &&
+            VideoCalls.classify(url, VideoCalls.ristHost(Config.backendUrl(this))) != null
+        if (isMeeting && VideoCalls.join(this, url!!, "", "", "")) return
         runCatching {
             if (url == null || site == null) {
                 RistDialog.ask(
