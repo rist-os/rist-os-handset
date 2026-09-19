@@ -39,7 +39,7 @@ object CommsFeedView {
     fun waitingCount(ctx: Context): Int = waiting(ctx).total
 
     fun waiting(ctx: Context): CommsFeed.Waiting =
-        CommsFeed.waiting(candidates(ctx), CarrierVoicemail.waiting(ctx), Config.pendingMail(ctx))
+        CommsFeed.waiting(candidates(ctx), CarrierVoicemail.showing(ctx), Config.pendingMail(ctx))
 
     private fun missedCalls(ctx: Context): List<FeedItem> = runCatching {
         // No date cutoff, for the same reason as SmsInbox.arrivals: the feed keeps a missed
@@ -116,7 +116,7 @@ object CommsFeedView {
         val shown = CommsFeed.assemble(all, System.currentTimeMillis())
             // `it.id in expanded` is load-bearing: a tap marks seen AND expands, so an open row stays until closed.
             .filter { it.unread || it.id in expanded }
-        val vmWaiting = CarrierVoicemail.waiting(activity)
+        val vmWaiting = CarrierVoicemail.showing(activity)
         val textsUnreadable = !SmsInbox.canRead(activity)
         val unconnected = Config.credentialRejected(activity) || Config.enrolRevoked(activity)
 
@@ -138,7 +138,7 @@ object CommsFeedView {
 
         var drawn = 0
         val headerDrawn = !unconnected
-        if (headerDrawn) host.addView(header(activity, t, tf, muted, d, waiting, all))
+        if (headerDrawn) host.addView(header(activity, t, tf, muted, d, waiting, all, vmWaiting))
 
         fun divider() = host.addView(View(activity).apply {
             layoutParams = LinearLayout.LayoutParams(
@@ -172,7 +172,7 @@ object CommsFeedView {
             drawn++
             if (shown.isNotEmpty() || vmWaiting || textsUnreadable) {
                 divider()
-                host.addView(header(activity, t, tf, muted, d, waiting, all))
+                host.addView(header(activity, t, tf, muted, d, waiting, all, vmWaiting))
                 drawn++
             }
         }
@@ -208,22 +208,8 @@ object CommsFeedView {
             mailText.layoutParams =
                 LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
 
-            // Named locals, not nested apply blocks: addView inside an apply on a receiver under construction breaks type inference.
-            val mailDismiss = TextView(activity)
-            mailDismiss.text = "\u00d7"
-            mailDismiss.setTextColor(muted)
-            mailDismiss.typeface = tf
-            mailDismiss.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
-            mailDismiss.gravity = Gravity.CENTER
-            mailDismiss.minWidth = (48 * d).toInt()
-            mailDismiss.minHeight = (48 * d).toInt()
-            mailDismiss.contentDescription = "Dismiss the unread email notice"
-            mailDismiss.isClickable = true
-            mailDismiss.isFocusable = true
-            mailDismiss.setOnClickListener {
+            val mailDismiss = dismissButton(activity, t, tf, d, "Dismiss the unread email notice") {
                 Config.setMailAcknowledged(activity, Config.mailUnread(activity))
-                Haptics.ack(activity)
-                render(activity)
             }
 
             val mailRow = LinearLayout(activity)
@@ -254,9 +240,9 @@ object CommsFeedView {
 
     private fun header(
         activity: Activity, t: RistTheme, tf: android.graphics.Typeface?, muted: Int,
-        d: Float, waiting: Int, all: List<FeedItem>,
+        d: Float, waiting: Int, all: List<FeedItem>, vmWaiting: Boolean,
     ): View {
-        val acknowledgeable = CommsFeed.unreadCount(all)
+        val acknowledgeable = CommsFeed.unreadCount(all) + if (vmWaiting) 1 else 0
         val bar = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -273,7 +259,7 @@ object CommsFeedView {
         })
         if (acknowledgeable > 0) bar.addView(TextView(activity).apply {
             text = "CLEAR ALL"
-            contentDescription = "Clear $acknowledgeable new calls and messages"
+            contentDescription = "Clear $acknowledgeable new calls, messages and voicemail"
             setTextColor(t.ink); typeface = tf
             isAllCaps = true
             letterSpacing = 0.06f
@@ -291,6 +277,7 @@ object CommsFeedView {
                 expanded.clear()
                 markSeen(activity, all.filter { it.unread }.map { it.id })
                 Config.setMailAcknowledged(activity, Config.mailUnread(activity))
+                if (vmWaiting) CarrierVoicemail.dismiss(activity)
                 Haptics.ack(activity)
                 render(activity)
             }
@@ -396,23 +383,16 @@ object CommsFeedView {
             minimumHeight = (72 * d).toInt()
             setPadding(0, (10 * d).toInt(), 0, (10 * d).toInt())
             addView(edge); addView(glyph); addView(col)
-            addView(TextView(activity).apply {
-                text = "×"
-                setTextColor(muted)
-                typeface = tf
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
-                gravity = Gravity.CENTER
-                minWidth = (48 * d).toInt()
-                minHeight = (48 * d).toInt()
-                contentDescription = "Dismiss this " +
-                    (if (item.kind == FeedKind.TEXT) "message" else "missed call")
-                isClickable = true; isFocusable = true
-                setOnClickListener {
-                    expanded.remove(item.id)
-                    markSeen(activity, listOf(item.id))
-                    Haptics.ack(activity)
-                    render(activity)
-                }
+            addView(dismissButton(
+                activity, t, tf, d,
+                "Dismiss this " + when (item.kind) {
+                    FeedKind.TEXT -> "message"
+                    FeedKind.MISSED_CALL -> "missed call"
+                    FeedKind.NOTIFICATION -> "notice"
+                },
+            ) {
+                expanded.remove(item.id)
+                markSeen(activity, listOf(item.id))
             })
             isClickable = true; isFocusable = true
             contentDescription = buildString {
@@ -430,6 +410,27 @@ object CommsFeedView {
                 Haptics.ack(activity)
                 render(activity)
             }
+        }
+    }
+
+    /** The × on every row. In ink, not muted: a control nobody can see is not a control. */
+    private fun dismissButton(
+        activity: Activity, t: RistTheme, tf: android.graphics.Typeface?, d: Float,
+        spoken: String, onDismiss: () -> Unit,
+    ): View = TextView(activity).apply {
+        text = "\u00d7"
+        setTextColor(t.ink)
+        typeface = tf
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 28f)
+        gravity = Gravity.CENTER
+        minWidth = (48 * d).toInt()
+        minHeight = (48 * d).toInt()
+        contentDescription = spoken
+        isClickable = true; isFocusable = true
+        setOnClickListener {
+            onDismiss()
+            Haptics.ack(activity)
+            render(activity)
         }
     }
 
@@ -509,6 +510,10 @@ object CommsFeedView {
             minimumHeight = (72 * d).toInt()
             setPadding(0, (10 * d).toInt(), 0, (10 * d).toInt())
             addView(edge); addView(glyph); addView(col)
+            addView(dismissButton(activity, t, tf, d, "Dismiss the voicemail notice") {
+                expanded.remove(VOICEMAIL_KEY)
+                CarrierVoicemail.dismiss(activity)
+            })
             isClickable = true; isFocusable = true
             contentDescription = CommsFeed.voicemailKindLine() + ". " +
                 CommsFeed.voicemailSenderLine() + ". " +

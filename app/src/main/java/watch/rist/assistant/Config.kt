@@ -23,6 +23,7 @@ object Config {
     private const val KEY_AUTO_TZ_PENDING_AT = "auto_time_zone_pending_at"
     private const val KEY_HAPTICS = "haptics_enabled"
     private const val KEY_CARRIER_VM_WAITING = "carrier_vm_waiting"
+    private const val KEY_VM_DISMISSED_AT = "carrier_vm_dismissed_at"
     private const val KEY_VOICEMAIL_PIN = "voicemail_pin"
     private const val KEY_SETUP_DONE = "setup_complete"
     private const val KEY_AUTH_TOKEN = "auth_token"
@@ -366,6 +367,16 @@ object Config {
 
     fun setCarrierVoicemailWaiting(ctx: Context, waiting: Boolean) {
         prefs(ctx).edit().putBoolean(KEY_CARRIER_VM_WAITING, waiting).apply()
+    }
+
+    /** The carrier's message count when the voicemail row was dismissed; null = not dismissed. */
+    fun voicemailDismissedAt(ctx: Context): Int? =
+        prefs(ctx).takeIf { it.contains(KEY_VM_DISMISSED_AT) }?.getInt(KEY_VM_DISMISSED_AT, -1)
+
+    fun setVoicemailDismissedAt(ctx: Context, count: Int?) {
+        prefs(ctx).edit().apply {
+            if (count == null) remove(KEY_VM_DISMISSED_AT) else putInt(KEY_VM_DISMISSED_AT, count)
+        }.apply()
     }
 
     fun isReplyVoiceEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_REPLY_VOICE, true)

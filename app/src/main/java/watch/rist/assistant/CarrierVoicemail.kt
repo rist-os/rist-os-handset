@@ -37,8 +37,35 @@ object CarrierVoicemail {
     fun waiting(ctx: Context): Boolean =
         Config.carrierVoicemailWaiting(ctx) || NotificationHub.voicemailPosted()
 
+    /**
+     * The carrier's flag cannot be cleared from here, only by emptying the mailbox, so a
+     * dismissal is ours: it hides the row and the badge until the carrier counts a message
+     * more than it did then, and lapses by itself once nothing is waiting.
+     */
+    fun dismiss(ctx: Context) {
+        Config.setVoicemailDismissedAt(ctx, readCount(ctx.applicationContext) ?: COUNT_UNKNOWN)
+    }
+
+    /** True while a voicemail is waiting that the person has not dismissed from the feed. */
+    fun showing(ctx: Context): Boolean {
+        if (!waiting(ctx)) {
+            if (Config.voicemailDismissedAt(ctx) != null) Config.setVoicemailDismissedAt(ctx, null)
+            return false
+        }
+        val at = Config.voicemailDismissedAt(ctx) ?: return true
+        if (staysDismissed(at, readCount(ctx.applicationContext))) return false
+        Config.setVoicemailDismissedAt(ctx, null)
+        return true
+    }
+
+    internal const val COUNT_UNKNOWN = -1
+
+    /** Only a count known both then and now, and higher now, is a new message. */
+    internal fun staysDismissed(dismissedAt: Int, current: Int?): Boolean =
+        !(dismissedAt >= 0 && current != null && current > dismissedAt)
+
     fun unacknowledged(ctx: Context): Boolean {
-        if (!waiting(ctx)) return false
+        if (!showing(ctx)) return false
         val present = SystemVoicemail.carrierRowPresent(ctx)
         if (present == true) return true
         android.util.Log.w(
