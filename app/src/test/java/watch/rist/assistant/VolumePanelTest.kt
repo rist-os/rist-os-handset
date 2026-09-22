@@ -144,4 +144,17 @@ class VolumePanelTest {
         assertFalse(a.volumePanel.isShowing)
         assertNull(a.volumePanel.target)
     }
+
+    @Test
+    fun `raising the ringer out of silent or vibrate turns ring mode back on`() {
+        val ring = VolumeKeys.Channel.RINGER
+        assertEquals(android.media.AudioManager.RINGER_MODE_NORMAL,
+            VolumeKeys.ringerModeAfter(ring, 1, android.media.AudioManager.RINGER_MODE_SILENT))
+        assertEquals(android.media.AudioManager.RINGER_MODE_NORMAL,
+            VolumeKeys.ringerModeAfter(ring, 2, android.media.AudioManager.RINGER_MODE_VIBRATE))
+        // Already ringing, lowered to nothing, or another slider: the mode is left alone.
+        assertEquals(null, VolumeKeys.ringerModeAfter(ring, 3, android.media.AudioManager.RINGER_MODE_NORMAL))
+        assertEquals(null, VolumeKeys.ringerModeAfter(ring, 0, android.media.AudioManager.RINGER_MODE_SILENT))
+        assertEquals(null, VolumeKeys.ringerModeAfter(VolumeKeys.Channel.MEDIA, 5, android.media.AudioManager.RINGER_MODE_SILENT))
+    }
 }

@@ -100,6 +100,14 @@ internal object VolumeKeys {
         else -> "ring"
     }
 
+    /**
+     * Raising the ringer out of silent or vibrate is a wish to hear it ring: the mode goes back
+     * to ring, which also clears the silent icon. Null when the mode should stay as it is.
+     */
+    fun ringerModeAfter(channel: Channel, index: Int, mode: Int): Int? =
+        if (channel == Channel.RINGER && index > 0 && mode != AudioManager.RINGER_MODE_NORMAL)
+            AudioManager.RINGER_MODE_NORMAL else null
+
     /** One button step from [current], kept inside [min]..[max]. */
     fun step(current: Int, min: Int, max: Int, raise: Boolean): Int =
         (current + if (raise) 1 else -1).coerceIn(min, max)
@@ -183,6 +191,8 @@ internal class VolumePanel(private val activity: Activity) {
             return
         }
         runCatching {
+            // Mode first: while silent or vibrate, Android holds the ring volume at zero.
+            VolumeKeys.ringerModeAfter(channel, index, am.ringerMode)?.let { am.ringerMode = it }
             // A muted stream ignores a new index until it is unmuted; media arrives muted here.
             if (index > 0 && am.isStreamMute(channel.stream)) {
                 am.adjustStreamVolume(channel.stream, AudioManager.ADJUST_UNMUTE, 0)
