@@ -5,11 +5,17 @@ import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 // Tiles and frames may arrive at 1x or 2x pixel density; everything here works in the 1x units.
 internal object MapGeometry {
 
     const val TILE_WORLD_PX = 256.0
+
+    const val TILE_CACHE_BYTES = 32 * 1024 * 1024
+
+    // A decoded 512-px RGB_565 tile, the largest the view holds.
+    const val MAX_TILE_BYTES = 512 * 512 * 2
 
     const val BASE_FRAME_W = 240
     const val BASE_FRAME_H = 320
@@ -76,6 +82,28 @@ internal object MapGeometry {
         }
         return x1 >= 0.0 && y1 >= 0.0 && x0 <= viewW && y0 <= viewH
     }
+
+    // Cells a viewW x viewH screen can touch at any heading and offset, tilePx screen px per tile: they all
+    // lie in the screen grown by one tile each way, area w*h + 2(w+h)(|cos|+|sin|) + 4 in tile units.
+    fun maxTilesOnScreen(viewW: Int, viewH: Int, tilePx: Double): Int {
+        val w = viewW / tilePx; val h = viewH / tilePx
+        return floor(w * h + 2.0 * sqrt(2.0) * (w + h) + 4.0).toInt()
+    }
+
+    fun tileBudget(cacheBytes: Int = TILE_CACHE_BYTES, tileBytes: Int = MAX_TILE_BYTES): Int = cacheBytes / tileBytes
+
+    // Keeps a far pinch-out from decoding every tile every frame: once baseZ's tiles could outnumber the
+    // cache, draw the highest lower zoom that fits. Draw at scale * drawZoomFactor(baseZ, z).
+    fun drawZoom(baseZ: Int, availZooms: IntArray, scale: Float, viewW: Int, viewH: Int,
+                 budget: Int = tileBudget()): Int {
+        fun fits(z: Int) = maxTilesOnScreen(viewW, viewH, TILE_WORLD_PX * scale * drawZoomFactor(baseZ, z)) <= budget
+        if (fits(baseZ)) return baseZ
+        var z = baseZ
+        for (c in availZooms.sortedDescending()) if (c < baseZ) { z = c; if (fits(c)) break }
+        return z
+    }
+
+    fun drawZoomFactor(baseZ: Int, z: Int): Int = 1 shl (baseZ - z)
 
     fun panTiles(deltaScreenPx: Float, screenScale: Float): Double = deltaScreenPx / screenScale / TILE_WORLD_PX
 

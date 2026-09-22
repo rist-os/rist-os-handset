@@ -93,10 +93,7 @@ class CorridorMapView @JvmOverloads constructor(
     private val routeCasingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFFFFFFFF.toInt(); style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
     }
-    private val tileCache = object : android.util.LruCache<Long, Bitmap>(TILE_CACHE_BYTES) {
-        override fun sizeOf(k: Long, v: Bitmap) = v.allocationByteCount
-        override fun entryRemoved(e: Boolean, k: Long, o: Bitmap, n: Bitmap?) { if (o != n) runCatching { o.recycle() } }
-    }
+    private val tileCache = TileCache()
     private var animStart = 0L
     private var fromLat = 0.0; private var fromLon = 0.0; private var fromHeading = 0f
     private var lastDispLat = 0.0; private var lastDispLon = 0.0; private var lastDispHeading = 0f
@@ -354,17 +351,19 @@ class CorridorMapView @JvmOverloads constructor(
         val cenLon = if (manual) manualCenterLon else useLon
         if (manual) heading = 0f
         val near = !manual && hasNextTurn && distanceM(useLat, useLon, nextTurnLat, nextTurnLon) <= 300.0
-        val z = TilePlan.pickZoom(availZooms, near, nextTurnLat, nextTurnLon, useLat, useLon, tileLookup)
+        val baseZ = TilePlan.pickZoom(availZooms, near, nextTurnLat, nextTurnLon, useLat, useLon, tileLookup)
+        val baseScale = TILE_SCREEN_SCALE * (if (manual) manualZoomMul else 1f)
+        val z = MapGeometry.drawZoom(baseZ, availZooms, baseScale, width, height)
         val n = 1 shl z
         val latRad = Math.toRadians(cenLat)
         val utx = (cenLon + 180.0) / 360.0 * n
         val uty = (1.0 - ln(tan(latRad) + 1.0 / cos(latRad)) / PI) / 2.0 * n
         val anchorCovered = TilePlan.coveringZoom(z, floor(utx).toInt(), floor(uty).toInt(), availZooms, tileLookup) >= 0
         if (!TilePlan.useTiles(true, true, manual, anchorCovered, frames.any { it.valid })) return false
-        curTileZoom = z
+        curTileZoom = baseZ
         dstRect.set(0f, 0f, width.toFloat(), height.toFloat()); frameScale = 2
         val cx = width / 2f; val cy = height * 0.60f
-        val scale = TILE_SCREEN_SCALE * (if (manual) manualZoomMul else 1f)
+        val scale = baseScale * MapGeometry.drawZoomFactor(baseZ, z)
         val ang = Math.toRadians(-heading.toDouble()); val ca = cos(ang); val sa = sin(ang)
         MapGeometry.visibleTileRange(utx, uty, width, height, scale, heading, cx, cy, tileRange)
         var slots = 0
@@ -792,6 +791,5 @@ class CorridorMapView @JvmOverloads constructor(
         private const val MANEUVER_SWITCH_M = 200.0
         private const val MANUAL_TIMEOUT_MS = 8000L
         private const val BITMAP_CACHE = 6
-        private const val TILE_CACHE_BYTES = 32 * 1024 * 1024
     }
 }

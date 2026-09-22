@@ -179,4 +179,55 @@ class MapGeometryTest {
             (lon - minLon) / (maxLon - minLon) * w,
             (y(maxLat) - y(lat)) / (y(maxLat) - y(minLat)) * h)
     }
+
+    @Test
+    fun zoomedFarOut_theDrawnTilesAlwaysFitTheCache() {
+        val budgetBytes = MapGeometry.TILE_CACHE_BYTES.toLong()
+        for ((w, h) in listOf(1080 to 2424, 1080 to 2400, 1440 to 3120, 720 to 1280)) for (baseZ in listOf(14, 16)) {
+            val cx = w / 2f; val cy = h * 0.60f
+            var zoom = 0.4f
+            while (zoom <= 4.001f) {
+                val base = 1.8f * zoom
+                val z = MapGeometry.drawZoom(baseZ, intArrayOf(12, 14, 16), base, w, h)
+                val scale = base * MapGeometry.drawZoomFactor(baseZ, z)
+                val f = MapGeometry.drawZoomFactor(baseZ, z).toDouble()
+                val utx = 2625.37 * 4 / f; val uty = 5720.81 * 4 / f
+                for (heading in 0 until 360 step 5) {
+                    val n = visibleTiles(utx, uty, w, h, scale, heading.toFloat(), cx, cy).size
+                    assertTrue("${w}x$h z$baseZ zoom $zoom heading $heading draws z$z: $n tiles",
+                        n.toLong() * MapGeometry.MAX_TILE_BYTES <= budgetBytes)
+                }
+                zoom += 0.05f
+            }
+        }
+    }
+
+    @Test
+    fun drawZoom_keepsTheBaseZoomAtNormalScaleAndDropsOnlyWhenFarOut() {
+        val avail = intArrayOf(12, 14, 16)
+        for ((w, h) in listOf(1080 to 2424, 1080 to 2400, 1440 to 3120)) {
+            assertEquals(14, MapGeometry.drawZoom(14, avail, 1.8f, w, h))
+            assertEquals(16, MapGeometry.drawZoom(16, avail, 1.8f, w, h))
+            assertEquals(12, MapGeometry.drawZoom(14, avail, 1.8f * 0.4f, w, h))
+            assertEquals(14, MapGeometry.drawZoom(16, avail, 1.8f * 0.4f, w, h))
+        }
+        assertEquals(13, MapGeometry.drawZoom(14, intArrayOf(12, 13, 14), 1.8f * 0.4f, 1080, 2424))
+        assertEquals(14, MapGeometry.drawZoom(14, intArrayOf(14, 16), 1.8f * 0.4f, 1080, 2424))
+        assertEquals(14, MapGeometry.drawZoom(14, avail, 1.8f * 0.67f, 1080, 2424))
+        assertEquals(12, MapGeometry.drawZoom(14, avail, 1.8f * 0.65f, 1080, 2424))
+        assertEquals(4, MapGeometry.drawZoomFactor(14, 12))
+        assertEquals(64, MapGeometry.tileBudget())
+    }
+
+    @Test
+    fun maxTilesOnScreen_boundsTheBruteForceCount() {
+        for (heading in 0 until 360 step 3) for (zoom in listOf(0.4f, 0.55f, 0.7f, 1f, 2.5f)) {
+            val scale = 1.8f * zoom
+            for (off in listOf(0.0, 0.13, 0.5, 0.91)) {
+                val n = visibleTiles(2625.0 + off, 5720.0 + off * 0.7, 1080, 2424, scale, heading.toFloat(), 540f, 1454f).size
+                assertTrue("heading $heading zoom $zoom: $n",
+                    n <= MapGeometry.maxTilesOnScreen(1080, 2424, MapGeometry.TILE_WORLD_PX * scale))
+            }
+        }
+    }
 }
