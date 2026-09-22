@@ -31,7 +31,7 @@ android {
         applicationId = "watch.rist.assistant"
         minSdk = 34
         targetSdk = 35
-        versionCode = 471
+        versionCode = 1000
         versionName = "0.2.0"
 
         ndk { abiFilters += "arm64-v8a" }

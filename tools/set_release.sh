@@ -37,7 +37,10 @@ done
 
 # CHANGELOG.md is append-only: a new section goes in above the previous one.
 if [ -f CHANGELOG.md ]; then
-  if grep -q "^## $CUR" CHANGELOG.md; then
+  if grep -q "^## Unreleased" CHANGELOG.md; then
+    # the notes were written ahead of the build: give them its number
+    perl -0pi -e "s/^## Unreleased\$/## $NEW/m" CHANGELOG.md
+  elif grep -q "^## $CUR" CHANGELOG.md; then
     perl -0pi -e "s/^(## \Q$CUR\E)/## $NEW\n\nNot written yet.\n\n---\n\n\$1/m unless \$done++" CHANGELOG.md
   else
     echo "warning: CHANGELOG.md has no '## $CUR' section; nothing inserted"
