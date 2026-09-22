@@ -280,6 +280,161 @@ class SettingsActivity : AppCompatActivity() {
         parent.addView(box, idx)
     }
 
+    private val RETENTION_SECTION_TAG = "rist_retention_section"
+
+    /**
+     * How long answers to direct requests stay on the home screen.
+     *
+     * Shows the current value and opens a wheel on it. Deliberately says what it does NOT
+     * cover: the feed mixes replies with texts, calls and notifications, and those are kept
+     * until cleared, so a control that silently governed only part of what the user is
+     * looking at would be worse than none.
+     */
+    private fun buildRetentionSection() {
+        val picker = findViewById<LinearLayout>(R.id.themePicker) ?: return
+        val parent = picker.parent as? LinearLayout ?: return
+
+        parent.findViewWithTag<View>(RETENTION_SECTION_TAG)?.let { parent.removeView(it) }
+        val anchor = findViewById<View>(R.id.themesHeading) ?: picker
+        val idx = parent.indexOfChild(anchor).coerceAtLeast(0)
+
+        val theme = Themes.byId(Config.themeId(this))
+        val ink = ContextCompat.getColor(this, R.color.ink)
+        val muted = Themes.readableMuted(theme)
+        val bodyTf: Typeface? = ThemePaint.typefaceOf(this, theme)
+        val d = resources.displayMetrics.density
+
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, px(12f), 0, px(6f))
+            tag = RETENTION_SECTION_TAG
+        }
+
+        box.addView(TextView(this).apply {
+            text = "MESSAGE HISTORY"
+            setTextColor(ink); textSize = 14f; typeface = pixelTf; isAllCaps = true
+            setPadding(0, px(6f), 0, px(4f))
+        })
+        box.addView(TextView(this).apply {
+            text = "How long answers to your requests stay on the home screen. " +
+                "Texts, calls and notifications are kept until you clear them."
+            setTextColor(muted); textSize = 10.5f; typeface = bodyTf
+            setPadding(0, 0, 0, px(8f))
+        })
+
+        val value = TextView(this).apply {
+            setTextColor(theme.accent); textSize = 15f; typeface = bodyTf
+            setPadding(0, px(6f), 0, px(6f))
+            isClickable = true
+            isFocusable = true
+        }
+        fun paint() {
+            val chosen = Retention.byMs(Config.transcriptMaxAgeMs(this))
+            value.text = chosen.label + "  ▾"
+            value.contentDescription = "Message history, " + chosen.label + ", opens a picker"
+        }
+        value.setOnClickListener {
+            val chosen = Retention.byMs(Config.transcriptMaxAgeMs(this))
+            runCatching {
+                RistDialog.wheel(
+                    activity = this,
+                    t = theme,
+                    tf = bodyTf,
+                    d = d,
+                    title = "Keep my messages for",
+                    labels = Retention.CHOICES.map { it.label },
+                    selected = Retention.CHOICES.indexOfFirst { it.id == chosen.id },
+                ) { picked ->
+                    Retention.CHOICES.getOrNull(picked)?.let {
+                        Config.setTranscriptMaxAgeMs(this, it.ms)
+                        paint()
+                    }
+                }
+            }.onFailure { Log.e("RistSettings", "retention wheel failed", it) }
+        }
+        paint()
+        box.addView(value)
+
+        parent.addView(box, idx)
+    }
+
+    private val TIME_ZONE_SECTION_TAG = "rist_time_zone_section"
+
+    /**
+     * Where the clock's time zone comes from: the phone's location (RIST, the default) or the
+     * phone's own automatic setting, which relies on the cell network sending the time.
+     */
+    private fun buildTimeZoneSection() {
+        val picker = findViewById<LinearLayout>(R.id.themePicker) ?: return
+        val parent = picker.parent as? LinearLayout ?: return
+
+        parent.findViewWithTag<View>(TIME_ZONE_SECTION_TAG)?.let { parent.removeView(it) }
+        val anchor = findViewById<View>(R.id.themesHeading) ?: picker
+        val idx = parent.indexOfChild(anchor).coerceAtLeast(0)
+
+        val theme = Themes.byId(Config.themeId(this))
+        val ink = ContextCompat.getColor(this, R.color.ink)
+        val muted = Themes.readableMuted(theme)
+        val bodyTf: Typeface? = ThemePaint.typefaceOf(this, theme)
+        val d = resources.displayMetrics.density
+        val canSet = AutoTimeZone.canSet(this)
+
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, px(12f), 0, px(6f))
+            tag = TIME_ZONE_SECTION_TAG
+        }
+        box.addView(TextView(this).apply {
+            text = "TIME ZONE"
+            setTextColor(ink); textSize = 14f; typeface = pixelTf; isAllCaps = true
+            setPadding(0, px(6f), 0, px(4f))
+        })
+        box.addView(TextView(this).apply {
+            text = if (canSet) "Rist can set the clock from where the phone is, even with no signal. " +
+                "The phone's own setting depends on the cell network sending the time, which many don't."
+            else "Rist can't change the clock on this phone. The phone's own setting is in use."
+            setTextColor(muted); textSize = 10.5f; typeface = bodyTf
+            setPadding(0, 0, 0, px(8f))
+        })
+
+        val options = listOf("From location", "Phone's own setting")
+        val value = TextView(this).apply {
+            setTextColor(if (canSet) theme.accent else muted); textSize = 15f; typeface = bodyTf
+            setPadding(0, px(6f), 0, px(2f))
+            isClickable = canSet
+            isFocusable = canSet
+        }
+        val now = TextView(this).apply {
+            setTextColor(muted); textSize = 10.5f; typeface = bodyTf
+            setPadding(0, 0, 0, px(4f))
+        }
+        fun paint() {
+            val fromLocation = canSet && Config.isAutoTimeZone(this)
+            val label = if (fromLocation) options[0] else options[1]
+            value.text = if (canSet) "$label  ▾" else label
+            value.contentDescription = "Time zone, $label" + if (canSet) ", opens a picker" else ""
+            now.text = "Now: " + AutoTimeZone.describeZone(java.util.TimeZone.getDefault(), System.currentTimeMillis())
+        }
+        if (canSet) value.setOnClickListener {
+            runCatching {
+                RistDialog.choose(
+                    activity = this, t = theme, tf = bodyTf, d = d,
+                    title = "Set the time zone",
+                    options = options,
+                ) { which ->
+                    AutoTimeZone.setEnabled(this, which == 0)
+                    paint()
+                    // The check runs in the background; show its result once it has had time to land.
+                    value.postDelayed({ if (!isFinishing) paint() }, 6_000)
+                }
+            }.onFailure { Log.e("RistSettings", "time zone chooser failed", it) }
+        }
+        paint()
+        box.addView(value)
+        box.addView(now)
+        parent.addView(box, idx)
+    }
+
     private fun confirmBackendChange(confirmLabel: String, onConfirm: () -> Unit) {
         if (Enrolment.needed(this)) { onConfirm(); return }
         if (backendDialog?.isShowing == true) return
@@ -539,6 +694,10 @@ class SettingsActivity : AppCompatActivity() {
         // Built first: each code-built section inserts at the anchor, so the last built sits nearest it.
         runCatching { buildVoicemailSection() }
             .onFailure { Log.e("RistSettings", "voicemail section build failed", it) }
+        runCatching { buildRetentionSection() }
+            .onFailure { Log.e("RistSettings", "retention section build failed", it) }
+        runCatching { buildTimeZoneSection() }
+            .onFailure { Log.e("RistSettings", "time zone section build failed", it) }
         // ThemePaint.retint() overwrites XML typefaces, so these headings are put back here.
         runCatching {
             for (id in intArrayOf(R.id.backendHeading, R.id.themesHeading)) {

@@ -41,6 +41,8 @@ import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.core.widget.doAfterTextChanged
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -78,6 +80,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var torchSliderThumb: View
     private lateinit var textInput: EditText
     private lateinit var sendButton: View
+    private lateinit var photoButton: View
     private lateinit var statusText: TextView
     private lateinit var replyContainer: LinearLayout
     private var activeEntryId: Long = 0L
@@ -164,7 +167,9 @@ class MainActivity : AppCompatActivity() {
     private var navigating = false
     private var rerouting = false
 
-    private var lastPhotoPath: String? = null
+    // Thumbnails of photos sent this session, by transcript entry. The store keeps only the
+    // words, as the backend does; the pictures show while the process lives and no longer.
+    private val sentPhotoThumbs = LinkedHashMap<Long, List<android.graphics.Bitmap>>()
 
     private val isDebugBuild: Boolean
         get() = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
@@ -229,7 +234,7 @@ class MainActivity : AppCompatActivity() {
 
     private val cameraPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) launchCamera() else toast(getString(R.string.camera_permission_denied))
+            if (granted) launchSystemCamera() else toast(getString(R.string.camera_permission_denied))
         }
 
     private val cameraLauncher =
@@ -237,6 +242,45 @@ class MainActivity : AppCompatActivity() {
             if (result.resultCode != RESULT_OK) { status("camera cancelled"); return@registerForActivityResult }
             val path = result.data?.getStringExtra(CameraActivity.EXTRA_JPEG_PATH)
             if (path != null) onPhotoCaptured(path)
+        }
+
+    // Where the system camera is told to write; read back and cleared when it returns.
+    private var pendingCameraFile: File? = null
+
+    private val takePictureLauncher =
+        registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+            val f = pendingCameraFile
+            pendingCameraFile = null
+            if (!ok || f == null || !f.exists() || f.length() == 0L) {
+                status("camera cancelled")
+                f?.let { runCatching { it.delete() } }
+                return@registerForActivityResult
+            }
+            onPhotoCaptured(f.absolutePath)
+        }
+
+    // The system photo picker. It needs no storage permission at all and shows the app only
+    // what the user actually chose, so RIST never gains the ability to read the whole gallery.
+    private val photoPickerLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.PickMultipleVisualMedia(Uploader.MAX_PHOTOS_PER_TURN)
+        ) { uris ->
+            if (uris.isEmpty()) status("no photos chosen") else stagePhotos(uris)
+        }
+
+    // Photos sized for the wire and waiting on the caption screen; deleted once sent or dropped.
+    private var stagedPhotos: List<File> = emptyList()
+
+    private val photoComposeLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val paths = result.data?.getStringArrayListExtra(PhotoComposeActivity.EXTRA_PATHS).orEmpty()
+            val caption = result.data?.getStringExtra(PhotoComposeActivity.EXTRA_CAPTION).orEmpty()
+            if (result.resultCode != RESULT_OK || paths.isEmpty()) {
+                discardStagedPhotos()
+                status("photo discarded")
+                return@registerForActivityResult
+            }
+            sendPhotos(paths.map { File(it) }, caption)
         }
 
     private val pushReceiver = object : BroadcastReceiver() {
@@ -258,12 +302,25 @@ class MainActivity : AppCompatActivity() {
             val progress = runCatching { rist.v1.Progress.parseFrom(bytes) }.getOrNull() ?: return
             val line = StreamingWire.renderLine(progress) ?: return
             statusText.text = line
+            // Shown in place of "waiting for a reply" on the entry being answered, replaced by
+            // each new line, never accumulated (status_line.md).
+            liveStatusLine = line
+            val shown = liveStatusView?.takeIf { it.isAttachedToWindow }
+            // The first line of a turn redraws the feed, which is when the Stop appears: the
+            // entry was drawn before the request was on the wire and had nothing to stop yet.
+            if (shown != null) shown.text = line else renderTranscript()
             keepAwake(AWAKE_SHORT_MS)
         }
     }
 
+    // The latest progress line of the turn in flight, and the view showing it.
+    internal var liveStatusLine = ""
+    private var liveStatusView: TextView? = null
+
     private val streamEndedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
+            liveStatusLine = ""
+            liveStatusView = null
             val ending = intent.getStringExtra(StreamingStatus.EXTRA_ENDING).orEmpty()
             statusText.text = when (ending) {
                 StreamingStatus.ENDING_CANCELLED -> getString(R.string.status_idle)
@@ -324,6 +381,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AutoTimeZone.schedule(applicationContext)
+        WakeService.start(applicationContext)
+        // Counterpart of onSaveInstanceState: a capture returning to a recreated activity.
+        savedInstanceState?.getString(STATE_PENDING_CAMERA_FILE)?.let { pendingCameraFile = File(it) }
+        savedInstanceState?.getStringArrayList(STATE_STAGED_PHOTOS)?.let { stagedPhotos = it.map { p -> File(p) } }
         setContentView(R.layout.activity_main)
         applyTheme()
 
@@ -483,6 +545,10 @@ class MainActivity : AppCompatActivity() {
         setupTorch()
 
         sendButton.setOnClickListener { sendTypedText() }
+        photoButton = findViewById(R.id.photoButton)
+        photoButton.setOnClickListener { openPhotoSource() }
+        textInput.doAfterTextChanged { syncComposeButton() }
+        syncComposeButton()
         textInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEND) { sendTypedText(); true } else false
         }
@@ -543,6 +609,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         Config.importTokenFileIfPresent(applicationContext)
+        AutoTimeZone.checkInBackground(applicationContext)
         CarrierVoicemail.listen(this)
         CarrierVoicemail.refresh(this)
         if (navigating) runCatching {
@@ -757,6 +824,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        volumePanel.hide()
         if (KioskManager.isDeviceOwner(this)) OverlayHomeService.setVisible(this, true)
     }
 
@@ -816,8 +884,13 @@ class MainActivity : AppCompatActivity() {
         override fun onReceive(context: Context, intent: Intent) {
             updateGlance()
             CommsFeedView.render(this@MainActivity)
+            // Midnight passed, or the clock or zone moved the day: the answers' times need
+            // their "Yesterday" now, not on the next turn.
+            if (CommsFeed.dayKey(System.currentTimeMillis()) != transcriptDrawnOn) renderTranscript()
         }
     }
+
+    private var transcriptDrawnOn = 0
 
     private var knobDrawable: KnobDrawable? = null
 
@@ -1128,6 +1201,174 @@ class MainActivity : AppCompatActivity() {
         cameraLauncher.launch(Intent(this, CameraActivity::class.java))
     }
 
+    /**
+     * Hands off to the phone's own camera app rather than RIST's minimal one, so taking a
+     * photo feels like taking a photo — flash, zoom, the modes people expect.
+     *
+     * The CAMERA permission still has to be granted even though the other app does the
+     * capturing: once an app declares CAMERA, the platform requires it for IMAGE_CAPTURE.
+     * If no camera app answers, this falls back to the in-app one rather than dead-ending.
+     */
+    private fun launchSystemCamera() {
+        if (!hasPermission(Manifest.permission.CAMERA)) {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            return
+        }
+        runCatching {
+            val dir = File(cacheDir, "photos").apply { mkdirs() }
+            val target = File(dir, "capture-${System.currentTimeMillis()}.jpg")
+            pendingCameraFile = target
+            takePictureLauncher.launch(
+                androidx.core.content.FileProvider.getUriForFile(this, PHOTO_AUTHORITY, target)
+            )
+        }.onFailure {
+            pendingCameraFile = null
+            Log.w(TAG, "no system camera answered; using the in-app one", it)
+            launchCamera()
+        }
+    }
+
+    /**
+     * One slot, two jobs: the camera while there is nothing to send, the send arrow the moment
+     * there is. Both icons are 40dp wide, so the row does not shift as they swap.
+     *
+     * Driven by a text watcher rather than set at each call site, because the field is also
+     * cleared after a send and by the editor action — anything that empties it has to put the
+     * camera back, and a watcher is the only place that sees all of them.
+     */
+    private fun syncComposeButton() {
+        val hasText = isSendable(textInput.text?.toString()?.trim().orEmpty())
+        sendButton.visibility = if (hasText) View.VISIBLE else View.GONE
+        photoButton.visibility = if (hasText) View.GONE else View.VISIBLE
+    }
+
+    /** Camera or existing photos. Everything behind both was already built; only this was missing. */
+    private fun openPhotoSource() {
+        val theme = Themes.byId(Config.themeId(this))
+        runCatching {
+            RistDialog.choose(
+                activity = this,
+                t = theme,
+                tf = ThemePaint.typefaceOf(this, theme),
+                d = resources.displayMetrics.density,
+                title = getString(R.string.photo_source_title),
+                options = listOf(
+                    getString(R.string.photo_source_camera),
+                    getString(R.string.photo_source_library),
+                ),
+            ) { which ->
+                if (which == 0) {
+                    launchSystemCamera()
+                } else {
+                    // Inside its own runCatching: this runs from the dialog row's click, which
+                    // is outside the guard around the chooser itself.
+                    runCatching {
+                        photoPickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    }.onFailure {
+                        Log.w(TAG, "photo picker unavailable", it)
+                        status("photos are not available on this phone")
+                    }
+                }
+            }
+        }.onFailure { Log.w(TAG, "photo source chooser failed", it) }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        // The system camera runs in another process and can outlive ours. If the OS reclaims
+        // RIST while it is open, the capture still comes back — to a recreated activity that
+        // would otherwise have forgotten where it asked for the file to be written.
+        pendingCameraFile?.let { outState.putString(STATE_PENDING_CAMERA_FILE, it.absolutePath) }
+        // Same story for the caption screen: its result must find the staged files to send.
+        if (stagedPhotos.isNotEmpty()) {
+            outState.putStringArrayList(STATE_STAGED_PHOTOS, ArrayList(stagedPhotos.map { it.absolutePath }))
+        }
+    }
+
+    /**
+     * Sizes each photo for the wire and opens the caption screen over them.
+     *
+     * The camera and the picker both land here, so a captured photo and a chosen one are
+     * downscaled by the same rule and get the same chance to be captioned or dropped before
+     * anything is sent. Nothing leaves the phone until that screen says send.
+     */
+    private fun stagePhotos(uris: List<android.net.Uri>, deleteAfter: List<File> = emptyList()) {
+        status("📷 preparing…")
+        uiScope.launch {
+            val staged = withContext(Dispatchers.IO) {
+                val dir = File(cacheDir, "photos").apply { mkdirs() }
+                val stamp = System.currentTimeMillis()
+                dir.listFiles { f -> f.name.startsWith("staged-") && stamp - f.lastModified() > STALE_STAGED_MS }
+                    ?.forEach { runCatching { it.delete() } }
+                val out = uris.take(Uploader.MAX_PHOTOS_PER_TURN).mapIndexedNotNull { i, uri ->
+                    val loaded = loadScaledJpeg(uri) ?: return@mapIndexedNotNull null
+                    runCatching { File(dir, "staged-$stamp-$i.jpg").also { it.writeBytes(loaded.first) } }
+                        .getOrNull()
+                }
+                deleteAfter.forEach { runCatching { it.delete() } }
+                out
+            }
+            if (staged.isEmpty()) { status("could not read the photo"); return@launch }
+            discardStagedPhotos()
+            stagedPhotos = staged
+            runCatching {
+                photoComposeLauncher.launch(
+                    Intent(this@MainActivity, PhotoComposeActivity::class.java).putStringArrayListExtra(
+                        PhotoComposeActivity.EXTRA_PATHS, ArrayList(staged.map { it.absolutePath })
+                    )
+                )
+            }.onFailure {
+                Log.w(TAG, "caption screen failed to open", it)
+                discardStagedPhotos()
+                status("could not open the photo")
+            }
+        }
+    }
+
+    private fun discardStagedPhotos() {
+        stagedPhotos.forEach { runCatching { it.delete() } }
+        stagedPhotos = emptyList()
+    }
+
+    /**
+     * Reads [uri] and re-encodes it small enough to put on the wire.
+     *
+     * A picked photo is whatever the camera produced — often twelve megapixels and several
+     * megabytes — while a captured one has already been sized down. Sending the original
+     * would be slow on a phone connection and pointless for a model.
+     */
+    private fun loadScaledJpeg(uri: android.net.Uri): Triple<ByteArray, Int, Int>? = runCatching {
+        val raw = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(raw, 0, raw.size, bounds)
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > MAX_PHOTO_EDGE_PX) sample *= 2
+        val decoded = BitmapFactory.decodeByteArray(
+            raw, 0, raw.size, BitmapFactory.Options().apply { inSampleSize = sample }
+        ) ?: return null
+        // Re-encoding discards EXIF, and a phone camera stores a portrait shot as landscape
+        // pixels plus an Orientation tag. Without applying that tag first, every portrait photo
+        // reached the backend sideways with its width and height swapped.
+        val degrees = runCatching {
+            when (android.media.ExifInterface(java.io.ByteArrayInputStream(raw))
+                .getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1)) {
+                android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                else -> 0f
+            }
+        }.getOrDefault(0f)
+        val bmp = if (degrees == 0f) decoded else android.graphics.Bitmap.createBitmap(
+            decoded, 0, 0, decoded.width, decoded.height,
+            android.graphics.Matrix().apply { postRotate(degrees) }, true,
+        )
+        val out = java.io.ByteArrayOutputStream()
+        bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out)
+        Triple(out.toByteArray(), bmp.width, bmp.height)
+    }.getOrNull()
+
     private fun setupTorch() {
         torchCameraId = runCatching {
             cameraManager.cameraIdList.firstOrNull { id ->
@@ -1314,51 +1555,76 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onPhotoCaptured(path: String) {
-        lastPhotoPath?.takeIf { it != path }?.let { runCatching { File(it).delete() } }
-        lastPhotoPath = path
-        status("📷 ${getString(R.string.photo_captured)}")
+        val f = File(path)
+        stagePhotos(listOf(android.net.Uri.fromFile(f)), deleteAfter = listOf(f))
+    }
+
+    /**
+     * Sends [files] as one turn with [caption], recorded in the feed like a typed message: the
+     * caption (or "photo") as the prompt line, the pictures under it in colour, the answer
+     * below. The pictures used to be drawn through the e-ink filter, which is why every photo
+     * looked greyscale on the phone while the bytes sent were in colour.
+     */
+    private fun sendPhotos(files: List<File>, caption: String) {
+        cancelInFlightTurn()
+        hideKeyboard()
+        val prompt = buildString {
+            append(if (files.size == 1) "📷 photo" else "📷 ${files.size} photos")
+            if (caption.isNotBlank()) append(": ").append(caption)
+        }
+        status(getString(R.string.text_sending))
+        val entryId = runCatching { Transcript.begin(this, prompt, EntryState.WAITING) }.getOrDefault(0L)
         uiScope.launch {
-            val file = File(path)
-            val decoded = withContext(Dispatchers.IO) {
-                runCatching {
-                    val bytes = file.readBytes()
-                    val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@runCatching null
-                    Triple(bytes, bmp.width, bmp.height) to ViewRenderer.toEink(bmp)
-                }.getOrNull()
+            val photos = withContext(Dispatchers.IO) {
+                files.mapNotNull { f ->
+                    val bytes = runCatching { f.readBytes() }.getOrNull() ?: return@mapNotNull null
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                    if (bounds.outWidth <= 0) null else Uploader.Photo(bytes, bounds.outWidth, bounds.outHeight)
+                }
             }
-            replyContainer.removeAllViews()
-            if (decoded == null) { status("could not decode captured photo"); return@launch }
-            val (meta, eink) = decoded
-            val (jpeg, width, height) = meta
-
-            replyContainer.addView(TextView(this@MainActivity).apply {
-                text = "${getString(R.string.photo_captured)} · ${jpeg.size / 1024} KB"
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            })
-            replyContainer.addView(ImageView(this@MainActivity).apply {
-                setImageBitmap(eink)
-                adjustViewBounds = true
-                scaleType = ImageView.ScaleType.FIT_CENTER
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = (8 * resources.displayMetrics.density).toInt() }
-            })
-            updateClearButton()
-
-            status("📷 sending photo — awaiting reply")
+            discardStagedPhotos()
+            if (entryId != 0L && photos.isNotEmpty()) {
+                sentPhotoThumbs[entryId] = withContext(Dispatchers.IO) { photos.mapNotNull { thumbnailOf(it.jpeg) } }
+                while (sentPhotoThumbs.size > MAX_PHOTO_TURNS_REMEMBERED) {
+                    sentPhotoThumbs.remove(sentPhotoThumbs.keys.first())
+                }
+            }
+            renderTranscript()
+            if (photos.isEmpty()) {
+                if (entryId != 0L) runCatching {
+                    Transcript.update(this@MainActivity, entryId, state = EntryState.FAILED, error = "could not read the photo")
+                }
+                renderTranscript()
+                status("could not read the photo")
+                return@launch
+            }
+            val uploader = Uploader(applicationContext)
             val reply = withContext(Dispatchers.IO) {
-                Uploader(applicationContext).sendImage(
-                    jpeg, width, height, format = "jpeg",
-                    onLocationInterim = { resp -> speakInterim(resp) }
+                uploader.sendPhotos(photos, caption, onLocationInterim = { resp -> speakInterim(resp) })
+            }
+            if (reply == null) announceFailure(uploader.lastFailure)
+            if (entryId != 0L) runCatching {
+                Transcript.update(
+                    this@MainActivity, entryId,
+                    state = if (reply != null) EntryState.ANSWERED else EntryState.FAILED,
+                    answer = reply?.speech?.text.orEmpty(),
+                    requestId = reply?.requestId.orEmpty(),
+                    error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
                 )
             }
-            handleImageReply(reply)
+            handleReply(reply, subject = "photo", clear = true)
         }
     }
 
-    private fun handleImageReply(reply: DeviceResponse?) =
-        handleReply(reply, subject = "photo", clear = false)
+    /** A small colour copy of a sent photo for the feed. */
+    private fun thumbnailOf(jpeg: ByteArray): android.graphics.Bitmap? = runCatching {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, bounds)
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > THUMB_EDGE_PX) sample *= 2
+        BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, BitmapFactory.Options().apply { inSampleSize = sample })
+    }.getOrNull()
 
     private fun speakInterim(resp: DeviceResponse) {
         val speech = resp.speech ?: return
@@ -1401,9 +1667,15 @@ class MainActivity : AppCompatActivity() {
         renderReply(reply, fallbackText = text, clear = clear)
     }
 
+    /**
+     * The one definition of "there is something to send". The compose button and the sender
+     * both use it; when they disagreed, "..." showed a send arrow that silently emptied the box.
+     */
+    private fun isSendable(text: String): Boolean = text.any { it.isLetterOrDigit() }
+
     private fun sendTypedText() {
         val text = textInput.text?.toString()?.trim().orEmpty()
-        if (text.isEmpty() || text.none { it.isLetterOrDigit() }) {
+        if (!isSendable(text)) {
             textInput.text?.clear()
             return
         }
@@ -1439,16 +1711,41 @@ class MainActivity : AppCompatActivity() {
         textInput.clearFocus()
     }
 
+    internal val volumePanel by lazy { VolumePanel(this) }
+
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
         val k = event.keyCode
-        val isVolume = k == android.view.KeyEvent.KEYCODE_VOLUME_UP ||
-            k == android.view.KeyEvent.KEYCODE_VOLUME_DOWN ||
-            k == android.view.KeyEvent.KEYCODE_VOLUME_MUTE
-        if (isVolume && DeviceCommands.ringing()) return super.dispatchKeyEvent(event)
+        val up = k == android.view.KeyEvent.KEYCODE_VOLUME_UP
+        if (up || k == android.view.KeyEvent.KEYCODE_VOLUME_DOWN) {
+            val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+            val channel = VolumeKeys.route(
+                callOrRinging = am.mode == android.media.AudioManager.MODE_IN_CALL ||
+                    am.mode == android.media.AudioManager.MODE_IN_COMMUNICATION ||
+                    am.mode == android.media.AudioManager.MODE_RINGTONE,
+                alarmRinging = DeviceCommands.ringing(),
+                picked = volumePanel.target,
+                voiceSounding = Playback.isActive(),
+                mediaSounding = am.isMusicActive,
+                voiceOwnVolume = VolumeKeys.voiceHasOwnVolume(this),
+            )
+            if (channel != null) {
+                // Both the press and the release are taken, or Android acts on the release too.
+                if (event.action == android.view.KeyEvent.ACTION_DOWN) volumePanel.press(channel, raise = up)
+                return true
+            }
+        }
         return super.dispatchKeyEvent(event)
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        // A touch outside the open volume panel closes it and goes no further, so reaching for
+        // the panel and missing does not also pin an answer or start a recording.
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN && volumePanel.isShowing &&
+            !volumePanel.contains(ev.rawX.toInt(), ev.rawY.toInt())
+        ) {
+            volumePanel.hide()
+            return true
+        }
         trackMaintenanceHold(ev)
         if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
             val focused = currentFocus
@@ -1527,6 +1824,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun sendActionConfirm(actionId: String) {
+        VideoCalls.releaseDeferred(applicationContext)
         val entryId = runCatching { Transcript.begin(this, "(confirmed)", EntryState.WAITING) }.getOrDefault(0L)
         renderTranscript()
         uiScope.launch {
@@ -1588,6 +1886,9 @@ class MainActivity : AppCompatActivity() {
             isClickable = true; isFocusable = true
             setOnClickListener { commitPending(approved) }
         }
+        // Directly under the newest entry, which is the answer asking the question. The feed is
+        // newest-first, so appending put the question under every older answer, off the screen.
+        val at = minOf(1, replyContainer.childCount)
         replyContainer.addView(TextView(this).apply {
             text = pendingPrompt
             setTextColor(t.ink); typeface = tf
@@ -1595,11 +1896,11 @@ class MainActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = (10 * d).toInt() }
-        })
+        }, at)
         replyContainer.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             addView(button("[ yes ]", true)); addView(button("[ no ]", false))
-        })
+        }, at + 1)
     }.onFailure { Log.w(TAG, "renderPendingConfirmation failed", it) }.let { }
 
     private fun armPendingExpiry() {
@@ -1609,6 +1910,8 @@ class MainActivity : AppCompatActivity() {
                 pendingActionId = ""; pendingPrompt = ""
                 renderTranscript()
                 status("that confirmation expired — ask again")
+                // A call that waited on this confirmation still exists; only the invitation lapsed.
+                VideoCalls.releaseDeferred(applicationContext)
             }
         }, CONFIRM_TTL_MS)
     }
@@ -1619,6 +1922,8 @@ class MainActivity : AppCompatActivity() {
     private fun commitPending(approved: Boolean) {
         val actionId = pendingActionId
         if (actionId.isBlank()) return
+        // Yes or No, the join screen held behind this confirmation comes up now.
+        VideoCalls.releaseDeferred(applicationContext)
         if (pendingExpired()) {
             pendingActionId = ""; pendingPrompt = ""
             pendingHandler.removeCallbacksAndMessages(null)
@@ -1671,43 +1976,126 @@ class MainActivity : AppCompatActivity() {
         val d = resources.displayMetrics.density
         val muted = Themes.readableMuted(t)
         var attachmentsPainted = false
-        val tsFmt = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
-        for ((idx, e) in Transcript.all(this).asReversed().withIndex()) {
+        val nowMs = System.currentTimeMillis()
+        transcriptDrawnOn = CommsFeed.dayKey(nowMs)
+        // Everything is KEPT; not everything is inflated. With retention at "Forever" the store
+        // can hold the count cap, and ~8 views plus a markdown parse per entry on every repaint
+        // would stall an e-ink handset. The newest RENDER_CAP unpinned entries and every pinned
+        // one are drawn; older unpinned ones stay in the store and come back as newer ones age
+        // out or are cleared.
+        val shown = Transcript.all(this).asReversed().let { all ->
+            val pinned = all.filter { it.pinned }
+            val recent = all.filterNot { it.pinned }.take(RENDER_CAP)
+            (pinned + recent).sortedByDescending { it.at }
+        }
+        // Thumbnails of entries the store has since aged out or cleared go with them.
+        val liveIds = Transcript.all(this).map { it.localId }.toSet()
+        sentPhotoThumbs.keys.retainAll(liveIds)
+        runCatching { ReceivedPhotos.prune(this, liveIds) }
+        val keptPhotos = runCatching { ReceivedPhotos.byEntry(this) }.getOrDefault(emptyMap())
+        for ((idx, e) in shown.withIndex()) {
+            // A double tap anywhere on the entry toggles the pin, prompt line and answer both.
+            // A single tap did it before, and a tap meant only to stop a scroll or to wake the
+            // screen pinned things by accident. The ✕ sits outside this column with its own handler.
+            val togglePin = {
+                Log.i(TAG, "pin double-tapped id=${e.localId} wasPinned=${e.pinned}")
+                runCatching { Transcript.setPinned(this@MainActivity, e.localId, !e.pinned) }
+                    .onFailure { Log.w(TAG, "pin toggle failed", it) }
+                renderTranscript()
+            }
             val col = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                isFocusable = true
+                contentDescription = (if (e.pinned) "Pinned. " else "") + e.prompt
+                val taps = android.view.GestureDetector(this@MainActivity,
+                    object : android.view.GestureDetector.SimpleOnGestureListener() {
+                        // Claiming the down is what delivers the second tap; the scroll view
+                        // above still takes the gesture over as soon as it becomes a drag.
+                        override fun onDown(ev: MotionEvent) = true
+                        override fun onDoubleTap(ev: MotionEvent): Boolean { togglePin(); return true }
+                    })
+                setOnTouchListener { _, ev -> taps.onTouchEvent(ev) }
+                // A screen reader's double tap arrives as a click action, not as two touches.
+                ViewCompat.replaceAccessibilityAction(
+                    this,
+                    androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat.ACTION_CLICK,
+                    if (e.pinned) "Unpin" else "Pin",
+                ) { _, _ -> togglePin(); true }
             }
-            col.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                addView(TextView(this@MainActivity).apply {
-                    text = "▸ " + e.prompt
-                    setTextColor(muted); typeface = tf
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-                })
-                addView(TextView(this@MainActivity).apply {
-                    text = "  " + tsFmt.format(java.util.Date(e.at))
-                    setTextColor(blend(t.inkMuted, t.ground, 0.35f)); typeface = tf
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 8f)
-                })
+            // One wrapping text rather than three views in a row: a prompt longer than a line
+            // used to take the whole width and push the time and the pin off the edge.
+            col.addView(TextView(this).apply {
+                text = promptLine(
+                    prompt = e.prompt,
+                    time = CommsFeed.entryStamp(e.at, nowMs),
+                    pinned = e.pinned,
+                    // The readable muted, not a fade of it: the day is on this line now, and
+                    // a stamp nobody can read says nothing about when.
+                    timeColor = muted,
+                    pinColor = t.accent,
+                )
+                setTextColor(muted); typeface = tf
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                setPadding(0, (4 * d).toInt(), 0, (4 * d).toInt())
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             })
+            sentPhotoThumbs[e.localId]?.takeIf { it.isNotEmpty() }?.let { thumbs ->
+                col.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    setPadding(0, (2 * d).toInt(), 0, (6 * d).toInt())
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    for (b in thumbs) addView(ImageView(this@MainActivity).apply {
+                        setImageBitmap(b)
+                        adjustViewBounds = true
+                        scaleType = ImageView.ScaleType.FIT_CENTER
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.WRAP_CONTENT, (112 * d).toInt()
+                        ).apply { rightMargin = (6 * d).toInt() }
+                    })
+                })
+            }
+            val waiting = e.state == EntryState.SENT || e.state == EntryState.WAITING
+            // The newest waiting entry is the turn in flight: it shows what the backend says it
+            // is doing, and a way to stop it (long_turns.md §5).
+            val live = waiting && idx == 0 && StreamingCancel.inFlightId().isNotEmpty()
             val body = when (e.state) {
                 EntryState.RECORDING -> "● recording…"
-                EntryState.SENT, EntryState.WAITING -> "… waiting for a reply"
+                EntryState.SENT, EntryState.WAITING ->
+                    if (live && liveStatusLine.isNotBlank()) liveStatusLine else "… waiting for a reply"
                 EntryState.FAILED -> "⚠ no answer" + (if (e.error.isNotBlank()) " (${e.error})" else "")
                 EntryState.ANSWERED -> e.answer
             }
             if (body.isNotBlank()) col.addView(TextView(this).apply {
-                text = body
+                // Only a real answer carries markdown; the status strings are ours.
+                text = if (e.state == EntryState.ANSWERED) Markdown.render(body) else body
                 setTextColor(if (e.state == EntryState.FAILED) t.accent else t.ink)
                 typeface = tf
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, if (e.state == EntryState.ANSWERED) 17f else 12f)
+                if (live) liveStatusView = this
             })
+            keptPhotos[e.localId]?.forEach { photo -> photoCard(photo, t, muted, tf, d)?.let { col.addView(it) } }
+            if (live) col.addView(TextView(this).apply {
+                text = getString(R.string.stop_turn)
+                setTextColor(t.accent); typeface = tf; isAllCaps = true
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                setPadding(0, (8 * d).toInt(), (16 * d).toInt(), (8 * d).toInt())
+                isClickable = true; isFocusable = true
+                contentDescription = getString(R.string.stop_turn_desc)
+                setOnClickListener {
+                    if (cancelInFlightTurn()) status(getString(R.string.stop_turn_sent))
+                }
+            })
+            // A pinned answer is exempt from the age sweep and the count cap, so the ✕ is
+            // withdrawn while it is pinned: "kept until I unpin it" has to mean it cannot be
+            // lost to a stray tap either.
             val dismiss = TextView(this).apply {
                 text = "✕"
                 setTextColor(muted); typeface = tf
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                 setPadding((10 * d).toInt(), (2 * d).toInt(), (2 * d).toInt(), (6 * d).toInt())
                 isClickable = true; isFocusable = true
+                visibility = if (e.pinned) View.GONE else View.VISIBLE
                 contentDescription = "Clear this answer"
                 setOnClickListener {
                     runCatching { Transcript.discard(this@MainActivity, e.localId) }
@@ -1741,13 +2129,97 @@ class MainActivity : AppCompatActivity() {
       }.onFailure { Log.w(TAG, "renderTranscript failed", it) }
     }
 
-    internal fun paintAttachmentsIfCurrent(generation: Int, items: List<RistAttachment>) {
+    /**
+     * A picture the assistant sent, under its answer. Tap or start a pinch to open it full
+     * screen and zoom; hold to save it to the photo library.
+     */
+    private var photoOpenedAt = 0L
+
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private fun photoCard(
+        photo: ReceivedPhotos.Photo, t: RistTheme, muted: Int, tf: android.graphics.Typeface?, d: Float,
+    ): View? {
+        val maxH = (AttachmentView.MAX_IMAGE_HEIGHT_DP * d).toInt()
+        val bmp = ReceivedPhotos.preview(photo.file, resources.displayMetrics.widthPixels, maxH) ?: return null
+        // One viewer per gesture: a pinch opens it, and the lift that ends the pinch is a click.
+        val open = {
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - photoOpenedAt > PHOTO_OPEN_GUARD_MS) {
+                photoOpenedAt = now
+                startActivity(PhotoViewerActivity.intent(this, photo.file, photo.title))
+            }
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, (8 * d).toInt(), 0, (4 * d).toInt())
+        }
+        val image = ImageView(this).apply {
+            setImageBitmap(bmp)
+            adjustViewBounds = true
+            maxHeight = maxH
+            scaleType = ImageView.ScaleType.FIT_START
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            contentDescription = photo.title.ifBlank { getString(R.string.attach_image_desc) }
+            isClickable = true; isLongClickable = true; isFocusable = true
+            setOnClickListener { open() }
+            setOnLongClickListener {
+                PhotoViewerActivity.offerSave(this@MainActivity, photo.file)
+                true
+            }
+            // A pinch that starts on the picture is a wish to zoom it: it opens full screen,
+            // where the pinch has room. Two fingers down also keeps the feed from scrolling away.
+            val pinch = android.view.ScaleGestureDetector(this@MainActivity,
+                object : android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                    var opened = false
+                    override fun onScaleBegin(detector: android.view.ScaleGestureDetector): Boolean { opened = false; return true }
+                    override fun onScale(detector: android.view.ScaleGestureDetector): Boolean {
+                        if (!opened && detector.scaleFactor > 1.03f) { opened = true; open() }
+                        return true
+                    }
+                })
+            setOnTouchListener { v, ev ->
+                if (ev.pointerCount > 1) {
+                    v.parent?.requestDisallowInterceptTouchEvent(true)
+                    // A pinch is not a hold: no save menu over the viewer it opens.
+                    v.cancelLongPress()
+                }
+                pinch.onTouchEvent(ev)
+                false
+            }
+            ViewCompat.replaceAccessibilityAction(
+                this,
+                androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat.ACTION_LONG_CLICK,
+                getString(R.string.photo_save),
+            ) { _, _ -> PhotoViewerActivity.offerSave(this@MainActivity, photo.file); true }
+        }
+        box.addView(image)
+        // The credit and licence the picture came with; for a searched image it is required.
+        if (photo.title.isNotBlank()) box.addView(TextView(this).apply {
+            text = photo.title.trim()
+            setTextColor(muted); typeface = tf
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            setPadding(0, (3 * d).toInt(), 0, 0)
+        })
+        return box
+    }
+
+    /**
+     * The reply's attachments other than its pictures, which were already kept under the answer
+     * and are drawn there on every repaint, so they stay on the feed after the next question.
+     */
+    internal fun paintAttachmentsIfCurrent(
+        generation: Int, items: List<RistAttachment>, entryId: Long = 0L, keptPhotos: Boolean = false,
+    ) {
         if (generation != attachmentGeneration) return
         if (isFinishing || isDestroyed) return
         lastAttachments = items
-        lastAttachmentsEntryId = runCatching { Transcript.all(this).lastOrNull()?.localId ?: 0L }
-            .getOrDefault(0L)
-        runCatching { AttachmentView.render(replyContainer, items, insertAfter = 0) }
+        lastAttachmentsEntryId =
+            if (entryId != 0L) entryId
+            else runCatching { Transcript.all(this).lastOrNull()?.localId ?: 0L }.getOrDefault(0L)
+        if (keptPhotos) renderTranscript()
+        else runCatching { AttachmentView.render(replyContainer, items, insertAfter = 0) }
     }
 
     private fun renderReply(reply: DeviceResponse?, fallbackText: String, clear: Boolean = true) {
@@ -1773,13 +2245,23 @@ class MainActivity : AppCompatActivity() {
 
         if (reply != null && reply.attachmentsCount > 0) {
             val pending = reply.attachmentsList
+            // The answer this reply belongs to: its pictures are kept under it.
+            val entryId = runCatching { Transcript.all(this).lastOrNull()?.localId ?: 0L }.getOrDefault(0L)
             attachmentJob = uiScope.launch {
+                var keptAny = false
                 val items = withContext(Dispatchers.IO) {
                     runCatching {
-                        AttachmentView.predecode(
-                            this@MainActivity,
-                            Attachments.resolve(this@MainActivity, pending) { isActive },
-                        )
+                        val resolved = Attachments.resolve(this@MainActivity, pending) { isActive }
+                        // Kept before the feed's decode, which lets the picture's bytes go. With
+                        // no answer to keep them under, they stay cards as before.
+                        val (photos, rest) =
+                            if (entryId == 0L) emptyList<RistAttachment>() to resolved
+                            else resolved.partition { ReceivedPhotos.isKeepable(it) }
+                        if (photos.isNotEmpty()) {
+                            ReceivedPhotos.save(applicationContext, entryId, photos)
+                            keptAny = true
+                        }
+                        AttachmentView.predecode(this@MainActivity, rest)
                     }.getOrElse { t ->
                         // getOrElse, not getOrDefault: an OOM must paint the fallback card; cancellation stays silent.
                         if (t is kotlinx.coroutines.CancellationException) throw t
@@ -1794,7 +2276,7 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 }
-                paintAttachmentsIfCurrent(generation, items)
+                paintAttachmentsIfCurrent(generation, items, entryId, keptAny)
             }
         }
 
@@ -2188,16 +2670,70 @@ class MainActivity : AppCompatActivity() {
     private fun clearReply() {
         runCatching { Transcript.clear(this) }
         replyContainer.removeAllViews()
-        lastPhotoPath?.let { runCatching { File(it).delete() } }
-        lastPhotoPath = null
+        sentPhotoThumbs.clear()
         status(getString(R.string.status_idle))
         updateClearButton()
     }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
-    private companion object {
+    internal companion object {
+        private const val PHOTO_OPEN_GUARD_MS = 1_000L
         private const val TAG = "RistMain"
+
+        /**
+         * "▸ prompt  2:17 PM  📌" as one piece of text, so it wraps as a sentence does and the
+         * time and pin always follow the last word, however long the prompt. The time is drawn
+         * smaller and fainter, as it was when it was a view of its own.
+         */
+        /** The stamp against the 11sp request it follows: 10sp. */
+        internal const val STAMP_SCALE = 10f / 11f
+
+        internal fun promptLine(
+            prompt: String,
+            time: String,
+            pinned: Boolean,
+            timeColor: Int,
+            pinColor: Int,
+        ): CharSequence {
+            val out = android.text.SpannableStringBuilder("▸ ").append(prompt)
+            val timeStart = out.length
+            // A no-break space ties the time to the prompt's last word, so a wrap never leaves
+            // the time alone at the start of a line with nothing before it.
+            out.append("  ").append(time.replace(' ', ' '))
+            out.setSpan(android.text.style.RelativeSizeSpan(STAMP_SCALE), timeStart, out.length,
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            out.setSpan(android.text.style.ForegroundColorSpan(timeColor), timeStart, out.length,
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            if (pinned) {
+                val pinStart = out.length
+                out.append("  📌")
+                out.setSpan(android.text.style.ForegroundColorSpan(pinColor), pinStart, out.length,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+            return out
+        }
+
+        // Must match the provider authority in AndroidManifest.xml.
+        private const val PHOTO_AUTHORITY = "watch.rist.assistant.photos"
+        private const val STATE_PENDING_CAMERA_FILE = "pending_camera_file"
+        private const val STATE_STAGED_PHOTOS = "staged_photos"
+
+        // Longest edge of a sent photo's thumbnail in the feed, and how many turns keep theirs.
+        // Bounded because these are bitmaps in memory: 6 turns of 4 photos at 400 px is ~11 MB
+        // at worst, which is as much as a feed should hold for pictures nobody can tap.
+        private const val THUMB_EDGE_PX = 400
+        private const val MAX_PHOTO_TURNS_REMEMBERED = 6
+
+        // A staged file older than this belongs to a caption screen that never came back
+        // (the process died under it); swept the next time a photo is staged.
+        private const val STALE_STAGED_MS = 60L * 60L * 1000L
+
+        // How many unpinned transcript entries are inflated per repaint; the store keeps more.
+        private const val RENDER_CAP = 150
+
+        // Longest edge after downscaling a picked photo, before re-encoding as JPEG.
+        private const val MAX_PHOTO_EDGE_PX = 1600
 
         // Safety cap after which a deferred `play` starts regardless.
         private const val MEDIA_POLL_MS = 200L

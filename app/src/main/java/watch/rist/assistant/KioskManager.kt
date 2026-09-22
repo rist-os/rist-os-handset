@@ -57,6 +57,40 @@ object KioskManager {
         }.onFailure { Log.w(TAG, "setAsDefaultLauncher failed", it) }
     }
 
+    /** Full browsers on the image. Hidden, not removed: the web engine Rist uses is separate. */
+    internal val BROWSERS = listOf("app.vanadium.browser")
+
+    /**
+     * Web links reach [LinkActivity], which opens only the camera's QR result. The browser is
+     * hidden rather than outranked: while a browser holds the browser role a web link goes
+     * straight to it and no preferred activity is consulted, and taking the role needs a
+     * permission this app's signature does not carry. Hidden, it also cannot open in the moment
+     * after an update when lock task is not yet back.
+     */
+    fun setAsDefaultForLinks(context: Context, always: Boolean = false) {
+        if (!isDeviceOwner(context)) return
+        val dpm = dpm(context)
+        val admin = admin(context)
+        var acted = always
+        for (pkg in BROWSERS) runCatching {
+            if (!dpm.isApplicationHidden(admin, pkg)) {
+                acted = true
+                Log.i(TAG, "hiding $pkg: ${dpm.setApplicationHidden(admin, pkg, true)}")
+            }
+        }.onFailure { Log.w(TAG, "could not hide $pkg", it) }
+        // Runs on every return to home; the preference is rewritten only when something changed.
+        if (!acted) return
+        val filter = IntentFilter(Intent.ACTION_VIEW).apply {
+            addCategory(Intent.CATEGORY_DEFAULT)
+            addCategory(Intent.CATEGORY_BROWSABLE)
+            addDataScheme("http")
+            addDataScheme("https")
+        }
+        runCatching {
+            dpm.addPersistentPreferredActivity(admin, filter, ComponentName(context, LinkActivity::class.java))
+        }.onFailure { Log.w(TAG, "could not make Rist the handler for links", it) }
+    }
+
     fun grantSelfPermissions(context: Context) {
         if (!isDeviceOwner(context)) return
         val dpm = dpm(context)
@@ -76,6 +110,9 @@ object KioskManager {
             Manifest.permission.READ_CALL_LOG,
             Manifest.permission.READ_CONTACTS,
             Manifest.permission.ADD_VOICEMAIL,
+            // Video calls: a kiosk cannot count on a runtime dialog, and a call page that is
+            // refused a headset or a microphone fails without a word (video_calls.md 5.4).
+            Manifest.permission.BLUETOOTH_CONNECT,
         )
         for (p in perms) {
             runCatching {
@@ -125,6 +162,7 @@ object KioskManager {
         if (!isDeviceOwner(context)) return
         configureLockTask(context)
         setAsDefaultLauncher(context)
+        setAsDefaultForLinks(context, always = true)
         applyUserRestrictions(context)
         Config.setKioskProvisionedFor(context, versionCode(context))
     }
@@ -170,6 +208,8 @@ object KioskManager {
     fun ensureConfigured(context: Context) {
         if (!isDeviceOwner(context)) return
         val vc = versionCode(context)
+        // Checked every time: a browser shown again or restored later would take links back.
+        setAsDefaultForLinks(context)
         if (vc != 0L && Config.kioskProvisionedFor(context) == vc && allowlistIsCurrent(context)) return
         Log.i(TAG, "kiosk policy stale (vc=$vc); provisioning")
         provisionNow(context)
@@ -243,6 +283,12 @@ object KioskManager {
         set += "com.google.android.cellbroadcastreceiver"
         // USB debugging authorization dialog.
         set += "com.android.systemui"
+        // The system photo picker behind "Choose from photos". Lock task blocks any activity
+        // outside this list, so without these the picker simply never appears. Both mainline
+        // spellings; an uninstalled one is inert, like the cell-broadcast pair above.
+        set += "com.android.photopicker"
+        set += "com.android.providers.media.module"
+        set += "com.google.android.providers.media.module"
         return set.toTypedArray()
     }
 

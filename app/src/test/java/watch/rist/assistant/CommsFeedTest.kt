@@ -58,7 +58,7 @@ class CommsFeedTest {
     }
 
     @Test
-    fun assemble_dropsSeenItemsPastTheAgeWindow() {
+    fun assemble_keepsSeenItemsWhateverTheirAge_newestFirst() {
         val out = CommsFeed.assemble(
             listOf(
                 item("fresh", now - hours(1), unread = false),
@@ -66,15 +66,25 @@ class CommsFeedTest {
             ),
             now,
         )
-        assertEquals(listOf("fresh"), out.map { it.id })
+        assertEquals(listOf("fresh", "ancient"), out.map { it.id })
     }
 
     @Test
-    fun theAgeWindowIsOneDay_becauseItIsAlsoTheRetentionRule() {
-        assertEquals(24L * 60L * 60L * 1000L, CommsFeed.MAX_AGE_MS)
-
+    fun assemble_neverAgesOutAReadItemEither() {
+        // Comms are kept until cleared. A call or a text you have already seen stays in the
+        // feed until newer ones push it off, never because a clock ran out.
         val out = CommsFeed.assemble(listOf(item("seen", now - hours(30), unread = false)), now)
-        assertTrue(out.isEmpty())
+        assertEquals(listOf("seen"), out.map { it.id })
+
+        val ancient = CommsFeed.assemble(listOf(item("old", now - hours(24 * 365), unread = false)), now)
+        assertEquals(listOf("old"), ancient.map { it.id })
+    }
+
+    @Test
+    fun assemble_boundsReadItemsByCountInsteadOfAge() {
+        val many = (1..20).map { item("r" + it, now - hours(it.toLong()), unread = false) }
+        val out = CommsFeed.assemble(many, now)
+        assertEquals(CommsFeed.MAX_READ, out.size)
     }
 
     @Test

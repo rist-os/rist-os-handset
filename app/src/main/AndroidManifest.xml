@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="watch.rist.assistant"
-    android:versionCode="471"
+    android:versionCode="482"
     android:versionName="0.2.0">
 
     <queries>
@@ -26,6 +26,8 @@
 
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- A video call's audio through a Bluetooth headset; the web engine needs it to use one. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
@@ -66,6 +68,11 @@
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.MANAGE_NOTIFICATION_LISTENERS" />
     <uses-permission android:name="android.permission.REQUEST_COMPANION_RUN_IN_BACKGROUND" />
+    <!-- Voice replies play on the assistant volume, which Android lets only a privileged caller
+         set; without it every Voice slider change is refused. Listed in the privapp allowlist too. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS_PRIVILEGED" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
 
     <application
         android:label="@string/app_name"
@@ -124,6 +131,75 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.RistAssistant" />
 
+        <!-- The site a scanned QR code points at, and nowhere else. Never exported: the only way
+             in is LinkActivity, with a link the camera's QR scanner has just handed over. -->
+        <activity
+            android:name=".LockedBrowserActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|uiMode"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.RistAssistant" />
+
+        <!-- Video calls. The join screen is the confirmation: nothing loads and no camera opens
+             before its Join is tapped. Neither is exported; the call browser is opened only by
+             the join screen, and only on a host it holds its own list of. -->
+        <!-- A web link tapped anywhere on the phone. Exported because other apps hand links to
+             it, but only the camera's QR result opens, checked against the system's own record of
+             the sender; what it opens is the locked browser or the join screen. -->
+        <activity
+            android:name=".LinkActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@style/Theme.RistAssistant.Link">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".VideoCallJoinActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.RistAssistant" />
+
+        <activity
+            android:name=".CallBrowserActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="fullUser"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.RistAssistant" />
+
+        <!-- A picture the assistant sent, full screen, to zoom and save. -->
+        <activity
+            android:name=".PhotoViewerActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:screenOrientation="fullUser"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"
+            android:theme="@style/Theme.RistAssistant" />
+
+        <!-- A call link is a credential: no usage metrics leave the web engine. -->
+        <meta-data android:name="android.webkit.WebView.MetricsOptOut" android:value="true" />
+
+        <!-- The caption screen between choosing a photo and sending it. -->
+        <activity
+            android:name=".PhotoComposeActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.RistAssistant" />
+
         <service
             android:name=".OverlayHomeService"
             android:exported="false" />
@@ -138,6 +214,11 @@
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
 
+
+        <service
+            android:name=".WakeService"
+            android:exported="false"
+            android:foregroundServiceType="systemExempted" />
 
         <service
             android:name=".PushService"
@@ -238,7 +319,27 @@
             android:showWhenLocked="true"
             android:theme="@style/Theme.AppCompat.NoActionBar" />
 
-        <receiver android:name=".AlarmReceiver" android:exported="false" />
+        <!-- Lets the system camera write one capture into our cache and nothing else. The
+             authority is spelled out rather than templated: Soong does not substitute
+             ${applicationId}, and this manifest is built by both Gradle and Soong. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="watch.rist.assistant.photos"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- Hourly check that the clock's time zone still matches where the phone is. -->
+        <receiver android:name=".TimeZoneCheckReceiver" android:exported="false" />
+
+        <receiver android:name=".AlarmReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <receiver android:name=".GeofenceAlarmReceiver" android:exported="false">
             <intent-filter>
@@ -250,11 +351,13 @@
             </intent-filter>
         </receiver>
 
-        <receiver android:name=".PhoneStateReceiver" android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.PHONE_STATE" />
-            </intent-filter>
-        </receiver>
+        <!-- A .PhoneStateReceiver was declared here with a PHONE_STATE filter, and the class
+             does not exist anywhere: not in the tree, not in history, not in the box backup.
+             Every call therefore crashed the app before it could do anything, because Android
+             instantiates a declared receiver when its action fires. It was presumably meant to
+             call IncomingCall.show(), which still has no callers. Removed rather than stubbed:
+             a receiver that does nothing is not worth waking the process for. Restoring caller
+             ID means writing that class deliberately. -->
 
         <!-- android:process=":ota" is matched by the seapp_contexts entry in aosp/sepolicy/; do not remove. -->
         <service

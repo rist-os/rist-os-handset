@@ -10,8 +10,10 @@ object StreamingWire {
 
     const val UNARY_MEDIA_TYPE = "application/x-protobuf"
 
-    // Never send the streaming Accept header without a working cancel path (StreamingCancel).
-    const val STREAMING_ENABLED = false
+    // On: the backend's turns can now run as long as the work takes (long_turns.md), and a
+    // stream is what keeps the socket busy and the person informed meanwhile. The cancel path
+    // (StreamingCancel) and a visible Stop on the waiting entry are what make that safe.
+    const val STREAMING_ENABLED = true
 
     fun acceptHeader(enabled: Boolean = STREAMING_ENABLED): String =
         if (enabled) SEQ_MEDIA_TYPE else UNARY_MEDIA_TYPE

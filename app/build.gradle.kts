@@ -98,6 +98,9 @@ dependencies {
 
     implementation("com.google.protobuf:protobuf-javalite:3.25.5")
 
+    // The call browser: its own storage profile, desktop client hints, no X-Requested-With.
+    implementation("androidx.webkit:webkit:1.13.0")
+
     testImplementation("junit:junit:4.13.2")
 
     // android.jar ships org.json as stubs; tests need the real one.

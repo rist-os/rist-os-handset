@@ -298,5 +298,15 @@
             android:textSize="11sp"
             android:fontFamily="@font/pixel" />
 
+        <TextView
+            android:id="@+id/mapAttribution"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/map_attribution"
+            android:textColor="@color/ink_muted"
+            android:textSize="11sp"
+            android:fontFamily="@font/pixel" />
+
     </LinearLayout>
 </ScrollView>

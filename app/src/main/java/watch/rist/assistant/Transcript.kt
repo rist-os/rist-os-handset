@@ -16,11 +16,13 @@ data class TranscriptEntry(
     var answer: String = "",
     var requestId: String = "",
     var error: String = "",
+    /** Pinned entries survive the age sweep and the count cap until they are unpinned. */
+    var pinned: Boolean = false,
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", localId).put("at", at).put("prompt", prompt)
         .put("state", state.name).put("answer", answer)
-        .put("requestId", requestId).put("error", error)
+        .put("requestId", requestId).put("error", error).put("pinned", pinned)
 
     companion object {
         fun fromJson(o: JSONObject) = TranscriptEntry(
@@ -31,6 +33,7 @@ data class TranscriptEntry(
             answer = o.optString("answer"),
             requestId = o.optString("requestId"),
             error = o.optString("error"),
+            pinned = o.optBoolean("pinned", false),
         )
     }
 }
@@ -79,10 +82,23 @@ object Transcript {
         val maxAge = Config.transcriptMaxAgeMs(ctx)
         if (maxAge > 0L) {
             val cutoff = System.currentTimeMillis() - maxAge
-            entries.removeAll { it.at < cutoff && it.state != EntryState.RECORDING && it.state != EntryState.WAITING && it.state != EntryState.SENT }
+            entries.removeAll {
+                !it.pinned && it.at < cutoff &&
+                    it.state != EntryState.RECORDING && it.state != EntryState.WAITING &&
+                    it.state != EntryState.SENT
+            }
         }
+        // The cap counts UNPINNED entries only. Counting pinned ones against the budget
+        // meant that once enough were pinned, each new answer was evicted the moment it
+        // arrived -- the newest thing on screen disappearing instead of the oldest.
         val maxN = Config.transcriptMaxEntries(ctx)
-        while (entries.size > maxN) entries.removeAt(0)
+        var over = entries.count { !it.pinned } - maxN
+        if (over > 0) {
+            val walk = entries.iterator()   // oldest first
+            while (walk.hasNext() && over > 0) {
+                if (!walk.next().pinned) { walk.remove(); over-- }
+            }
+        }
         return changed || entries.size != before
     }
 
@@ -118,8 +134,62 @@ object Transcript {
         if (entries.removeAll { it.localId == localId }) save(ctx)
     }
 
+    /** Clearing spares pinned entries; unpin one to be rid of it. */
     @Synchronized
-    fun clear(ctx: Context) { ensureLoaded(ctx); entries.clear(); save(ctx) }
+    fun clear(ctx: Context) {
+        ensureLoaded(ctx)
+        entries.retainAll { it.pinned }
+        save(ctx)
+    }
+
+    @Synchronized
+    fun setPinned(ctx: Context, localId: Long, pinned: Boolean) {
+        ensureLoaded(ctx)
+        val e = entries.firstOrNull { it.localId == localId } ?: return
+        if (e.pinned == pinned) return
+        e.pinned = pinned
+        save(ctx)
+    }
+
+    // ---- test seams ----
+    // Same pattern as Config.setDeployDefaultsForTest: this is an object with process-wide
+    // state, and a test cannot otherwise wipe it, age an entry, or force a reload from disk.
+
+    @Synchronized
+    internal fun clearForTest(ctx: Context) {
+        ensureLoaded(ctx)
+        entries.clear()
+        save(ctx)
+    }
+
+    /** Moves an entry [byMs] further into the past, so the age sweep can be exercised. */
+    @Synchronized
+    internal fun ageForTest(ctx: Context, localId: Long, byMs: Long) {
+        ensureLoaded(ctx)
+        val i = entries.indexOfFirst { it.localId == localId }
+        if (i < 0) return
+        entries[i] = entries[i].copy(at = entries[i].at - byMs)
+        save(ctx)
+    }
+
+    /** Waits for the pending asynchronous [save]; the executor is single-threaded FIFO. */
+    internal fun flushForTest() {
+        runCatching { io.submit { }.get() }
+    }
+
+    @Synchronized
+    internal fun reloadForTest(ctx: Context) {
+        flushForTest()
+        entries.clear()
+        loaded = false
+        ensureLoaded(ctx)
+    }
+
+    @Synchronized
+    fun isPinned(ctx: Context, localId: Long): Boolean {
+        ensureLoaded(ctx)
+        return entries.firstOrNull { it.localId == localId }?.pinned == true
+    }
 
     @Synchronized
     private fun ensureLoaded(ctx: Context) {
@@ -146,11 +216,16 @@ object Transcript {
     }
 
     private fun save(ctx: Context) {
-        val snapshot = JSONArray().also { arr -> entries.forEach { arr.put(it.toJson()) } }.toString()
+        // Copy the entries under the lock, serialise on the io thread. With retention at
+        // "Forever" the list can reach the count cap, and building ~150 KB of JSON on the UI
+        // thread for every pin, dismiss and update was a stall waiting to happen.
+        val snapshot = entries.map { it.copy() }
         val app = ctx.applicationContext
         io.execute {
-            runCatching { File(app.filesDir, FILE).writeText(snapshot) }
-                .onFailure { Log.w(TAG, "transcript save failed", it) }
+            runCatching {
+                val json = JSONArray().also { arr -> snapshot.forEach { arr.put(it.toJson()) } }
+                File(app.filesDir, FILE).writeText(json.toString())
+            }.onFailure { Log.w(TAG, "transcript save failed", it) }
         }
     }
 }

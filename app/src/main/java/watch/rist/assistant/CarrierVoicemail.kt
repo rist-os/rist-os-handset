@@ -37,8 +37,43 @@ object CarrierVoicemail {
     fun waiting(ctx: Context): Boolean =
         Config.carrierVoicemailWaiting(ctx) || NotificationHub.voicemailPosted()
 
+    /**
+     * The carrier's flag cannot be cleared from here, only by emptying the mailbox, so a
+     * dismissal is ours: it hides the row and the badge until the carrier counts a message
+     * more than it did then, and lapses by itself once nothing is waiting.
+     */
+    fun dismiss(ctx: Context) {
+        Config.setVoicemailDismissedAt(ctx, readCount(ctx.applicationContext) ?: COUNT_UNKNOWN)
+    }
+
+    /** True while a voicemail is waiting that the person has not dismissed from the feed. */
+    fun showing(ctx: Context): Boolean {
+        if (!waiting(ctx)) {
+            if (Config.voicemailDismissedAt(ctx) != null) Config.setVoicemailDismissedAt(ctx, null)
+            return false
+        }
+        val at = Config.voicemailDismissedAt(ctx) ?: return true
+        val age = System.currentTimeMillis() - Config.voicemailDismissedMs(ctx)
+        if (staysDismissed(at, readCount(ctx.applicationContext), age)) return false
+        Config.setVoicemailDismissedAt(ctx, null)
+        return true
+    }
+
+    internal const val COUNT_UNKNOWN = -1
+
+    /**
+     * With a count known both then and now, only a higher count is a new message. Without one
+     * a new message cannot be told from the old, so the dismissal lapses after a day: at worst
+     * the row comes back once a day, rather than a new voicemail staying hidden for good.
+     */
+    internal const val UNKNOWN_DISMISS_MS = 24L * 60 * 60 * 1000
+
+    internal fun staysDismissed(dismissedAt: Int, current: Int?, ageMs: Long = 0L): Boolean =
+        if (dismissedAt >= 0 && current != null && current >= 0) current <= dismissedAt
+        else ageMs in 0 until UNKNOWN_DISMISS_MS
+
     fun unacknowledged(ctx: Context): Boolean {
-        if (!waiting(ctx)) return false
+        if (!showing(ctx)) return false
         val present = SystemVoicemail.carrierRowPresent(ctx)
         if (present == true) return true
         android.util.Log.w(
@@ -80,6 +115,9 @@ object CarrierVoicemail {
                 "(persisted=${Config.carrierVoicemailWaiting(app)}, " +
                 "notif=${NotificationHub.voicemailPosted()})")
             SystemVoicemail.setCarrierWaiting(app, waiting)
+            // Nothing waiting ends a dismissal here too, not only at the next render: a flag that
+            // clears and sets again while the feed is not drawn is a new voicemail.
+            if (!waiting && Config.voicemailDismissedAt(app) != null) Config.setVoicemailDismissedAt(app, null)
             if (Config.carrierVoicemailWaiting(app) == waiting) return
             Config.setCarrierVoicemailWaiting(app, waiting)
             Log.i(TAG, "voice message count=$count -> waiting=$waiting")

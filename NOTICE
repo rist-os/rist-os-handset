@@ -7,11 +7,18 @@ This product includes software and assets from third parties:
   (app/src/main/res/font/silkscreen*.ttf)
 - Turn-arrow glyphs derived from Material Symbols by Google — Apache License 2.0
   (app/src/main/assets/glyphs/)
+- Volume panel icons from Material Icons by Google — Apache License 2.0
+  (app/src/main/res/drawable/ic_vol_*.xml, ic_close.xml)
+- Time zone boundaries (app/src/main/assets/tz/zones.bin) derived from timezone-boundary-builder
+  release 2026c (github.com/evansiroky/timezone-boundary-builder), itself derived from
+  OpenStreetMap data, © OpenStreetMap contributors — Open Database License 1.0
+  (opendatacommons.org/licenses/odbl/1-0/). zones.bin is a derived database, simplified and
+  re-encoded by tools/build_tz_index.py, and is made available under the same licence.
 - OkHttp (com.squareup.okhttp3) — Apache License 2.0
 - Protocol Buffers Lite (com.google.protobuf) — BSD 3-Clause
 - AndroidX libraries bundled into the APK — Apache License 2.0:
   core-ktx, appcompat, activity-ktx, constraintlayout, localbroadcastmanager,
-  security-crypto, media3 (exoplayer / session / common)
+  security-crypto, media3 (exoplayer / session / common), webkit
 - Material Components for Android (com.google.android.material) — Apache License 2.0
 - Kotlin standard library and kotlinx-coroutines-android (JetBrains) — Apache License 2.0
 - Navigation deviation-detection thresholds in app/src/main/cpp/ristnav/ follow the

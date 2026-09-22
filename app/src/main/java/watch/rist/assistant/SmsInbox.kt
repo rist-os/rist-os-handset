@@ -26,7 +26,10 @@ object SmsInbox {
     private const val TAG = "RistSms"
 
     // Compile-time constant: inlined, so this file gains no bytecode dependency on CommsFeed.
-    private const val MAX_AGE_MS = CommsFeed.MAX_AGE_MS
+    // How far back to READ the phone's SMS store -- an ingest window, not a retention rule.
+    // Without it, first run would sweep in every text the SIM has ever received and send them
+    // to the backend. Texts already in the feed are kept until cleared.
+    private const val INGEST_WINDOW_MS = 24L * 60L * 60L * 1000L
 
     private const val MAX_MESSAGES = 100
 
@@ -49,7 +52,7 @@ object SmsInbox {
     internal fun fromStore(rows: List<StoreRow>, nowMs: Long): List<InboundSms> =
         rows.asSequence()
             .filter { it.from.isNotBlank() }
-            .filter { nowMs - it.sentAtMs < MAX_AGE_MS }
+            .filter { nowMs - it.sentAtMs < INGEST_WINDOW_MS }
             .sortedByDescending { it.sentAtMs }
             .take(MAX_MESSAGES)
             .map { InboundSms(stableId(it.from, it.sentAtMs, it.body), it.from, it.body, it.sentAtMs) }
@@ -64,7 +67,7 @@ object SmsInbox {
             )
         }
         val now = System.currentTimeMillis()
-        val cutoff = now - MAX_AGE_MS
+        val cutoff = now - INGEST_WINDOW_MS
         val rows = ArrayList<StoreRow>()
         val answered = runCatching {
             val cursor = ctx.contentResolver.query(
@@ -110,16 +113,19 @@ object SmsInbox {
     fun arrivals(ctx: Context): List<SmsArrival>? {
         purgeLegacyStore(ctx)
         if (!canRead(ctx)) return null
-        val now = System.currentTimeMillis()
-        val cutoff = now - MAX_AGE_MS
         val out = ArrayList<SmsArrival>()
         return runCatching {
+            // No date cutoff. The feed keeps texts until they are cleared, and this is where
+            // it gets them from, so a cutoff here was a 24-hour expiry by another name: a text
+            // that arrived Friday evening was gone from the feed by Sunday, unseen. The LIMIT
+            // bounds the query instead. The ingest window still applies to read(), which
+            // carries bodies to the backend and must not sweep in the SIM's whole history.
             val cursor = ctx.contentResolver.query(
                 Telephony.Sms.Inbox.CONTENT_URI,
                 // No BODY column: this projection is the privacy boundary.
                 arrayOf(Telephony.Sms.ADDRESS, Telephony.Sms.DATE, Telephony.Sms.DATE_SENT),
-                "${Telephony.Sms.DATE} > ?",
-                arrayOf(cutoff.toString()),
+                null,
+                null,
                 "${Telephony.Sms.DATE} DESC LIMIT ${CommsFeed.HARD_CAP}"
             ) ?: return@runCatching null
             cursor.use {

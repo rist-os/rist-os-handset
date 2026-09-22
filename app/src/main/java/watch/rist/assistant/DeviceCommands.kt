@@ -47,6 +47,8 @@ object DeviceCommands {
             if (reply.hasStopwatch()) append("s:${reply.stopwatch.action};")
             if (reply.hasAlarm()) append("a:${reply.alarm.action}/${reply.alarm.fireAtEpochS}/${reply.alarm.alarmId};")
             if (reply.hasComms()) append("c:${reply.comms.action}/${reply.comms.number};")
+            // Not the url: for a Rist call it is the credential, and this key can reach a log.
+            if (reply.hasVideoCall()) append("v:${reply.videoCall.action}/${reply.videoCall.url.hashCode()};")
         }
     }
 
@@ -61,7 +63,9 @@ object DeviceCommands {
 
     @Synchronized
     fun handle(ctx: Context, reply: rist.v1.DeviceResponse): Boolean {
-        if (!reply.hasTimer() && !reply.hasStopwatch() && !reply.hasAlarm() && !reply.hasComms()) return false
+        if (!reply.hasTimer() && !reply.hasStopwatch() && !reply.hasAlarm() && !reply.hasComms() &&
+            !reply.hasVideoCall()
+        ) return false
         val key = commandKey(reply)
         if (key.isNotBlank() && !appliedKeys.add(key)) {
             Log.i(TAG, "device commands for '$key' already applied; skipping")
@@ -71,9 +75,20 @@ object DeviceCommands {
             appliedKeys.remove(appliedKeys.first())
         }
         var handled = false
+        // A later reply with no question in it means the confirmation that held a join back was
+        // answered, by voice as much as by a tap, or dropped: the join screen comes up now.
+        if (!(reply.hasConfirm() && reply.confirm.actionId.isNotBlank())) VideoCalls.releaseDeferred(ctx)
         if (reply.hasTimer()) { timer(ctx, reply.timer); handled = true }
         if (reply.hasStopwatch()) { stopwatch(ctx, reply.stopwatch); handled = true }
         if (reply.hasAlarm()) { alarm(ctx, reply.alarm); handled = true }
+        // The join screen is put up BEFORE the composer, so the composer lands on top of it: the
+        // person sends the invitation, and the join screen is what is left underneath
+        // (video_calls.md section 3). With a confirmation, the join waits for the answer.
+        if (reply.hasVideoCall()) {
+            if (reply.hasConfirm() && reply.confirm.actionId.isNotBlank()) VideoCalls.defer(reply.videoCall)
+            else VideoCalls.onCommand(ctx, reply.videoCall)
+            handled = true
+        }
         if (reply.hasComms()) { comms(ctx, reply.comms); handled = true }
         return handled
     }
@@ -260,9 +275,16 @@ object DeviceCommands {
                 }
             }
             "sms" -> {
-                val opened = open(ctx, Intent(Intent.ACTION_SENDTO, android.net.Uri.parse("smsto:$number")).apply {
+                val compose = Intent(Intent.ACTION_SENDTO, android.net.Uri.parse("smsto:$number")).apply {
                     if (c.body.isNotBlank()) putExtra("sms_body", c.body)
-                })
+                }
+                // Never over a live call: it waits behind a banner the person can tap.
+                if (VideoCalls.queueComposer(compose)) {
+                    Log.i(TAG, "comms: composer to $who held behind the call")
+                    CommsResults.record(ctx, c.correlationId, "sms", true, "")
+                    return
+                }
+                val opened = open(ctx, compose)
                 Log.i(TAG, "comms: composing to $who")
                 CommsResults.record(ctx, c.correlationId, "sms", opened,
                     if (opened) "" else "could not open the composer")
@@ -375,23 +397,76 @@ object DeviceCommands {
 
     fun anythingRunning(): Boolean = timers.isNotEmpty() || stopwatchText().isNotBlank()
 
-    private fun alarm(ctx: Context, c: AlarmCommand) {
+    internal fun alarm(ctx: Context, c: AlarmCommand) {
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val pi = alarmPendingIntent(ctx, c.alarmId, c.label, c.sound, c.vibrate)
         when (c.action) {
             "arm" -> runCatching {
                 val atMs = c.fireAtEpochS * 1000L
                 am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi)
+                // Record it before logging success: AlarmManager forgets across a reboot, so
+                // this store is the only thing that can bring the alarm back.
+                Alarms.remember(
+                    ctx,
+                    Alarms.Armed(
+                        id = c.alarmId,
+                        fireAtEpochS = c.fireAtEpochS,
+                        label = c.label,
+                        sound = c.sound,
+                        vibrate = c.vibrate,
+                        recurrence = c.recurrence,
+                    ),
+                )
                 Log.i(TAG, "alarm armed id='${c.alarmId}' at=${c.fireAtEpochS} label='${c.label}'")
             }.onFailure { Log.w(TAG, "alarm arm failed", it) }
-            "cancel" -> { runCatching { am.cancel(pi) }; Log.i(TAG, "alarm cancelled id='${c.alarmId}'") }
+            "cancel" -> {
+                runCatching { am.cancel(pi) }
+                Alarms.forget(ctx, c.alarmId)
+                // If it is ringing this second, cancelling it has to silence it too. Before this
+                // the ring carried on after the record was gone.
+                AlarmService.dismiss(ctx, "backend cancel")
+                Log.i(TAG, "alarm cancelled id='${c.alarmId}'")
+            }
             "snooze" -> runCatching {
-                val atMs = System.currentTimeMillis() + 9 * 60_000L
-                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi)
-                Log.i(TAG, "alarm snoozed id='${c.alarmId}' 9m")
+                val atS = System.currentTimeMillis() / 1000L + 9 * 60L
+                // The schedule and the recurrence come from the STORE, not the command. The
+                // proto documents only the id as echoed on a snooze, so trusting the command
+                // turned a daily alarm into a one-shot; and a snooze must move the next ring,
+                // not the schedule, or the alarm drifts nine minutes later every time.
+                val stored = Alarms.held(ctx).firstOrNull { it.id == c.alarmId }
+                val snoozed = (stored ?: Alarms.Armed(
+                    c.alarmId, atS, c.label, c.sound, c.vibrate, c.recurrence,
+                )).copy(fireAtEpochS = atS)
+                am.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP, atS * 1000L,
+                    alarmPendingIntent(ctx, c.alarmId, snoozed.label, snoozed.sound, snoozed.vibrate),
+                )
+                // The store has to follow the snooze, or a reboot during those nine minutes
+                // would re-arm the original time, which has already passed, and drop it.
+                Alarms.remember(ctx, snoozed)
+                AlarmService.dismiss(ctx, "snoozed")
+                Log.i(TAG, "alarm snoozed id='${c.alarmId}' 9m (schedule kept at ${snoozed.scheduledEpochS})")
             }.onFailure { Log.w(TAG, "alarm snooze failed", it) }
             else -> Log.w(TAG, "unknown alarm action '${c.action}'")
         }
+    }
+
+    /**
+     * Re-arms one stored alarm after a reboot.
+     *
+     * Goes through [alarmPendingIntent] rather than rebuilding the intent so the request code
+     * matches the original exactly; a later "cancel" for this id has to find this alarm.
+     */
+    internal fun rearm(ctx: Context, a: Alarms.Armed) {
+        runCatching {
+            val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            am.setExactAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                a.fireAtEpochS * 1000L,
+                alarmPendingIntent(ctx, a.id, a.label, a.sound, a.vibrate),
+            )
+            Log.i(TAG, "alarm re-armed after boot id='${a.id}' at=${a.fireAtEpochS}")
+        }.onFailure { Log.w(TAG, "alarm re-arm failed id='${a.id}'", it) }
     }
 
     private fun alarmPendingIntent(ctx: Context, id: String, label: String, sound: Boolean, vibrate: Boolean) =

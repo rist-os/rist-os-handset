@@ -22,12 +22,15 @@ import kotlin.math.atan
 import kotlin.math.atan2
 import kotlin.math.sinh
 import kotlin.math.cos
+import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.PI
 import kotlin.math.sin
 import kotlin.math.min
 import kotlin.math.tan
+
+internal const val OSM_ATTRIBUTION = "\u00a9 OpenStreetMap contributors"
 
 class CorridorMapView @JvmOverloads constructor(
     context: Context,
@@ -46,8 +49,8 @@ class CorridorMapView @JvmOverloads constructor(
         val segmentIndex: Int,
         val turnIndex: Int,
     ) {
-        private val pxW: Double get() = if (tilePx > 0) tilePx.toDouble() else 240.0
-        private val pxH: Double get() = if (tilePxH > 0) tilePxH.toDouble() else 320.0
+        private val pxW: Double get() = MapGeometry.georefSize(tilePx, 0, MapGeometry.BASE_FRAME_W).toDouble()
+        private val pxH: Double get() = MapGeometry.georefSize(tilePxH, 0, MapGeometry.BASE_FRAME_H).toDouble()
         // mPerPx > 0 = track-up centre/scale georeference; 0 = north-up bounds.
         val valid: Boolean get() = bytes.isNotEmpty() &&
             (mPerPx > 0.0 || (maxLon > minLon && maxLat > minLat))
@@ -74,6 +77,13 @@ class CorridorMapView @JvmOverloads constructor(
     private val tileBytes = HashMap<Long, ByteArray>()
     private var availZooms = intArrayOf()
     private val tileMatrix = Matrix()
+    private val tileMatrixVals = FloatArray(9)
+    private val tileRange = IntArray(4)
+    private var slotX = IntArray(64)
+    private var slotY = IntArray(64)
+    private val tileLookup = TileLookup { z, x, y -> tileBytes.containsKey(tileKey(z, x, y)) }
+    // What onDraw last drew, so touches go to the tile gestures only while tiles are on screen.
+    private var drawingTiles = false
     private var routePts = DoubleArray(0)
     private var routeN = 0
     private val routePath = Path()
@@ -83,8 +93,8 @@ class CorridorMapView @JvmOverloads constructor(
     private val routeCasingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFFFFFFFF.toInt(); style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
     }
-    private val tileCache = object : android.util.LruCache<Long, Bitmap>(24) {
-        override fun sizeOf(k: Long, v: Bitmap) = 1
+    private val tileCache = object : android.util.LruCache<Long, Bitmap>(TILE_CACHE_BYTES) {
+        override fun sizeOf(k: Long, v: Bitmap) = v.allocationByteCount
         override fun entryRemoved(e: Boolean, k: Long, o: Bitmap, n: Bitmap?) { if (o != n) runCatching { o.recycle() } }
     }
     private var animStart = 0L
@@ -109,8 +119,8 @@ class CorridorMapView @JvmOverloads constructor(
             val ctx = (manualCenterLon + 180.0) / 360.0 * nn
             val latR = Math.toRadians(manualCenterLat)
             val cty = (1.0 - ln(tan(latR) + 1.0 / cos(latR)) / PI) / 2.0 * nn
-            val nctx = ctx + dx / sUsed / 256.0
-            val ncty = cty + dy / sUsed / 256.0
+            val nctx = ctx + MapGeometry.panTiles(dx, sUsed)
+            val ncty = cty + MapGeometry.panTiles(dy, sUsed)
             manualCenterLon = nctx / nn * 360.0 - 180.0
             manualCenterLat = Math.toDegrees(atan(sinh(PI * (1.0 - 2.0 * ncty / nn))))
             invalidate(); return true
@@ -171,6 +181,7 @@ class CorridorMapView @JvmOverloads constructor(
 
     private val bgPaint = Paint().apply { color = paperColor; style = Paint.Style.FILL }
     private val tilePaint = Paint()
+    private val hdTilePaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accentColor; style = Paint.Style.FILL }
     private val dotRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = paperColor; style = Paint.Style.STROKE; strokeWidth = dp(2f)
@@ -299,8 +310,8 @@ class CorridorMapView @JvmOverloads constructor(
             frameDesc[o + 5] = fr.bearingDeg; frameDesc[o + 6] = fr.mPerPx
             frameDesc[o + 7] = fr.minLat; frameDesc[o + 8] = fr.minLon
             frameDesc[o + 9] = fr.maxLat; frameDesc[o + 10] = fr.maxLon
-            frameDesc[o + 11] = (if (fr.tilePx > 0) fr.tilePx else 240).toDouble()
-            frameDesc[o + 12] = (if (fr.tilePxH > 0) fr.tilePxH else 320).toDouble()
+            frameDesc[o + 11] = MapGeometry.georefSize(fr.tilePx, 0, MapGeometry.BASE_FRAME_W).toDouble()
+            frameDesc[o + 12] = MapGeometry.georefSize(fr.tilePxH, 0, MapGeometry.BASE_FRAME_H).toDouble()
         }
     }
 
@@ -329,8 +340,9 @@ class CorridorMapView @JvmOverloads constructor(
         return a + d * t
     }
 
-    private fun drawTileMap(canvas: Canvas) {
-        dstRect.set(0f, 0f, width.toFloat(), height.toFloat()); frameScale = 2
+    // Returns false, having drawn nothing, when no tile at any zoom covers where the person is;
+    // onDraw then shows the frames instead.
+    private fun drawTileMap(canvas: Canvas): Boolean {
         val t = ((System.currentTimeMillis() - animStart).toFloat() / ANIM_MS).coerceIn(0f, 1f)
         val useLat = fromLat + (fixLat - fromLat) * t
         val useLon = fromLon + (fixLon - fromLon) * t
@@ -342,34 +354,41 @@ class CorridorMapView @JvmOverloads constructor(
         val cenLon = if (manual) manualCenterLon else useLon
         if (manual) heading = 0f
         val near = !manual && hasNextTurn && distanceM(useLat, useLon, nextTurnLat, nextTurnLon) <= 300.0
-        val z = when {
-            near && 16 in availZooms -> 16
-            availZooms.isEmpty() -> 14
-            else -> availZooms.filter { it <= 15 }.maxOrNull() ?: availZooms.max()
-        }
-        curTileZoom = z
+        val z = TilePlan.pickZoom(availZooms, near, nextTurnLat, nextTurnLon, useLat, useLon, tileLookup)
         val n = 1 shl z
         val latRad = Math.toRadians(cenLat)
         val utx = (cenLon + 180.0) / 360.0 * n
         val uty = (1.0 - ln(tan(latRad) + 1.0 / cos(latRad)) / PI) / 2.0 * n
+        val anchorCovered = TilePlan.coveringZoom(z, floor(utx).toInt(), floor(uty).toInt(), availZooms, tileLookup) >= 0
+        if (!TilePlan.useTiles(true, true, manual, anchorCovered, frames.any { it.valid })) return false
+        curTileZoom = z
+        dstRect.set(0f, 0f, width.toFloat(), height.toFloat()); frameScale = 2
         val cx = width / 2f; val cy = height * 0.60f
         val scale = TILE_SCREEN_SCALE * (if (manual) manualZoomMul else 1f)
         val ang = Math.toRadians(-heading.toDouble()); val ca = cos(ang); val sa = sin(ang)
-        val radius = ((Math.hypot(width.toDouble(), height.toDouble()) / scale) / 256.0).toInt() + 1
-        val cxt = utx.toInt(); val cyt = uty.toInt()
-        for (ty in cyt - radius..cyt + radius) for (tx in cxt - radius..cxt + radius) {
-            val bmp = decodedTile(z, tx, ty) ?: continue
-            tileMatrix.reset()
-            tileMatrix.postTranslate(((tx - utx) * 256.0).toFloat(), ((ty - uty) * 256.0).toFloat())
-            tileMatrix.postScale(scale, scale); tileMatrix.postRotate(-heading); tileMatrix.postTranslate(cx, cy)
-            canvas.drawBitmap(bmp, tileMatrix, tilePaint)
+        MapGeometry.visibleTileRange(utx, uty, width, height, scale, heading, cx, cy, tileRange)
+        var slots = 0
+        for (ty in tileRange[1]..tileRange[3]) for (tx in tileRange[0]..tileRange[2]) {
+            if (!MapGeometry.tileOnScreen(tx, ty, utx, uty, width, height, scale, heading, cx, cy)) continue
+            if (slots == slotX.size) { slotX = slotX.copyOf(slots * 2); slotY = slotY.copyOf(slots * 2) }
+            slotX[slots] = tx; slotY[slots] = ty; slots++
+        }
+        for (ref in TilePlan.plan(z, slotX, slotY, slots, availZooms, tileLookup)) {
+            val bmp = decodedTile(ref.z, ref.x, ref.y) ?: continue
+            MapGeometry.tileMatrixValues(ref.x, ref.y, utx, uty, bmp.width, bmp.height, scale, heading, cx, cy,
+                tileMatrixVals, ref.levelsUp)
+            tileMatrix.setValues(tileMatrixVals)
+            // Unfiltered keeps a 256-px watch tile's hard pixel edges; a 2x tile being shrunk, or a
+            // coarser tile blown up to stand in for a missing one, looks better smoothed.
+            val smooth = ref.levelsUp > 0 || MapGeometry.tileDrawScale(bmp.width) < 1f
+            canvas.drawBitmap(bmp, tileMatrix, if (smooth) hdTilePaint else tilePaint)
         }
         val tmp = FloatArray(2)
         fun proj(plat: Double, plon: Double) {
             val prad = Math.toRadians(plat)
             val ptx = (plon + 180.0) / 360.0 * n
             val pty = (1.0 - ln(tan(prad) + 1.0 / cos(prad)) / PI) / 2.0 * n
-            val wx = (ptx - utx) * 256.0; val wy = (pty - uty) * 256.0
+            val wx = (ptx - utx) * MapGeometry.TILE_WORLD_PX; val wy = (pty - uty) * MapGeometry.TILE_WORLD_PX
             tmp[0] = (cx + (wx * ca - wy * sa) * scale).toFloat()
             tmp[1] = (cy + (wx * sa + wy * ca) * scale).toFloat()
         }
@@ -385,6 +404,7 @@ class CorridorMapView @JvmOverloads constructor(
         if (hasFacing) drawFacingCone(canvas, mx, my, (-PI / 2.0 + Math.toRadians((deviceFacing - heading).toDouble())).toFloat())
         drawHeadingMarker(canvas, mx, my, if (manual) (-PI / 2.0 + Math.toRadians((fixBearing ?: 0f).toDouble())).toFloat() else (-PI / 2.0).toFloat())
         if (t < 1f || manual) postInvalidateOnAnimation()
+        return true
     }
 
     private fun recycleFrames() {
@@ -437,7 +457,7 @@ class CorridorMapView @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        if (tileMode) { tileScaleDetector.onTouchEvent(e); tileGesture.onTouchEvent(e); return true }
+        if (tileMode && drawingTiles) { tileScaleDetector.onTouchEvent(e); tileGesture.onTouchEvent(e); return true }
         if (frames.size > 1 && gestureDetector.onTouchEvent(e)) return true
         return super.onTouchEvent(e)
     }
@@ -502,35 +522,21 @@ class CorridorMapView @JvmOverloads constructor(
 
     private fun mercY(latDeg: Double): Double = ln(tan(Math.PI / 4.0 + Math.toRadians(latDeg) / 2.0))
 
+    private val layoutBuf = FloatArray(4)
     private fun computeDstRect(bmp: Bitmap) {
-        val vw = width.toFloat()
-        val vh = height.toFloat()
-        val bw = bmp.width.toFloat()
-        val bh = bmp.height.toFloat()
-        if (bw <= 0f || bh <= 0f || vw <= 0f || vh <= 0f) {
-            dstRect.set(0f, 0f, vw, vh)
-            return
-        }
-        frameScale = maxOf(1, minOf((vw / bw).toInt(), (vh / bh).toInt()))
-        val dw = bw * frameScale
-        val dh = bh * frameScale
-        val left = (vw - dw) / 2f
-        val top = (vh - dh) / 2f
-        dstRect.set(left, top, left + dw, top + dh)
+        frameScale = MapGeometry.frameLayout(width.toFloat(), height.toFloat(), bmp.width, bmp.height, layoutBuf)
+        dstRect.set(layoutBuf[0], layoutBuf[1], layoutBuf[2], layoutBuf[3])
     }
 
     private val projBuf = DoubleArray(2)
+    private val geoBuf = IntArray(2)
     private fun projectToPixel(latDeg: Double, lonDeg: Double, out: FloatArray): Boolean {
         val w = if (activeImgW > 0) activeImgW else 1
         val h = if (activeImgH > 0) activeImgH else 1
         Ristnav.nProject(activeBearing, activeCenterLat, activeCenterLon, activeMPerPx,
             minLat, minLon, maxLat, maxLon, w, h, latDeg, lonDeg, projBuf)
-        val u = projBuf[0] / w
-        val v = projBuf[1] / h
-        val onFrame = u in 0.0..1.0 && v in 0.0..1.0
-        out[0] = (dstRect.left + u.coerceIn(0.0, 1.0) * dstRect.width()).toFloat()
-        out[1] = (dstRect.top + v.coerceIn(0.0, 1.0) * dstRect.height()).toFloat()
-        return onFrame
+        layoutBuf[0] = dstRect.left; layoutBuf[1] = dstRect.top; layoutBuf[2] = dstRect.right; layoutBuf[3] = dstRect.bottom
+        return MapGeometry.frameToScreen(projBuf[0], projBuf[1], w, h, layoutBuf, out)
     }
 
     private fun distanceM(la1: Double, lo1: Double, la2: Double, lo2: Double): Double {
@@ -539,10 +545,34 @@ class CorridorMapView @JvmOverloads constructor(
         return out[0].toDouble()
     }
 
+    private val attributionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF3A3A3A.toInt()
+        textSize = 10f * resources.displayMetrics.scaledDensity
+        textAlign = Paint.Align.RIGHT
+    }
+    // Set by drawStatusBar in the same frame; read and cleared by onDrawForeground.
+    private var statusBarTop = -1f
+    private val attributionBg = Paint().apply { color = 0xB3FFFFFF.toInt(); style = Paint.Style.FILL }
+
+    // Every map this view shows is drawn from OpenStreetMap data, and the ODbL makes crediting it
+    // a condition of showing it. Drawn last, over every kind of frame, so no path can leave it off.
+    override fun onDrawForeground(canvas: Canvas) {
+        super.onDrawForeground(canvas)
+        if (width <= 0 || height <= 0) return
+        val pad = 3f * resources.displayMetrics.density
+        val w = attributionPaint.measureText(OSM_ATTRIBUTION)
+        // Above the ETA bar when one is up, so neither covers the other.
+        val floor = statusBarTop.takeIf { it > 0f && it < height } ?: height.toFloat()
+        statusBarTop = -1f
+        val baseline = floor - pad - attributionPaint.descent()
+        canvas.drawRect(width - w - 2 * pad, baseline + attributionPaint.ascent() - pad, width.toFloat(), floor, attributionBg)
+        canvas.drawText(OSM_ATTRIBUTION, width - pad, baseline, attributionPaint)
+    }
+
     override fun onDraw(canvas: Canvas) {
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
-        if (tileMode && hasFix) {
-            drawTileMap(canvas)
+        drawingTiles = tileMode && hasFix && drawTileMap(canvas)
+        if (drawingTiles) {
             if (showTurnCard) drawTurnBubble(canvas)
             if (statusTime.isNotEmpty() || statusDist.isNotEmpty() || statusEta.isNotEmpty()) drawStatusBar(canvas)
             return
@@ -555,8 +585,9 @@ class CorridorMapView @JvmOverloads constructor(
         if (fr != null && bmp != null) {
             applyActiveBounds()
             computeDstRect(bmp)
-            activeImgW = bmp.width; activeImgH = bmp.height
-            canvas.drawBitmap(bmp, null, dstRect, tilePaint)
+            MapGeometry.frameGeoSize(fr.tilePx, fr.tilePxH, bmp.width, bmp.height, geoBuf)
+            activeImgW = geoBuf[0]; activeImgH = geoBuf[1]
+            canvas.drawBitmap(bmp, null, dstRect, if (MapGeometry.frameDensity(bmp.width) > 1) hdTilePaint else tilePaint)
 
             val p = FloatArray(2)
             if (hasDest && projectToPixel(destLat, destLon, p)) {
@@ -663,6 +694,7 @@ class CorridorMapView @JvmOverloads constructor(
         val s = frameScale.toFloat()
         val barH = 40f * s
         val top = dstRect.bottom - barH
+        statusBarTop = top
         canvas.drawRect(dstRect.left, top, dstRect.right, dstRect.bottom, statusBarPaint)
         statusTextPaint.textSize = 12f * s
         val txt = listOf(statusTime, statusDist, statusEta).filter { it.isNotEmpty() }.joinToString("  ·  ")
@@ -748,12 +780,18 @@ class CorridorMapView @JvmOverloads constructor(
     }
 
     companion object {
-        // screen px per tile world px
+        // Screen px per tile world px, where a tile is 256 world px whatever its bitmap size. This
+        // sets the map's ground scale (a z14 tile is ~460 px, about 2.3 across a 1080-px screen), not
+        // its sharpness: a 512-px tile is pre-scaled by 256/width, so at 1.8 each of its pixels lands
+        // on 0.9 of a screen pixel, all of its detail shown, where a watch tile is blown up 1.8x.
+        // Left as it is until a real 2x render has been seen on the phone: raising it would only
+        // show less road ahead, and nothing serves 2x tiles yet to judge line weights by.
         private const val TILE_SCREEN_SCALE = 1.8f
         private const val ANIM_MS = 1400L
         private const val FOLLOW_VIEW_M = 800.0
         private const val MANEUVER_SWITCH_M = 200.0
         private const val MANUAL_TIMEOUT_MS = 8000L
         private const val BITMAP_CACHE = 6
+        private const val TILE_CACHE_BYTES = 32 * 1024 * 1024
     }
 }

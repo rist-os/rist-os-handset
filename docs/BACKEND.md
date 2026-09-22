@@ -220,8 +220,9 @@ it, and should not send a field the requesting version did not define.
 - **`confirm`** (`Confirmation`) — the user's yes/no to a `ConfirmRequest` from a
   previous reply (destructive actions gate on this).
 - **`caps`** (`Capabilities`) — what this device can render. Components include
-  `"map_tiles"` (device composites raw tile maps; see NavCommand below). Backends MUST
-  feature-gate on this rather than assuming a device model.
+  `"map_tiles"` (device composites raw tile maps; see NavCommand below) and
+  `"map_tiles_hd"` (the same tiles may be 512 px). Backends MUST feature-gate on these
+  rather than assuming a device model.
 
 ## What else you may reply with
 
@@ -312,6 +313,10 @@ thin, deterministic renderer. Two rendering modes, chosen by device capability:
    tiles at 2–3 zoom levels along the corridor (~600 KB for a typical drive). The device
    composites a rotating track-up view, draws the route polyline (`shape`), position
    marker, compass facing cone, and turn card locally. Fully pannable/zoomable.
+   With `"map_tiles_hd"` also declared, a tile may be 512 px (WebP) for the same z/x/y; the
+   device places each tile by its decoded width, so either size, or a mix, is fine. The set
+   may be partial: a missing tile is drawn from the nearest coarser zoom held, and where
+   nothing covers the fix the device shows the frames instead, so send whatever finished.
 
 `Maneuver` carries `type` (glyph id), `short_instruction`, and exit signage
 (`exit_number`/`exit_branch`/`exit_toward`). The on-device nav state machine

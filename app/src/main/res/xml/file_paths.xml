@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The one directory another app may write into: where the system camera puts a capture
+     before RIST reads it back. Nothing else in the app is shared. -->
+<paths>
+    <cache-path name="photos" path="photos/" />
+</paths>
