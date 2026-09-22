@@ -10,7 +10,7 @@ object StreamingWire {
 
     const val UNARY_MEDIA_TYPE = "application/x-protobuf"
 
-    // On: the backend's turns can now run as long as the work takes (long_turns.md), and a
+    // On: the backend's turns can now run as long as the work takes, and a
     // stream is what keeps the socket busy and the person informed meanwhile. The cancel path
     // (StreamingCancel) and a visible Stop on the waiting entry are what make that safe.
     const val STREAMING_ENABLED = true

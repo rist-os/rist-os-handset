@@ -83,7 +83,7 @@ object DeviceCommands {
         if (reply.hasAlarm()) { alarm(ctx, reply.alarm); handled = true }
         // The join screen is put up BEFORE the composer, so the composer lands on top of it: the
         // person sends the invitation, and the join screen is what is left underneath
-        // (video_calls.md section 3). With a confirmation, the join waits for the answer.
+        // With a confirmation, the join waits for the answer.
         if (reply.hasVideoCall()) {
             if (reply.hasConfirm() && reply.confirm.actionId.isNotBlank()) VideoCalls.defer(reply.videoCall)
             else VideoCalls.onCommand(ctx, reply.videoCall)

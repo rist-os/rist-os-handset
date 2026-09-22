@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 
 /**
- * The wake channel (push_notifications.md §3): a GET the backend holds for up to 55 seconds and
+ * The wake channel: a GET the backend holds for up to 55 seconds and
  * answers the moment it has something, so mail reaches the phone within seconds instead of on
  * the next turn.
  *

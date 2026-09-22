@@ -17,7 +17,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import rist.v1.VideoCallCommand
 
-/** video_calls.md section 4: a command puts up a screen and nothing more; the tap does the rest. */
+/** A command puts up a screen and nothing more; the tap does the rest. */
 @RunWith(RobolectricTestRunner::class)
 class VideoCallJoinTest {
 

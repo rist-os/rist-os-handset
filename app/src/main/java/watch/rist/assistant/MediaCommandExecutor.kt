@@ -34,7 +34,7 @@ class MediaCommandExecutor(
         internal data class Queue(val chapters: List<Chapter>, val startIndex: Int)
 
         /**
-         * media_player.md 4.1: `stream_url` is the chapter to play now, `section` is its number
+         * `stream_url` is the chapter to play now, `section` is its number
          * over the whole book, and `playlist` is the chapters AFTER it, so `playlist[i]` is
          * section `section + 1 + i`. Numbered by position in the list as sent, so a blank entry
          * the backend left in does not shift every chapter after it; blanks are then skipped, and

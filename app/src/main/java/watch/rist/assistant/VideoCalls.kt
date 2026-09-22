@@ -8,7 +8,7 @@ import rist.v1.VideoCallCommand
 import java.lang.ref.WeakReference
 
 /**
- * Video calls (video_calls.md). A call is a web page in a browser that can show nothing but a
+ * Video calls. A call is a web page in a browser that can show nothing but a
  * call: the backend sends the link, the person taps Join on a native screen, and only then does
  * anything load or any camera open.
  *
@@ -23,9 +23,8 @@ object VideoCalls {
      * Whether requests declare the `video_call` component (and schema v15). The backend sends no
      * call command to a device that does not, and says so in words instead.
      *
-     * Switched on by the owner on 2026-09-19 to test by voice, before the section 8 live test.
-     * The join screen still stands between any command and a live camera, so an early "join"
-     * that fails costs a failed page, not a call nobody agreed to.
+     * The join screen stands between any command and a live camera, so a "join" that fails
+     * costs a failed page, not a call nobody agreed to.
      */
     const val SHIPPED = true
 

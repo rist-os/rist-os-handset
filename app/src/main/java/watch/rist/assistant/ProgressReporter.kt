@@ -67,7 +67,7 @@ class ProgressReporter(
             if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
                 reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
                 // No "end" for the chapter just finished. Under the book's item_id an "end" reads as
-                // the BOOK finishing (media_player.md 4.2); the play that follows, carrying the
+                // the BOOK finishing; the play that follows, carrying the
                 // next section, says everything the backend needs. The end of the queue still
                 // reports "end", from onPlaybackStateChanged.
                 report(A_PLAY)

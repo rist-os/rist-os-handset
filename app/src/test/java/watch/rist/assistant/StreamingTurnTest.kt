@@ -24,7 +24,7 @@ import rist.v1.Progress
 import rist.v1.Speech
 
 /**
- * Turns now ask for the stream (long_turns.md): the backend may take as long as the work needs,
+ * Turns now ask for the stream: the backend may take as long as the work needs,
  * and the stream is what keeps the connection alive and the person informed meanwhile.
  */
 @RunWith(RobolectricTestRunner::class)

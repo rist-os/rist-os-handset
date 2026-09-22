@@ -303,7 +303,7 @@ class MainActivity : AppCompatActivity() {
             val line = StreamingWire.renderLine(progress) ?: return
             statusText.text = line
             // Shown in place of "waiting for a reply" on the entry being answered, replaced by
-            // each new line, never accumulated (status_line.md).
+            // each new line, never accumulated.
             liveStatusLine = line
             val shown = liveStatusView?.takeIf { it.isAttachedToWindow }
             // The first line of a turn redraws the feed, which is when the Stop appears: the
@@ -2057,7 +2057,7 @@ class MainActivity : AppCompatActivity() {
             }
             val waiting = e.state == EntryState.SENT || e.state == EntryState.WAITING
             // The newest waiting entry is the turn in flight: it shows what the backend says it
-            // is doing, and a way to stop it (long_turns.md §5).
+            // is doing, and a way to stop it.
             val live = waiting && idx == 0 && StreamingCancel.inFlightId().isNotEmpty()
             val body = when (e.state) {
                 EntryState.RECORDING -> "● recording…"

@@ -377,7 +377,7 @@ class CorridorMapView @JvmOverloads constructor(
             MapGeometry.tileMatrixValues(ref.x, ref.y, utx, uty, bmp.width, bmp.height, scale, heading, cx, cy,
                 tileMatrixVals, ref.levelsUp)
             tileMatrix.setValues(tileMatrixVals)
-            // Unfiltered keeps a 256-px watch tile's hard pixel edges; a 2x tile being shrunk, or a
+            // Unfiltered keeps a 256-px tile's hard pixel edges; a 2x tile being shrunk, or a
             // coarser tile blown up to stand in for a missing one, looks better smoothed.
             val smooth = ref.levelsUp > 0 || MapGeometry.tileDrawScale(bmp.width) < 1f
             canvas.drawBitmap(bmp, tileMatrix, if (smooth) hdTilePaint else tilePaint)
@@ -782,7 +782,7 @@ class CorridorMapView @JvmOverloads constructor(
         // Screen px per tile world px, where a tile is 256 world px whatever its bitmap size. This
         // sets the map's ground scale (a z14 tile is ~460 px, about 2.3 across a 1080-px screen), not
         // its sharpness: a 512-px tile is pre-scaled by 256/width, so at 1.8 each of its pixels lands
-        // on 0.9 of a screen pixel, all of its detail shown, where a watch tile is blown up 1.8x.
+        // on 0.9 of a screen pixel, all of its detail shown, where a 256-px tile is blown up 1.8x.
         // Left as it is until a real 2x render has been seen on the phone: raising it would only
         // show less road ahead, and nothing serves 2x tiles yet to judge line weights by.
         private const val TILE_SCREEN_SCALE = 1.8f

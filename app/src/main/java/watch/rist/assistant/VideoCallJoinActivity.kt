@@ -20,7 +20,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 
 /**
- * The join screen, and the whole of the security model (video_calls.md section 4). A meeting
+ * The join screen, and the whole of the security model. A meeting
  * link can reach the assistant from a calendar entry or an email that a stranger wrote, and a
  * model decides to open it. So nothing a model decided may be the last step before a live
  * camera: the person's tap is. Until Join is tapped no address is loaded, no permission is

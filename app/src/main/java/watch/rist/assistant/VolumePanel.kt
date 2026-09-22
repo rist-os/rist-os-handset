@@ -60,7 +60,7 @@ internal object VolumeKeys {
         mediaSounding: Boolean,
         voiceOwnVolume: Boolean = true,
     ): Channel? {
-        // The buttons always start on the ringer (owner's choice, 2026-09-17), even while
+        // The buttons always start on the ringer, even while
         // something plays; a slider tapped in the open panel takes them over until it closes.
         return when {
             callOrRinging || alarmRinging -> null

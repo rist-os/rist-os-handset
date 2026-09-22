@@ -10,7 +10,7 @@ import org.junit.Test
 import watch.rist.assistant.VideoCalls.Nav
 import watch.rist.assistant.VideoCalls.Provider
 
-/** video_calls.md 5.1: where the call browser may be, and what it is given there. */
+/** Where the call browser may be, and what it is given there. */
 class VideoCallsTest {
 
     private val rist = "api.example.net"

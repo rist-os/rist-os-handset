@@ -5,7 +5,7 @@ import org.junit.Test
 import watch.rist.assistant.MediaCommandExecutor.Companion.Chapter
 import watch.rist.assistant.MediaCommandExecutor.Companion.queueFor
 
-/** media_player.md 4.1 and 4.2: stream_url now, playlist after it, each chapter its own number. */
+/** stream_url now, playlist after it, each chapter its own number. */
 class MediaQueueTest {
 
     @Test

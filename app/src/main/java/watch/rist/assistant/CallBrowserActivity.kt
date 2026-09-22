@@ -46,7 +46,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.io.ByteArrayInputStream
 
 /**
- * The call browser (video_calls.md section 5): a web view whose main frame can be on a meeting
+ * The call browser: a web view whose main frame can be on a meeting
  * page and nowhere else. No address bar, tabs, history, downloads or new windows; the only
  * controls are ours, and hang-up works even when the page does not, by destroying the view.
  * Everything the call stores lives in a storage profile of its own, deleted when it closes.

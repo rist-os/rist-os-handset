@@ -20,7 +20,7 @@ import rist.v1.WakeSignal
 import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 
-/** push_notifications.md §3: the held wake poll. */
+/** The held wake poll. */
 @RunWith(RobolectricTestRunner::class)
 class WakeLoopTest {
 
