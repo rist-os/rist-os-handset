@@ -17,8 +17,14 @@ object Config {
     private const val KEY_PUSH = "push_url"
     private const val KEY_PROGRESS = "progress_url"
     private const val KEY_REPLY_VOICE = "reply_voice_enabled"
+    private const val KEY_AUTO_TZ = "auto_time_zone_from_location"
+    private const val KEY_VOICE_LEVEL = "voice_level"
+    private const val KEY_AUTO_TZ_PENDING = "auto_time_zone_pending"
+    private const val KEY_AUTO_TZ_PENDING_AT = "auto_time_zone_pending_at"
     private const val KEY_HAPTICS = "haptics_enabled"
     private const val KEY_CARRIER_VM_WAITING = "carrier_vm_waiting"
+    private const val KEY_VM_DISMISSED_AT = "carrier_vm_dismissed_at"
+    private const val KEY_VM_DISMISSED_MS = "carrier_vm_dismissed_ms"
     private const val KEY_VOICEMAIL_PIN = "voicemail_pin"
     private const val KEY_SETUP_DONE = "setup_complete"
     private const val KEY_AUTH_TOKEN = "auth_token"
@@ -47,6 +53,7 @@ object Config {
     private const val KEY_NOTIFICATIONS = "notification_queue"
     private const val KEY_MAIL_UNREAD = "mail_unread"
     private const val KEY_MAIL_ACK = "mail_acknowledged"
+    private const val KEY_ALARMS = "alarms"
     private const val KEY_GEOFENCES = "geofences"
     private const val KEY_GEOFENCE_QUEUE = "geofence_queue"
     private const val KEY_GEOFENCE_LAST_FIX = "geofence_last_fix"
@@ -198,7 +205,12 @@ object Config {
     fun defaultBackendUrl(ctx: Context): String = deploy(ctx).first
     fun defaultPushUrl(ctx: Context): String = deploy(ctx).second
 
-    const val DEFAULT_TRANSCRIPT_MAX_ENTRIES = 200
+    // A count cap as well as the age one, so the transcript file stays a size the app can
+    // rewrite on every message. It was 200, which made "Forever" untrue the moment somebody
+    // crossed it; 1000 is roughly 150 KB of JSON and still bounded.
+    const val DEFAULT_TRANSCRIPT_MAX_ENTRIES = 1000
+
+    // The age limit, in ms; 0 means keep them until cleared. See [Retention] for the choices.
     const val DEFAULT_TRANSCRIPT_MAX_AGE_MS = 2L * 60L * 1000L
 
     fun transcriptMaxEntries(ctx: Context): Int =
@@ -315,6 +327,9 @@ object Config {
     fun commsResults(ctx: Context): String = prefs(ctx).getString(KEY_COMMS_RESULTS, "") ?: ""
     fun setCommsResults(ctx: Context, json: String) { prefs(ctx).edit().putString(KEY_COMMS_RESULTS, json).apply() }
 
+    fun alarms(ctx: Context): String = prefs(ctx).getString(KEY_ALARMS, "") ?: ""
+    fun setAlarms(ctx: Context, json: String) { prefs(ctx).edit().putString(KEY_ALARMS, json).apply() }
+
     fun geofences(ctx: Context): String = prefs(ctx).getString(KEY_GEOFENCES, "") ?: ""
     fun setGeofences(ctx: Context, json: String) { prefs(ctx).edit().putString(KEY_GEOFENCES, json).apply() }
 
@@ -355,6 +370,23 @@ object Config {
         prefs(ctx).edit().putBoolean(KEY_CARRIER_VM_WAITING, waiting).apply()
     }
 
+    /** The carrier's message count when the voicemail row was dismissed; null = not dismissed. */
+    fun voicemailDismissedAt(ctx: Context): Int? =
+        prefs(ctx).takeIf { it.contains(KEY_VM_DISMISSED_AT) }?.getInt(KEY_VM_DISMISSED_AT, -1)
+
+    /** When the voicemail row was dismissed, or 0 when it is not. */
+    fun voicemailDismissedMs(ctx: Context): Long = prefs(ctx).getLong(KEY_VM_DISMISSED_MS, 0L)
+
+    fun setVoicemailDismissedAt(ctx: Context, count: Int?) {
+        prefs(ctx).edit().apply {
+            if (count == null) {
+                remove(KEY_VM_DISMISSED_AT); remove(KEY_VM_DISMISSED_MS)
+            } else {
+                putInt(KEY_VM_DISMISSED_AT, count); putLong(KEY_VM_DISMISSED_MS, System.currentTimeMillis())
+            }
+        }.apply()
+    }
+
     fun isReplyVoiceEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_REPLY_VOICE, true)
 
     fun isHapticsEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_HAPTICS, true)
@@ -365,6 +397,38 @@ object Config {
 
     fun setReplyVoiceEnabled(ctx: Context, enabled: Boolean) {
         prefs(ctx).edit().putBoolean(KEY_REPLY_VOICE, enabled).apply()
+    }
+
+    // On by default: a phone that keeps its home time zone abroad is wrong in a way nobody asked for.
+    fun isAutoTimeZone(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_AUTO_TZ, true)
+
+    /**
+     * RIST's own loudness for spoken replies, 0..[VOICE_LEVEL_MAX], used where Android will not
+     * let it set the assistant volume. Replies then play as media, scaled by this.
+     */
+    const val VOICE_LEVEL_MAX = 15
+    fun voiceLevel(ctx: Context): Int =
+        prefs(ctx).getInt(KEY_VOICE_LEVEL, VOICE_LEVEL_MAX).coerceIn(0, VOICE_LEVEL_MAX)
+
+    fun setVoiceLevel(ctx: Context, level: Int) {
+        prefs(ctx).edit().putInt(KEY_VOICE_LEVEL, level.coerceIn(0, VOICE_LEVEL_MAX)).apply()
+    }
+
+    fun setAutoTimeZone(ctx: Context, enabled: Boolean) {
+        prefs(ctx).edit().putBoolean(KEY_AUTO_TZ, enabled).apply()
+    }
+
+    /** A zone seen once with the same offset as the current one; switched to if seen again. */
+    fun autoTimeZonePending(ctx: Context): Pair<String, Long>? {
+        val zone = prefs(ctx).getString(KEY_AUTO_TZ_PENDING, null) ?: return null
+        return zone to prefs(ctx).getLong(KEY_AUTO_TZ_PENDING_AT, 0L)
+    }
+
+    fun setAutoTimeZonePending(ctx: Context, zone: String?, atMs: Long) {
+        prefs(ctx).edit().apply {
+            if (zone == null) remove(KEY_AUTO_TZ_PENDING).remove(KEY_AUTO_TZ_PENDING_AT)
+            else putString(KEY_AUTO_TZ_PENDING, zone).putLong(KEY_AUTO_TZ_PENDING_AT, atMs)
+        }.apply()
     }
 
     fun isSetupComplete(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_SETUP_DONE, false)
@@ -464,6 +528,7 @@ object Config {
         KEY_SMS_QUEUE,
         KEY_VOICEMAILS,
         KEY_COMMS_RESULTS,
+        KEY_ALARMS,
         KEY_GEOFENCES,
         KEY_GEOFENCE_QUEUE,
         KEY_GEOFENCE_LAST_FIX,

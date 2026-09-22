@@ -42,12 +42,6 @@ class ProgressReporter(
     // Armed before a card-driven seek so its DISCONTINUITY_REASON_SEEK is swallowed; the card reports the seek itself.
     @Volatile private var drivenSeek = false
 
-    // Values at the last report. On auto-advance currentMediaItem has already moved on, so 'end' uses these.
-    private var lastItemId = ""
-    private var lastSection = 0
-    private var lastPositionS = 0
-    private var lastTitle = ""
-
     private val heartbeat = object : Runnable {
         override fun run() {
             if (player.isPlaying) {
@@ -72,7 +66,10 @@ class ProgressReporter(
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
                 reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
-                if (lastItemId.isNotEmpty()) send(A_END, lastItemId, lastSection, lastPositionS, lastTitle)
+                // No "end" for the chapter just finished. Under the book's item_id an "end" reads as
+                // the BOOK finishing; the play that follows, carrying the
+                // next section, says everything the backend needs. The end of the queue still
+                // reports "end", from onPlaybackStateChanged.
                 report(A_PLAY)
             }
         }
@@ -105,8 +102,13 @@ class ProgressReporter(
         io.cancel()
     }
 
+    /**
+     * A stop while playing is reported when playback actually stops. A stop while paused changes
+     * nothing the listener hears, so it is reported now; the flag would otherwise outlive it and
+     * turn the next pause into a stop.
+     */
     fun reportStopping() {
-        stopping = true
+        if (player.isPlaying) stopping = true else { stopping = false; report(A_STOP) }
     }
 
     fun reportCloseAsPause() {
@@ -128,11 +130,13 @@ class ProgressReporter(
         val section = item?.mediaMetadata?.extras?.getInt(EXTRA_SECTION, 0) ?: 0
         val positionS = (player.currentPosition.coerceAtLeast(0L) / 1000L).toInt()
         val title = item?.mediaMetadata?.title?.toString().orEmpty()
-        lastItemId = itemId; lastSection = section; lastPositionS = positionS; lastTitle = title
         send(action, itemId, section, positionS, title)
     }
 
     private fun send(action: String, itemId: String, section: Int, positionS: Int, title: String) {
+        // Closing the player empties the queue, which the player reports as "ended" with no item
+        // at all. There is nothing to bank a position against, so nothing is sent.
+        if (itemId.isBlank()) return
         if (itemId.startsWith(PlaybackService.VOICEMAIL_ITEM_PREFIX)) {
             Log.d(TAG, "not reporting progress for voicemail '$itemId'")
             return

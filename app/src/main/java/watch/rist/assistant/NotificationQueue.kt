@@ -33,9 +33,6 @@ object NotificationQueue {
 
     private const val TAG = "RistNotice"
 
-    // Measured from the server's created_at; expired notices are dropped in [renderable].
-    const val MAX_AGE_MS = CommsFeed.MAX_AGE_MS
-
     // Must stay above [CommsFeed.MAX_NOTIFICATIONS]; eviction is oldest-first.
     const val MAX_HELD = 64
 
@@ -48,9 +45,6 @@ object NotificationQueue {
     // notice instantly expired.
     internal fun atMs(n: Notice): Long =
         if (n.createdAtEpochS > 0L) n.createdAtEpochS * 1000L else n.receivedAtMs
-
-    internal fun isExpired(n: Notice, nowMs: Long, maxAgeMs: Long = MAX_AGE_MS): Boolean =
-        nowMs - atMs(n) >= maxAgeMs
 
     // A repeat replaces (one row per id), resets acked to false and keeps the original receivedAtMs.
     // A blank id is dropped: it could never be acked.
@@ -90,10 +84,11 @@ object NotificationQueue {
         held: List<Notice>,
         nowMs: Long,
         seen: Set<String> = emptySet(),
-        maxAgeMs: Long = MAX_AGE_MS,
         limit: Int = CommsFeed.MAX_NOTIFICATIONS,
     ): List<Notice> = held
-        .filter { it.title.isNotBlank() && !isExpired(it, nowMs, maxAgeMs) }
+        // No age test. A notification that deletes itself before anyone looked is the one
+        // failure this feed must not have; [MAX_HELD] bounds the store instead.
+        .filter { it.title.isNotBlank() }
         .sortedWith(
             compareByDescending<Notice> { feedId(it.id) !in seen }.thenByDescending { atMs(it) }
         )
@@ -174,24 +169,40 @@ object NotificationQueue {
         Config.setNotifications(ctx, encode(trim(list)))
     }
 
+    // The wake loop and a turn both read-modify-write the store; one at a time, or a save
+    // from a stale read drops the other's notice.
+    private val lock = Any()
+
     // The persist half of "persist, then ack"; nothing is acked here.
     fun store(ctx: Context, wire: List<rist.v1.Notification>) {
         if (wire.isEmpty()) return
         val nowMs = System.currentTimeMillis()
-        val merged = upsert(load(ctx), fromWire(wire, nowMs))
-        save(ctx, merged)
+        val merged = synchronized(lock) {
+            upsert(load(ctx), fromWire(wire, nowMs)).also { save(ctx, it) }
+        }
         // Ids and counts only. The TITLE carries a correspondent's name and never goes to logcat.
         Log.i(TAG, "stored ${wire.size} notification(s); ${merged.size} held, " +
             "${pendingAcks(merged).size} awaiting ack")
         notifyUi(ctx)
     }
 
+    /** Of [wire], the ids not already held: news, as opposed to a redelivery of a lost ack. */
+    fun unheldIds(ctx: Context, wire: List<rist.v1.Notification>): Set<String> = unheldIds(load(ctx), wire)
+
+    internal fun unheldIds(held: List<Notice>, wire: List<rist.v1.Notification>): Set<String> {
+        val ids = held.map { it.id }.toSet()
+        return wire.map { it.id.trim() }.filter { it.isNotBlank() && it !in ids }.toSet()
+    }
+
+    /** Repaints the badges after a count changed outside this object. */
+    fun countsChanged(ctx: Context) = notifyUi(ctx)
+
     /** Ids to put on the next request. Reads from disk, which is the durability guarantee. */
     fun pendingAcks(ctx: Context): List<String> = pendingAcks(load(ctx))
 
     fun markAcked(ctx: Context, ids: Collection<String>) {
         if (ids.isEmpty()) return
-        save(ctx, markAcked(load(ctx), ids))
+        synchronized(lock) { save(ctx, markAcked(load(ctx), ids)) }
     }
 
     // Called on every response, including zeros; the repaint is gated on the value changing.

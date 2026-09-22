@@ -35,9 +35,6 @@ data class FeedItem(
 
 object CommsFeed {
 
-    // Also the retention bound for inbound text bodies; SmsInbox prunes to this.
-    const val MAX_AGE_MS = 24L * 60L * 60L * 1000L
-
     const val MAX_READ = 6
 
     const val HARD_CAP = 25
@@ -52,7 +49,6 @@ object CommsFeed {
     fun assemble(
         items: List<FeedItem>,
         nowMs: Long,
-        maxAgeMs: Long = MAX_AGE_MS,
         maxRead: Int = MAX_READ,
         hardCap: Int = HARD_CAP,
     ): List<FeedItem> {
@@ -61,9 +57,10 @@ object CommsFeed {
         val ordered = unique.values.toList()
 
         val unread = ordered.filter { it.unread }
-        val read = ordered.filter { !it.unread }
-            .filter { nowMs - it.atMs < maxAgeMs }
-            .take(maxRead.coerceAtLeast(0))
+        // Nothing here ages out. A call or a text leaves the feed when it is cleared or
+        // when it is pushed off the end by newer ones -- never on a clock, which is how every
+        // other phone behaves and what the backend already does with the same records.
+        val read = ordered.filter { !it.unread }.take(maxRead.coerceAtLeast(0))
 
         val keptUnread = unread.take(hardCap.coerceAtLeast(0))
         val keptRead = read.take((hardCap - keptUnread.size).coerceAtLeast(0))
@@ -195,6 +192,33 @@ object CommsFeed {
         return SimpleDateFormat("d MMMM", locale).apply { timeZone = tz }.format(Date(atMs)) +
             " at $at"
     }
+
+    /**
+     * The time on an answer. Bare while it is still the day it was given; once midnight has
+     * passed, "2:17 PM" alone would read as today, so it gains "Yesterday" and then the date.
+     */
+    fun entryStamp(
+        atMs: Long,
+        nowMs: Long,
+        tz: TimeZone = TimeZone.getDefault(),
+        locale: Locale = Locale.getDefault(),
+    ): String {
+        fun fmt(pattern: String) = SimpleDateFormat(pattern, locale).apply { timeZone = tz }.format(Date(atMs))
+        val at = fmt("h:mm a")
+        return when (calendarDaysBetween(atMs, nowMs, tz)) {
+            // A clock set backwards can put an entry in the future; it is still just a time.
+            in Int.MIN_VALUE..0 -> at
+            1 -> "Yesterday $at"
+            else -> {
+                val sameYear = fmt("yyyy") == SimpleDateFormat("yyyy", locale).apply { timeZone = tz }.format(Date(nowMs))
+                fmt(if (sameYear) "MMM d" else "MMM d, yyyy") + ", $at"
+            }
+        }
+    }
+
+    /** Changes when the calendar day does; a feed drawn on another day has stale stamps. */
+    fun dayKey(nowMs: Long, tz: TimeZone = TimeZone.getDefault()): Int =
+        Calendar.getInstance(tz).apply { timeInMillis = nowMs }.let { it.get(Calendar.YEAR) * 1000 + it.get(Calendar.DAY_OF_YEAR) }
 
     private fun calendarDaysBetween(atMs: Long, nowMs: Long, tz: TimeZone): Int {
         fun midnight(ms: Long): Long = Calendar.getInstance(tz).apply {

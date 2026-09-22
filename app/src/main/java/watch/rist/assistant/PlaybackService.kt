@@ -55,6 +55,7 @@ class PlaybackService : MediaSessionService() {
         private val PROCESS_TOKEN: String = java.util.UUID.randomUUID().toString()
         const val EXTRA_SEEK_MS = "seek_ms"
         const val CONTROL_TOGGLE = "toggle"
+        const val CONTROL_PAUSE = "pause"
         const val CONTROL_NEXT = "next"
         const val CONTROL_PREVIOUS = "previous"
         const val CONTROL_BACK_10 = "back10"
@@ -82,6 +83,11 @@ class PlaybackService : MediaSessionService() {
         }
 
         fun togglePlayPause(ctx: Context) = sendControl(ctx, CONTROL_TOGGLE)
+
+        @Volatile private var alive = false
+
+        /** Pauses whatever is playing. Does not start the service just to tell it to be quiet. */
+        fun pause(ctx: Context) { if (alive) sendControl(ctx, CONTROL_PAUSE) }
 
         fun closePlayer(ctx: Context) = sendControl(ctx, CONTROL_CLOSE)
 
@@ -126,6 +132,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        alive = true
 
         val exo = ExoPlayer.Builder(this)
             .setAudioAttributes(
@@ -239,6 +246,7 @@ class PlaybackService : MediaSessionService() {
         val p = player ?: return
         when (control) {
             CONTROL_TOGGLE -> if (p.isPlaying) p.pause() else p.play()
+            CONTROL_PAUSE -> if (p.isPlaying) p.pause()
             CONTROL_NEXT -> if (p.hasNextMediaItem()) seekAndReport { p.seekToNextMediaItem() }
             CONTROL_PREVIOUS -> seekAndReport {
                 if (p.hasPreviousMediaItem()) p.seekToPreviousMediaItem() else p.seekTo(0)
@@ -354,6 +362,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        alive = false
         npHandler.removeCallbacks(npTick)
         npRunning = false
         resolverIo.cancel()

@@ -8,18 +8,38 @@ import rist.v1.Capabilities
 class DeviceProfileTest {
 
     @Test
+    fun schemaVersion_isTheOneTheProtoCallsCurrent() {
+        // The proto is a sync target from the backend repo; the constant is typed by hand.
+        // When they drift, the backend is told the device speaks a version it does not.
+        assertEquals(rist.v1.SchemaVersion.SCHEMA_VERSION_CURRENT_VALUE, DeviceProfile.RCS_SCHEMA_VERSION)
+    }
+
+    @Test
     fun phoneCapabilities_advertiseFullColorTouchProfile() {
         val caps: Capabilities = DeviceProfile.capabilities(screenW = 1080, screenH = 2400)
 
-        assertEquals(DeviceProfile.RCS_SCHEMA_VERSION, caps.schemaVersion)
+        // Video calls, once declared, bring v15 with them; without them the phone stays at its own.
+        val expected = if (VideoCalls.SHIPPED) VideoCalls.SCHEMA_VERSION else DeviceProfile.RCS_SCHEMA_VERSION
+        assertEquals(expected, caps.schemaVersion)
         assertEquals(24, caps.colorDepth)
         assertEquals(3 * 1024 * 1024, caps.maxImageBytes)
         assertEquals(listOf("button", "voice", "touch"), caps.inputList)
         assertTrue(caps.componentsList.containsAll(
             listOf("card", "stack", "text", "stat", "list", "image", "chart", "button", "divider",
-                   "map_tiles")
+                   "map_tiles", "map_tiles_hd")
         ))
-        assertEquals(10, caps.componentsCount)
+        assertEquals(if (VideoCalls.SHIPPED) 12 else 11, caps.componentsCount)
+    }
+
+    @Test
+    fun hdMapTiles_areAdvertisedWithPlainTiles_withOrWithoutVideoCalls() {
+        // map_tiles_hd alone gets no tiles at all; the backend needs both to send 512-px tiles.
+        for (vc in listOf(false, true)) {
+            val comps = DeviceProfile.capabilities(1080, 2400, videoCalls = vc).componentsList
+            assertTrue(comps.contains("map_tiles"))
+            assertTrue(comps.contains("map_tiles_hd"))
+            assertEquals(1, comps.count { it == "map_tiles_hd" })
+        }
     }
 
     @Test

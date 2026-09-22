@@ -31,7 +31,7 @@ android {
         applicationId = "watch.rist.assistant"
         minSdk = 34
         targetSdk = 35
-        versionCode = 471
+        versionCode = 1000
         versionName = "0.2.0"
 
         ndk { abiFilters += "arm64-v8a" }
@@ -97,6 +97,9 @@ dependencies {
     implementation("androidx.media3:media3-common:1.4.1")
 
     implementation("com.google.protobuf:protobuf-javalite:3.25.5")
+
+    // The call browser: its own storage profile, desktop client hints, no X-Requested-With.
+    implementation("androidx.webkit:webkit:1.13.0")
 
     testImplementation("junit:junit:4.13.2")
 

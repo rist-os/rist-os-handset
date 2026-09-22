@@ -1,0 +1,20 @@
+// Android.bp — vendored androidx.webkit 1.13.0 as a Soong prebuilt.
+//
+// Used by CallBrowserActivity.kt: a storage profile of its own (MULTI_PROFILE), desktop
+// user-agent client hints (USER_AGENT_METADATA), no X-Requested-With header, and a script at
+// document start. Vendored from the exact Maven artifact the Gradle build resolves
+// (androidx.webkit:webkit:1.13.0, dl.google.com maven2). Ships resources: android_library_import.
+// POM deps: androidx.annotation, annotation-experimental, core, jspecify (all in-tree modules).
+
+android_library_import {
+    name: "rist-webkit",
+    aars: ["webkit-1.13.0.aar"],
+    sdk_version: "current",
+    min_sdk_version: "34",
+    static_libs: [
+        "androidx.annotation_annotation",
+        "androidx.annotation_annotation-experimental",
+        "androidx.core_core",
+        "jspecify",
+    ],
+}

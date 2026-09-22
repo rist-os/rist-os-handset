@@ -29,6 +29,24 @@ class MediaCommandExecutor(
         const val ACTION_SET_SPEED = "set_speed"
         const val ACTION_NEXT = "next"
         const val ACTION_PREVIOUS = "previous"
+
+        internal data class Chapter(val url: String, val section: Int)
+        internal data class Queue(val chapters: List<Chapter>, val startIndex: Int)
+
+        /**
+         * `stream_url` is the chapter to play now, `section` is its number
+         * over the whole book, and `playlist` is the chapters AFTER it, so `playlist[i]` is
+         * section `section + 1 + i`. Numbered by position in the list as sent, so a blank entry
+         * the backend left in does not shift every chapter after it; blanks are then skipped, and
+         * so is a blank `stream_url`, which no player can open.
+         */
+        internal fun queueFor(streamUrl: String, section: Int, playlist: List<String>): Queue {
+            val now = if (streamUrl.isNotBlank()) listOf(Chapter(streamUrl, section)) else emptyList()
+            val upcoming = playlist.mapIndexedNotNull { i, url ->
+                url.takeIf { it.isNotBlank() }?.let { Chapter(it, section + 1 + i) }
+            }
+            return Queue(now + upcoming, 0)
+        }
     }
 
     // Must be called on the player's application (main) thread.
@@ -43,22 +61,33 @@ class MediaCommandExecutor(
             ACTION_SEEK -> doSeek(cmd)
             ACTION_SET_SPEED -> doSetSpeed(cmd)
             ACTION_NEXT -> { if (player.hasNextMediaItem()) player.seekToNextMediaItem(); "next" }
-            ACTION_PREVIOUS -> { if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem(); "previous" }
+            // The queue holds the chapter played first and the ones after it, so from that first
+            // chapter there is nothing earlier on the phone: it starts again from the top.
+            ACTION_PREVIOUS -> if (player.hasPreviousMediaItem()) {
+                player.seekToPreviousMediaItem(); "previous"
+            } else {
+                player.seekTo(0L); "previous: from the start of this chapter"
+            }
             "" -> { Log.w(TAG, "empty media action — ignored"); null }
             else -> { Log.w(TAG, "unknown media action '$action' — ignored"); null }
         }
     }
 
     private fun doPlay(cmd: MediaCommand): String {
-        val head = toMediaItem(cmd.itemId, cmd.streamUrl, cmd.section, cmd.title, cmd.author)
-        val tail = cmd.playlistList.map { url ->
-            toMediaItem(itemId = url, streamUrl = url, section = cmd.section, title = cmd.title, author = cmd.author)
+        val queue = queueFor(cmd.streamUrl, cmd.section, cmd.playlistList)
+        // Every chapter is the same book: item_id is the resume key and never changes with the
+        // chapter, and each carries its own section so the card and the progress reports follow.
+        if (queue.chapters.isEmpty()) {
+            Log.w(TAG, "play with nothing to play; ignored")
+            return "nothing to play"
         }
-        val items: List<MediaItem> = listOf(head) + tail
+        val items = queue.chapters.map {
+            toMediaItem(cmd.itemId, it.url, it.section, cmd.title, cmd.author)
+        }
 
         // start_position_s is uint32 seconds.
         val startMs = (cmd.startPositionS.toLong().coerceAtLeast(0L)) * 1000L
-        player.setMediaItems(items,  0,  startMs)
+        player.setMediaItems(items, queue.startIndex, startMs)
         player.prepare()
         player.playWhenReady = true
         return "playing ${items.size} item(s)" + if (startMs > 0) " @${startMs / 1000}s" else ""

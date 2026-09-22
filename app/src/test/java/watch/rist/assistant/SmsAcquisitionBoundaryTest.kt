@@ -146,12 +146,12 @@ class SmsAcquisitionBoundaryTest {
     @Test
     fun theAskTimeRead_appliesTheWindowToTheAnswer_notJustToTheQuery() {
         val now = 1_700_000_000_000L
-        val day = CommsFeed.MAX_AGE_MS
+        val day = 24L * 60L * 60L * 1000L   // SmsInbox.INGEST_WINDOW_MS
         val out = SmsInbox.fromStore(
             listOf(row(1, day - 1_000L, now), row(2, day + 1_000L, now), row(3, 400L * day, now)),
             now
         )
-        assertEquals("only the message inside the window may leave", 1, out.size)
+        assertEquals("only the message inside the ingest window may leave", 1, out.size)
         assertEquals(now - (day - 1_000L), out[0].sentAtMs)
     }
 

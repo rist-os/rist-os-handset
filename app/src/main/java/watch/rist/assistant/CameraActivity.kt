@@ -42,6 +42,7 @@ class CameraActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_JPEG_PATH = "watch.rist.assistant.extra.JPEG_PATH"
+
         private const val TAG = "RistCamera"
         private const val CAPTURE_FILE = "rist_capture.jpg"
         private const val TARGET_LONG_EDGE = 2560
@@ -123,6 +124,7 @@ class CameraActivity : AppCompatActivity() {
         }
 
         switchButton.visibility = if (hasFrontAndBack()) View.VISIBLE else View.GONE
+
     }
 
     override fun onResume() {

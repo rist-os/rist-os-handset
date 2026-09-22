@@ -34,7 +34,9 @@ object AppLauncher {
     private fun settingsIntent(): Intent =
         Intent(Settings.ACTION_SETTINGS)
 
-    fun launchCamera(ctx: Context) = launch(ctx, cameraIntent(), PKG_CAMERA)
+    // Always the viewfinder: a gallery opened from the camera's thumbnail lives in the camera's
+    // task, and without clearing it the icon brought that back instead.
+    fun launchCamera(ctx: Context) = launch(ctx, cameraIntent(), PKG_CAMERA, fresh = true)
     fun launchGallery(ctx: Context) = launch(ctx, galleryIntent(), PKG_GALLERY)
     fun launchDialer(ctx: Context) = launch(ctx, dialerIntent(), PKG_DIALER)
     fun launchMessaging(ctx: Context) = launch(ctx, messagingIntent(), PKG_MESSAGING)
@@ -59,17 +61,18 @@ object AppLauncher {
             .onFailure { Log.w(TAG, "could not dismiss notifications for $pkg", it) }
     }
 
-    private fun launch(ctx: Context, intent: Intent, fallbackPkg: String) {
+    private fun launch(ctx: Context, intent: Intent, fallbackPkg: String, fresh: Boolean = false) {
+        val flags = Intent.FLAG_ACTIVITY_NEW_TASK or (if (fresh) Intent.FLAG_ACTIVITY_CLEAR_TASK else 0)
         dismissNotificationsFor(fallbackPkg)
 
         try {
-            ctx.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            ctx.startActivity(intent.addFlags(flags))
             return
         } catch (e: Exception) {
             Log.w(TAG, "Implicit launch failed for $intent, trying fallback $fallbackPkg", e)
         }
         val fb = ctx.packageManager.getLaunchIntentForPackage(fallbackPkg)
-            ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            ?.addFlags(flags)
         if (fb != null) {
             try {
                 ctx.startActivity(fb)

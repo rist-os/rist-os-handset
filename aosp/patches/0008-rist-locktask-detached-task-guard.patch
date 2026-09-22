@@ -1,0 +1,77 @@
+From 7157000000000000000000000000000000000008 Mon Sep 17 00:00:00 2001
+From: RistOS Build <build@ristos.org>
+Date: Sat, 19 Sep 2026 00:00:00 -0600
+Subject: [PATCH] rist: do not lock a task that was removed while its lock
+ transition was queued
+
+An activity whose task is lock-task launchable (android:lockTaskMode, or an
+allowlisted task while the device is already locked) makes
+realStartActivityLocked queue a TRANSIT_START_LOCK_TASK_MODE transition with
+startCollectOrQueue. If another transition is still collecting (typical on a
+sleeping, keyguard-locked phone), the lambda runs later. If the process is
+killed or force-stopped in the meantime, the task is removed from the
+hierarchy. A detached Task is its own root task and has no display area, so
+the lambda's startLockTaskMode -> setLockTaskMode -> findTaskToMoveToFront
+passes the null-root check and dereferences a null TaskDisplayArea in
+moveHomeRootTaskToFrontIfNeeded. That is an uncaught NPE on android.display:
+system_server dies and the phone soft-reboots.
+
+Observed on rist.2026090701 (twice): an instrumentation run force-stopped the
+home/kiosk app twice within one pending OPEN transition; the lambda queued for
+the first, already removed, task ran when the queue drained.
+
+ActivityTaskManagerService.startSystemLockTaskMode already guards its own
+queued lambda with `deferred && !task.isAttached()`; this adds the same guard
+to realStartActivityLocked, and a backstop in LockTaskController so no caller
+can lock a detached task.
+
+Apply from the frameworks/base git project with `git am`; independent of the
+other patches. Context is from the GrapheneOS `17` branch, whose line numbers
+match the crash stack exactly (ActivityTaskSupervisor.java:916/1691/1725,
+LockTaskController.java:688/766), and may drift on another sync (use
+`patch -p1 --fuzz=3`, or regenerate with `git format-patch`).
+---
+ services/core/java/com/android/server/wm/ActivityTaskSupervisor.java | 12 ++++++++++++
+ services/core/java/com/android/server/wm/LockTaskController.java     |  7 +++++++
+ 2 files changed, 19 insertions(+)
+
+diff --git a/services/core/java/com/android/server/wm/ActivityTaskSupervisor.java b/services/core/java/com/android/server/wm/ActivityTaskSupervisor.java
+--- a/services/core/java/com/android/server/wm/ActivityTaskSupervisor.java
++++ b/services/core/java/com/android/server/wm/ActivityTaskSupervisor.java
+@@ -905,5 +905,17 @@
+                     task.mTransitionController.startCollectOrQueue(transition,
+                             (deferred) -> {
++                                // RistOS: the queued lambda can run after the task was removed
++                                // (process killed or force-stopped while an earlier transition
++                                // was still collecting). A removed Task is its own root and has
++                                // no display area, so startLockTaskMode would NPE in
++                                // moveHomeRootTaskToFrontIfNeeded and take down system_server.
++                                // Same guard as startSystemLockTaskMode in ATMS.
++                                if (deferred && !task.isAttached()) {
++                                    Slog.w(TAG, "realStartActivity: not locking task " + task
++                                            + ", removed while its lock transition was queued");
++                                    transition.abort();
++                                    return;
++                                }
+                                 final ActionChain chain = mService.mChainTracker.start(
+                                         "realStartActivity",
+                                         transition);
+diff --git a/services/core/java/com/android/server/wm/LockTaskController.java b/services/core/java/com/android/server/wm/LockTaskController.java
+--- a/services/core/java/com/android/server/wm/LockTaskController.java
++++ b/services/core/java/com/android/server/wm/LockTaskController.java
+@@ -655,6 +655,13 @@
+     void startLockTaskMode(@NonNull Task task, boolean isSystemCaller, int callingUid) {
+         if (task.mLockTaskAuth == LOCK_TASK_AUTH_DONT_LOCK) {
+             ProtoLog.w(WM_DEBUG_LOCKTASK, "startLockTaskMode: Can't lock due to auth");
+             return;
+         }
++        // RistOS: never lock a task that is no longer in the hierarchy. A detached Task is
++        // its own root task with no display area; locking it would add a dead task to
++        // mLockTaskModeTasks and NPE in ActivityTaskSupervisor.findTaskToMoveToFront.
++        if (!task.isAttached()) {
++            Slog.w(TAG_LOCKTASK, "startLockTaskMode: task not attached, not locking " + task);
++            return;
++        }
+         if (!isSystemCaller) {
+             task.mLockTaskUid = callingUid;
+             if (task.mLockTaskAuth == LOCK_TASK_AUTH_PINNABLE) {

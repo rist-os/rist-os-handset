@@ -356,6 +356,7 @@
             android:orientation="vertical" />
     </LinearLayout>
 
+    <!-- The talk section, kept short so the answers get the screen: about 90dp tall. -->
     <LinearLayout
         android:id="@+id/talkButton"
         android:layout_width="wrap_content"
@@ -363,46 +364,55 @@
         android:orientation="vertical"
         android:gravity="center"
         android:background="@null"
-        android:padding="12dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
         android:clickable="true"
         android:focusable="true"
         android:layout_marginStart="0dp"
         android:layout_marginEnd="0dp"
-        android:layout_marginBottom="16dp"
+        android:layout_marginBottom="6dp"
         app:layout_constraintBottom_toTopOf="@id/inputRow"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
         <ImageView
             android:id="@+id/recordGlyph"
-            android:layout_width="120dp"
-            android:layout_height="120dp"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
             android:importantForAccessibility="no" />
-
-        <TextView
-            android:id="@+id/recordCancel"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="✕ cancel"
-            android:contentDescription="Cancel recording"
-            android:textSize="14sp"
-            android:padding="10dp"
-            android:visibility="invisible"
-            android:clickable="true"
-            android:focusable="true" />
 
         <TextView
             android:id="@+id/recordLabel"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/record_label"
-            android:layout_marginTop="16dp"
-            android:textSize="15sp"
+            android:layout_marginTop="4dp"
+            android:textSize="12sp"
             android:textAllCaps="true"
             android:letterSpacing="0.2"
             android:textColor="@color/ink_muted" />
     </LinearLayout>
+
+    <!-- Beside the button rather than under it, so it takes no height of its own. -->
+    <TextView
+        android:id="@+id/recordCancel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:text="✕ cancel"
+        android:contentDescription="Cancel recording"
+        android:textSize="14sp"
+        android:padding="10dp"
+        android:minHeight="48dp"
+        android:gravity="center"
+        android:visibility="invisible"
+        android:clickable="true"
+        android:focusable="true"
+        app:layout_constraintStart_toEndOf="@id/talkButton"
+        app:layout_constraintTop_toTopOf="@id/talkButton"
+        app:layout_constraintBottom_toBottomOf="@id/talkButton" />
 
 
 
@@ -458,13 +468,11 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="24dp"
-            android:layout_marginEnd="@dimen/gap"
             android:background="@drawable/bg_lcd_field"
             android:paddingStart="14dp"
             android:paddingEnd="14dp"
-            android:paddingTop="14dp"
-            android:paddingBottom="14dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
             android:hint="@string/text_input_hint"
             android:textColor="@color/ink"
             android:textColorHint="@color/ink_faint"
@@ -472,16 +480,35 @@
             android:letterSpacing="0.04"
             android:textSize="15sp"
             android:inputType="textMultiLine|textCapSentences"
-            android:minLines="3"
+            android:minLines="1"
             android:maxLines="8"
             android:imeOptions="actionSend"
             android:importantForAutofill="no" />
+
+        <!-- Camera and send share one slot. Equal space either side centres the icon between
+             the end of the message box and the edge of the screen; both carry the same margins
+             so swapping one for the other moves nothing. -->
+        <ImageView
+            android:id="@+id/photoButton"
+            android:layout_width="40dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
+            android:padding="8dp"
+            android:scaleType="fitCenter"
+            android:background="@null"
+            android:src="@drawable/ic_camera"
+            android:tint="@color/ink_muted"
+            android:contentDescription="@string/photo_icon_desc"
+            android:clickable="true"
+            android:focusable="true" />
 
         <ImageView
             android:id="@+id/sendButton"
             android:layout_width="40dp"
             android:layout_height="48dp"
-            android:layout_marginEnd="14dp"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
             android:padding="6dp"
             android:scaleType="fitCenter"
             android:background="@null"

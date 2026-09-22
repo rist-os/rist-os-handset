@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/photoComposeRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/bg_lcd_screen"
+    android:padding="16dp">
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="48dp">
+
+        <TextView
+            android:id="@+id/closeButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="start|center_vertical"
+            android:gravity="center"
+            android:background="@drawable/bg_ereader_button"
+            android:clickable="true"
+            android:focusable="true"
+            android:contentDescription="@string/photo_compose_close_desc"
+            android:text="@string/photo_compose_close"
+            android:textColor="@color/ink"
+            android:textSize="18sp"
+            android:fontFamily="@font/pixel"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/countText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:textColor="@color/ink_muted"
+            android:textSize="12sp"
+            android:fontFamily="@font/pixel"
+            android:letterSpacing="0.06" />
+
+        <TextView
+            android:id="@+id/removeButton"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:minWidth="96dp"
+            android:layout_gravity="end|center_vertical"
+            android:gravity="center"
+            android:paddingHorizontal="14dp"
+            android:background="@drawable/bg_ereader_button"
+            android:clickable="true"
+            android:focusable="true"
+            android:contentDescription="@string/photo_compose_remove_desc"
+            android:text="@string/photo_compose_remove"
+            android:textColor="@color/ink"
+            android:textSize="12sp"
+            android:fontFamily="@font/pixel"
+            android:letterSpacing="0.06" />
+    </FrameLayout>
+
+    <ImageView
+        android:id="@+id/preview"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="12dp"
+        android:scaleType="fitCenter"
+        android:contentDescription="@string/photo_compose_preview_desc" />
+
+    <HorizontalScrollView
+        android:id="@+id/thumbScroll"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:scrollbars="none"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/thumbStrip"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" />
+    </HorizontalScrollView>
+
+    <!-- The end margin keeps the send arrow clear of the floating home button, a 52dp disc
+         that OverlayHomeService parks 12dp in from the right edge at this height. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:layout_marginEnd="60dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <EditText
+            android:id="@+id/captionInput"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="@dimen/gap"
+            android:background="@drawable/bg_lcd_field"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
+            android:hint="@string/photo_caption_hint"
+            android:textColor="@color/ink"
+            android:textColorHint="@color/ink_faint"
+            android:fontFamily="@font/pixel"
+            android:letterSpacing="0.04"
+            android:textSize="15sp"
+            android:inputType="textCapSentences"
+            android:minLines="1"
+            android:maxLines="4"
+            android:imeOptions="actionSend"
+            android:importantForAutofill="no" />
+
+        <ImageView
+            android:id="@+id/sendPhotoButton"
+            android:layout_width="40dp"
+            android:layout_height="48dp"
+            android:padding="6dp"
+            android:scaleType="fitCenter"
+            android:background="@null"
+            android:src="@drawable/ic_send"
+            android:tint="@color/record_active"
+            android:contentDescription="@string/photo_compose_send_desc"
+            android:clickable="true"
+            android:focusable="true" />
+    </LinearLayout>
+</LinearLayout>

@@ -103,7 +103,8 @@ class ViewRenderer(
 
     private fun buildText(c: Component): View =
         TextView(context).apply {
-            text = ViewLogic.textFor(c)
+            // Backend-authored prose, so it can carry markdown like any other reply.
+            text = Markdown.render(ViewLogic.textFor(c))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT)
         }
