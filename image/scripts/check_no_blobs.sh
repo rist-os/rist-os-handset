@@ -379,7 +379,11 @@ if artefact_cat REQUIRED_STOCK.txt > "$TMP/req" 2>/dev/null && [ -s "$TMP/req" ]
     note "version-bootloader, version-baseband): build-id=$(sed -n 's/^build-id=//p' "$TMP/reqkv" | head -1)"
   fi
 else
-  note "REQUIRED_STOCK.txt could not be read, so its contents were not checked."
+  # A bare note let an empty or unreadable REQUIRED_STOCK.txt pass as BLOBS OK. The name alone is
+  # accepted earlier, so an artefact whose producer truncated this file -- deblob_release.sh writes
+  # it with an unchecked redirect and no `set -e` -- published clean and then died on the user's
+  # machine at flash_rist.sh's first gate. The PARTITIONS.txt equivalent already fails; match it.
+  unchecked "REQUIRED_STOCK.txt is present but empty or unreadable, so its contents were not checked."
 fi
 
 if ! printf '%s\n' "$listing" | grep -qE '(^|/)PARTITIONS\.txt$' && [ "${RIST_SHIP_FIRMWARE:-}" = "true" ]; then
