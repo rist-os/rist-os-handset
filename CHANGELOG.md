@@ -36,15 +36,42 @@ verified-boot rollback index, and a handset that has booted this build cannot be
 
 ### Fixed
 
-- The assistant app crashed on every phone call.
 - The phone could soft-reboot when the home app was stopped during a screen transition (framework
   patch 0008).
 
----
+### What does not
 
-## 2026092200
+- **Incoming calls ring but do not appear on screen.** The phone rings and vibrates, and on a handset
+  with a PIN the call can be answered from the lock screen, but unlocked there is nothing to press.
+  This is a regression in this build; a fix is in progress. There is no workaround beyond locking the
+  screen.
+- **Updating over the air does not work in this build.** The published package is refused by the
+  phone before it installs anything, so the phone stays on the build it has. Install this build with
+  `adb sideload`, which applies a signed package and does **not** wipe the phone.
+- **Emergency calling is not validated.** There is no E911 row in the bring-up checklist and no
+  verification step has been run. See `SAFETY.md`.
+- **Wireless Emergency Alert text may not display.** The siren, vibration and speech fire; whether
+  the words render over the kiosk has not been confirmed on a handset.
+- **Location is GNSS-only by default.** The phone asks you once and you can change the answer.
+- **The published image is not reproducible from this repository.**
+- **No app store; arbitrary apps cannot be installed.**
+- **An over-the-air update carries no firmware.** The bootloader and radio/modem images are in the
+  download only. A phone updated over the air keeps the firmware it was flashed with.
 
-Not written yet.
+### Verifying the download
+
+`SHA256SUMS` covers every file; `SHA256SUMS.minisig` signs that list. The public key is in `SECURITY.md`.
+
+```sh
+# macOS: brew install minisign  |  Debian/Ubuntu: apt install minisign
+minisign -Vm SHA256SUMS -P RWThr8fGz/71qbSM4R8F9UvI7KYW++0i8dAQwyU+Fz24xqirceHqqHUX
+sha256sum --ignore-missing -c SHA256SUMS   # macOS: shasum -a 256 --ignore-missing -c SHA256SUMS
+```
+
+### Source
+
+The kernel this build ships is published as source in the same directory as the image, no request
+needed. The GPL/LGPL userspace components are available under the written offer in `NOTICE`.
 
 ---
 

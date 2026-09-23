@@ -132,7 +132,7 @@
       "build": "2026090701",
       "published": {
         "artefacts": {
-          "stallion-factory-2026090701.zip": {
+          "./stallion-factory-2026090701.zip": {
             "bytes": 2105928542,
             "sha256": "be6f4250ce709b3c23fa833b4efda4f2eb68e8988f90b7884d662d273e9f1a7e"
           }
