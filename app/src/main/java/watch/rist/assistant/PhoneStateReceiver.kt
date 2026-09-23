@@ -49,7 +49,20 @@ class PhoneStateReceiver : BroadcastReceiver() {
             // missed and rejected. In every one of those the screen must go.
             TelephonyManager.EXTRA_STATE_OFFHOOK, TelephonyManager.EXTRA_STATE_IDLE ->
                 IncomingCall.clear()
-            else -> Log.w(TAG, "unrecognised phone state '$state'; leaving the screen as it is")
+            // A state we do not recognise, or a broadcast with no state at all, must not be able to
+            // strand the call screen on top of the launcher. Guessing either way is wrong, so ask
+            // telephony what is actually happening.
+            else -> {
+                val live = runCatching {
+                    context.getSystemService(TelephonyManager::class.java)?.callState
+                }.onFailure { Log.w(TAG, "could not read the call state", it) }.getOrNull()
+                if (live == TelephonyManager.CALL_STATE_RINGING) {
+                    Log.w(TAG, "unrecognised phone state '$state' but still ringing; keeping the screen")
+                } else {
+                    Log.w(TAG, "unrecognised phone state '$state' and nothing ringing; taking the screen down")
+                    IncomingCall.clear()
+                }
+            }
         }
     }
 

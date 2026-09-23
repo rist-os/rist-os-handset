@@ -93,26 +93,56 @@ class PhoneStateReceiverTest {
         assertNull("only PHONE_STATE may raise the call screen", shadowOf(app).nextStartedActivity)
     }
 
+    private fun setCallState(state: Int) {
+        shadowOf(app.getSystemService(TelephonyManager::class.java)).setCallState(state)
+    }
+
     @Test
-    fun anUnrecognisedStateChangesNothing() {
+    fun anUnrecognisedStateDefersToTelephonyAndKeepsALiveRing() {
+        setCallState(TelephonyManager.CALL_STATE_RINGING)
         PhoneStateReceiver().onReceive(app, stateIntent(TelephonyManager.EXTRA_STATE_RINGING, "5551234567"))
         shadowOf(app).clearNextStartedActivities()
 
         PhoneStateReceiver().onReceive(app, stateIntent("SOMETHING_NEW"))
 
-        assertTrue("an unknown state must not tear down a live ring", IncomingCall.ringing)
+        assertTrue("telephony still says ringing, so the screen must stay", IncomingCall.ringing)
     }
 
     @Test
-    fun aSecondRingingBroadcastDoesNotStackScreens() {
-        // The platform repeats PHONE_STATE. singleInstance covers the task, but re-showing for the
-        // same number should not even be attempted.
+    fun anUnrecognisedStateTakesTheScreenDownWhenNothingIsRinging() {
+        // The dangerous direction. A malformed or truncated broadcast used to mean "leave the screen
+        // as it is", which let a stale full-screen call screen sit on top of the launcher with no
+        // further broadcast coming to clear it.
+        setCallState(TelephonyManager.CALL_STATE_RINGING)
+        PhoneStateReceiver().onReceive(app, stateIntent(TelephonyManager.EXTRA_STATE_RINGING, "5551234567"))
+        assertTrue(IncomingCall.ringing)
+
+        setCallState(TelephonyManager.CALL_STATE_IDLE)
+        PhoneStateReceiver().onReceive(app, stateIntent(null))
+
+        assertFalse("telephony says idle, so an unknown state must clear", IncomingCall.ringing)
+    }
+
+    @Test
+    fun aRepeatedRingingBroadcastRaisesTheScreenAgain() {
+        // This asserted the opposite until a review caught it. There was a guard that dropped a
+        // RINGING broadcast whose number had not changed, which made the screen unrecoverable: the
+        // kiosk leaves HOME enabled, so one press during a ring put the launcher on top, and no later
+        // broadcast could bring the answer screen back. The call then rang out unanswerable, which is
+        // the exact failure this receiver exists to prevent. Re-raising costs nothing -- the activity
+        // is singleInstance, so the repeat lands in onNewIntent and only repaints if the number
+        // changed.
+        setCallState(TelephonyManager.CALL_STATE_RINGING)
         PhoneStateReceiver().onReceive(app, stateIntent(TelephonyManager.EXTRA_STATE_RINGING, "5551234567"))
         shadowOf(app).clearNextStartedActivities()
 
         PhoneStateReceiver().onReceive(app, stateIntent(TelephonyManager.EXTRA_STATE_RINGING, "5551234567"))
 
-        assertNull("the same ringing number must not start the screen twice",
-            shadowOf(app).nextStartedActivity)
+        val again = shadowOf(app).nextStartedActivity
+        assertNotNull("a repeat must be able to rescue a screen dropped behind HOME", again)
+        assertEquals(
+            IncomingCallActivity::class.java.name,
+            again!!.component?.className
+        )
     }
 }

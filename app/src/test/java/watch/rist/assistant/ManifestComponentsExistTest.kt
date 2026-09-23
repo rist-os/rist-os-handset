@@ -7,11 +7,15 @@ import org.junit.Test
 /**
  * Every component the manifest declares must be a class that exists.
  *
- * This is not hypothetical tidiness. A `.PhoneStateReceiver` was declared with a PHONE_STATE
- * filter and the class was nowhere in the repo, so Android tried to instantiate it on every
- * single phone call, threw ClassNotFoundException, and killed the app. It crashed on calls for
- * as long as that line was there, and nothing caught it: the app compiles fine, because a
- * manifest name is a string.
+ * This is not hypothetical tidiness. Android instantiates a declared component when its filter
+ * fires, and a manifest name is only a string, so the app compiles perfectly with a name that
+ * resolves to nothing and then throws ClassNotFoundException at the moment the event arrives.
+ *
+ * The example this repo learned it from was a `.PhoneStateReceiver` declaration left behind after
+ * the class was withheld: a Gradle build of the reduced tree, pushed over the system app, crashed
+ * whenever the phone rang. Note that the shipped image never had that defect -- it carried both the
+ * declaration and the class -- and the receiver is deliberately declared again today. See the
+ * companion test below, which pins the opposite invariant.
  */
 class ManifestComponentsExistTest {
 
