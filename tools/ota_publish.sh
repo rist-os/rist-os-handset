@@ -221,7 +221,12 @@ for attempt in 1 2 3 4 5 6; do
   rb_ok=1
   curl -fsS -o "$RB/manifest" "$BASE/v1/ota/$DEVICE/$CHANNEL" 2>/dev/null || rb_ok=0
   curl -fsS -o "$RB/manifest.minisig" "$BASE/v1/ota/$DEVICE/$CHANNEL.minisig" 2>/dev/null || rb_ok=0
-  if [ "$rb_ok" -eq 1 ] && cmp -s "$RB/manifest" "$MANIFEST"; then
+  # Compare the SIGNATURE too, not just the manifest. This block exists to catch a cached or
+  # half-replaced manifest/signature pair, and it could not: a fresh manifest served beside a stale
+  # sidecar passed. The minisign check below is not a substitute -- RIST_OTA_PUBLIC_KEY is optional,
+  # so in the ordinary case it does not run at all and the sidecar was never looked at.
+  if [ "$rb_ok" -eq 1 ] && cmp -s "$RB/manifest" "$MANIFEST" \
+     && cmp -s "$RB/manifest.minisig" "$MANIFEST.minisig"; then
     if command -v minisign >/dev/null 2>&1 && [ -n "${RIST_OTA_PUBLIC_KEY:-}" ]; then
       minisign -Vm "$RB/manifest" -p "$RIST_OTA_PUBLIC_KEY" >/dev/null 2>&1 || rb_ok=0
     fi

@@ -149,12 +149,17 @@ object OtaApply {
         ErrorCode.UNSUPPORTED_MINOR_PAYLOAD_VERSION ->
             Outcome.Permanent("payload minor version is newer than this build's update_engine")
 
-        // Written to the inactive slot, then failed its own verification: the bytes that landed do
-        // not match the payload. Re-running writes the same bytes.
+        // Written to the inactive slot, then failed its own verification. These were briefly
+        // classified Permanent on the theory that re-running writes the same bytes. That is wrong,
+        // and dangerously so: these say the bytes that LANDED ON THIS DEVICE do not verify, not that
+        // the package is bad. A flaky UFS write, an I/O error on read-back, an interrupted snapshot
+        // merge or a low-memory abort during verity all produce them, and all of those succeed on a
+        // second attempt. AOSP retries them. Latching a whole build as refused because one handset
+        // had one bad write would strand that handset until a new build number shipped.
         ErrorCode.NEW_ROOTFS_VERIFICATION_ERROR,
         ErrorCode.NEW_KERNEL_VERIFICATION_ERROR,
         ErrorCode.FILESYSTEM_VERIFIER_ERROR ->
-            Outcome.Permanent("the written slot failed verification")
+            Outcome.Retry("the written slot failed verification")
 
         ErrorCode.DOWNLOAD_NEW_PARTITION_INFO_ERROR -> Outcome.Retry("new partition info error")
         ErrorCode.DOWNLOAD_WRITE_ERROR -> Outcome.Retry("write error")

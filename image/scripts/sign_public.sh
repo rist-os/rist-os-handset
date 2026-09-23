@@ -215,9 +215,13 @@ if [ "$rc" -eq 0 ]; then
     if [ "$OGRC" -eq 1 ]; then
       echo "" >&2
       echo "  The OTA package is NOT publishable (see the FAIL lines above). The FACTORY image" >&2
-      echo "  signed above is fine and nothing needs rebuilding -- regenerate the OTA with" >&2
-      echo "  --partial (tools/check_partial_ota.py --help shows the ota_from_target_files invocation)," >&2
-      echo "  and otatools is already staged at releases/$BN/$DEVICE-otatools.zip." >&2
+      echo "  signed above is fine and nothing needs rebuilding." >&2
+      echo "" >&2
+      echo "  Do NOT regenerate it with --partial. That advice used to be printed here and it is" >&2
+      echo "  what shipped 2026092200: --partial sets partial_update, which makes a per-partition" >&2
+      echo "  version mandatory on partitions that cannot have one, and every handset refused the" >&2
+      echo "  manifest with kDownloadManifestParseError (23). Read the FAIL lines instead -- they" >&2
+      echo "  name the actual defect. otatools is staged at releases/$BN/$DEVICE-otatools.zip." >&2
       echo "=== ARTIFACTS TO PULL BACK (printed before this exit) ==="
       ls -la releases/$BN/$DEVICE-target_files.zip releases/$BN/$DEVICE-otatools.zip 2>/dev/null
       ls -la releases/$BN/release-$DEVICE-$BN/*factory*.zip 2>/dev/null

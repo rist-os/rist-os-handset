@@ -296,8 +296,18 @@ fi
 #
 # `super` is deliberately absent: super.img holds OUR partitions, not Google's.
 FW_NAMES='bootloader|radio|modem|abl|bl1|bl2|bl31|gcf|gsa|gsa_bl1|ldfw|pbl|tzsw|gsc'
+# Two -e patterns rather than one `(^|/)` prefix, and this is not style.
+#
+# `grep` on a Mac with ugrep ahead of /usr/bin/grep on PATH drops the `/`-prefixed branch once the
+# alternation grows past a few names: with 14 of them, `(^|/)(bootloader|radio|...)` matched
+# `bootloader.img` but NOT `IMAGES/bootloader.img`, and a factory-zip listing is paths, not
+# basenames. So this gate reported "carries no Google firmware" for a zip containing
+# IMAGES/bootloader.img -- and --artefact mode is exactly the run-it-on-your-Mac mode. Verified on
+# both ugrep 7.8.4 and GNU grep: split, the two agree; combined, they do not.
+FW_AT_ROOT="^(($FW_NAMES)([-_][^/]*)?\.img|[^/]*\.ec\.bin)\$"
+FW_IN_DIR="/(($FW_NAMES)([-_][^/]*)?\.img|[^/]*\.ec\.bin)\$"
 fw="$(printf '%s\n' "$listing" \
-  | grep -E "(^|/)(($FW_NAMES)([-_][^/]*)?\.img|[^/]*\.ec\.bin)\$" || true)"
+  | grep -E -e "$FW_AT_ROOT" -e "$FW_IN_DIR" || true)"
 if [ -n "$fw" ] && [ "${RIST_SHIP_FIRMWARE:-}" = "true" ]; then
   pass "Google firmware present AND INTENDED ($(printf '%s\n' "$fw" | grep -c .) file(s), RIST_SHIP_FIRMWARE=true)"
   printf '%s\n' "$fw" | while read -r f; do note "  $f"; done
@@ -378,12 +388,18 @@ if artefact_cat REQUIRED_STOCK.txt > "$TMP/req" 2>/dev/null && [ -s "$TMP/req" ]
     pass "REQUIRED_STOCK.txt states all four keys flash_rist.sh requires (device, build-id,"
     note "version-bootloader, version-baseband): build-id=$(sed -n 's/^build-id=//p' "$TMP/reqkv" | head -1)"
   fi
+elif [ "${RIST_SHIP_FIRMWARE:-}" = "true" ]; then
+  # A firmware-bearing artefact legitimately has no REQUIRED_STOCK.txt -- there is no stock refill to
+  # describe, which is what the check above already says. Without this branch such an artefact fell
+  # through to the `unchecked` below and exited 2 with a message asserting the file "is present",
+  # which was false and blocked every RIST_SHIP_FIRMWARE=true release from passing the blob gate.
+  pass "no REQUIRED_STOCK.txt, and none is wanted (RIST_SHIP_FIRMWARE=true: the firmware ships)"
 else
   # A bare note let an empty or unreadable REQUIRED_STOCK.txt pass as BLOBS OK. The name alone is
   # accepted earlier, so an artefact whose producer truncated this file -- deblob_release.sh writes
   # it with an unchecked redirect and no `set -e` -- published clean and then died on the user's
   # machine at flash_rist.sh's first gate. The PARTITIONS.txt equivalent already fails; match it.
-  unchecked "REQUIRED_STOCK.txt is present but empty or unreadable, so its contents were not checked."
+  unchecked "REQUIRED_STOCK.txt is missing, empty or unreadable, so its contents were not checked."
 fi
 
 if ! printf '%s\n' "$listing" | grep -qE '(^|/)PARTITIONS\.txt$' && [ "${RIST_SHIP_FIRMWARE:-}" = "true" ]; then

@@ -527,7 +527,11 @@ def gate(args, rep):
     if tf is None:
         rep.unknown("no target_files, so the otacerts trust store cannot be examined.")
     else:
-        rc, out = run_tool("check_otacerts.py", [tf], rep)
+        # Pass the phase through. Without it check_otacerts.py cannot tell a pre-sign artefact, which
+        # legitimately still carries AOSP's testkey, from a signed image that trusts it because
+        # ReplaceOtaKeys silently did not apply -- and it has to treat the second as a finding.
+        otacert_args = [tf] + (["--pre-signing"] if args.pre_signing else [])
+        rc, out = run_tool("check_otacerts.py", otacert_args, rep)
         adopt(rep, "check_otacerts.py", rc, out,
               "the image's otacerts.zip carries the reserve certificate beside the primary")
 

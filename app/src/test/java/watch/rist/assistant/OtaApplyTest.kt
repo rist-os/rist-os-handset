@@ -116,13 +116,30 @@ class OtaApplyTest {
             OtaApply.ErrorCode.DOWNLOAD_PAYLOAD_PUB_KEY_VERIFICATION_ERROR,
             OtaApply.ErrorCode.UNSUPPORTED_MAJOR_PAYLOAD_VERSION,
             OtaApply.ErrorCode.UNSUPPORTED_MINOR_PAYLOAD_VERSION,
+        )) {
+            assertTrue(
+                "update_engine code $code must be permanent, not retried",
+                OtaApply.classify(code) is OtaApply.Outcome.Permanent)
+        }
+    }
+
+    @Test
+    fun aFailedWriteOnThisHandsetIsRetried() {
+        // These three were briefly classified Permanent alongside the codes above, on the reasoning
+        // that re-running writes the same bytes. That reads the codes backwards: they say the bytes
+        // that landed ON THIS DEVICE did not verify, not that the package is bad. A flaky UFS write,
+        // an I/O error on read-back, an interrupted snapshot merge or a low-memory abort during
+        // verity all produce them, and all succeed on a second attempt -- AOSP retries them. Left
+        // Permanent, one bad write on one handset refused the whole build on that handset, and a
+        // refused build is skipped until an entirely new build number ships.
+        for (code in listOf(
             OtaApply.ErrorCode.NEW_ROOTFS_VERIFICATION_ERROR,
             OtaApply.ErrorCode.NEW_KERNEL_VERIFICATION_ERROR,
             OtaApply.ErrorCode.FILESYSTEM_VERIFIER_ERROR,
         )) {
             assertTrue(
-                "update_engine code $code must be permanent, not retried",
-                OtaApply.classify(code) is OtaApply.Outcome.Permanent)
+                "update_engine code $code is a device-side write failure and must be retried",
+                OtaApply.classify(code) is OtaApply.Outcome.Retry)
         }
     }
 
