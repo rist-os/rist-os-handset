@@ -113,6 +113,9 @@ class Manifest:
     def __init__(self, raw):
         self.partitions = []
         self.postinstall = {}
+        # Partitions with no PartitionUpdate.version. Harmless in a full payload; fatal in a
+        # partial one -- see the partial_update check below.
+        self.versionless = []
         self.partial_update = None
         self.max_timestamp = None
         self.minor_version = None
@@ -131,6 +134,7 @@ class Manifest:
                 name = None
                 run_post = False
                 post_path = None
+                version = None
                 for pfn, pwt, pv in _fields(v):
                     if pfn == 1:
                         name = pv.decode('utf-8', 'replace')
@@ -138,9 +142,14 @@ class Manifest:
                         run_post = bool(pv)
                     elif pfn == 3:
                         post_path = pv.decode('utf-8', 'replace')
+                    elif pfn == 17:
+                        # PartitionUpdate.version. Only partitions carrying build props get one.
+                        version = pv.decode('utf-8', 'replace')
                 if name is None:
                     raise ValueError('a PartitionUpdate carries no partition_name')
                 self.partitions.append(name)
+                if version is None:
+                    self.versionless.append(name)
                 if run_post:
                     self.postinstall[name] = post_path
             elif fn == 15:
@@ -377,6 +386,33 @@ def check(path, keep_set, vbmeta_path, target_files_arg, expect_otacert,
         rep.note('does not carry, forward from the running slot to the target slot')
     else:
         rep.ok('full payload (every partition present), partial_update not required')
+
+    # The check that 2026092200 needed and nobody had.
+    #
+    # Setting partial_update flips allow_empty_version to FALSE in
+    # DeltaPerformer::CheckTimestampError, which makes PartitionUpdate.version mandatory on EVERY
+    # partition in the payload. Only partitions carrying build props get a version, so a payload
+    # covering boot, dtbo, init_boot, pvmfw, vbmeta, vendor_boot or vendor_kernel_boot has
+    # version-less entries and update_engine refuses the manifest before writing anything:
+    #   ERROR delta_performer.cc "PartitionUpdate <name> doesn't have a version field.
+    #                             Not allowed in partial updates."  -> kDownloadManifestParseError (23)
+    #
+    # It is deterministic, it fires on every handset, and every other check in this file passes.
+    # Measured on 2026092200: 13 partitions, 6 versioned (product system system_dlkm system_ext
+    # vendor vendor_dlkm), 7 not. The full payload carries the same 6 and applies fine, because
+    # without the flag the requirement does not apply.
+    if manifest.partial_update is True and manifest.versionless:
+        rep.fail('partial_update is set, but %d of %d partitions carry no '
+                 'PartitionUpdate.version:' % (len(manifest.versionless), len(manifest.partitions)))
+        for n in sorted(manifest.versionless):
+            rep.note('  %s' % n)
+        rep.note('update_engine requires a version on EVERY partition once partial_update is set')
+        rep.note('(allow_empty_version becomes false in DeltaPerformer::CheckTimestampError), and')
+        rep.note('only partitions with build props have one. It will refuse this manifest with')
+        rep.note('kDownloadManifestParseError (23) before writing anything, on every device.')
+        rep.note('A full payload does not have this constraint. Do NOT publish this package.')
+    elif manifest.partial_update is True:
+        rep.ok('every partition in this partial payload carries a PartitionUpdate.version')
 
     for name, script in sorted(manifest.postinstall.items()):
         if name not in parts:
@@ -632,22 +668,29 @@ def _len_delim(fn, payload):
     return _tag(fn, 2) + _enc_varint(len(payload)) + payload
 
 
-def _partition_update(name, run_postinstall=False, post_path=None):
+def _partition_update(name, run_postinstall=False, post_path=None, version='1787957064'):
     b = _len_delim(1, name.encode())
     if run_postinstall:
         b += _tag(2, 0) + _enc_varint(1)
         if post_path:
             b += _len_delim(3, post_path.encode())
+    # PartitionUpdate.version (field 17). A partial payload is only applicable if EVERY partition
+    # has one, so the fixtures carry it by default: a fixture without it is not a valid partial and
+    # would be asserting that the gate accepts something update_engine refuses. Pass version=None
+    # to build the invalid shape deliberately.
+    if version is not None:
+        b += _len_delim(17, version.encode())
     return b
 
 
 def make_manifest(partitions, partial=None, max_timestamp=1787957064,
-                  postinstall=None):
+                  postinstall=None, versionless=()):
     b = _tag(3, 0) + _enc_varint(4096)          # block_size
     b += _tag(12, 0) + _enc_varint(0)           # minor_version
     for p in partitions:
         post = (postinstall or {}).get(p)
-        b += _len_delim(13, _partition_update(p, post is not None, post))
+        ver = None if p in versionless else '1787957064'
+        b += _len_delim(13, _partition_update(p, post is not None, post, version=ver))
     b += _tag(14, 0) + _enc_varint(max_timestamp)
     if partial is not None:
         b += _tag(16, 0) + _enc_varint(1 if partial else 0)
@@ -710,12 +753,14 @@ FIXTURE_CERT = (
 
 
 def make_ota(path, partitions, partial=None, secondary=False, metadata=None,
-             otacert=FIXTURE_CERT, max_timestamp=1787957064, postinstall=None):
+             otacert=FIXTURE_CERT, max_timestamp=1787957064, postinstall=None,
+             versionless=()):
     with zipfile.ZipFile(path, 'w') as z:
         z.writestr(METADATA_ENTRY, metadata if metadata is not None else DEFAULT_METADATA)
         z.writestr(PAYLOAD_ENTRY, make_payload(partitions, partial=partial,
                                                max_timestamp=max_timestamp,
-                                               postinstall=postinstall))
+                                               postinstall=postinstall,
+                                               versionless=versionless))
         z.writestr(PAYLOAD_PROPERTIES_ENTRY, 'FILE_SIZE=1\nFILE_HASH=x\n')
         if otacert is not None:
             z.writestr(OTACERT_ENTRY, otacert)
@@ -768,6 +813,15 @@ def selftest():
     run('a correct partial passes', 0, 'OTA OK',
         [clean, '--vbmeta', vb_ok, '--expect-otacert', cert_fingerprint(FIXTURE_CERT.encode()),
          '--target-files', _fixture_tf(tmp)])
+
+    # The 2026092200 shape: a partial payload whose version-less partitions make update_engine
+    # refuse the manifest with kDownloadManifestParseError (23) before it writes anything. Every
+    # other check in this file passed that package, which is how it reached the stable channel.
+    nover = make_ota(p(tmp, 'noversion.zip'), CLEAN_SET, partial=True,
+                     versionless=('boot', 'dtbo', 'init_boot', 'pvmfw', 'vbmeta',
+                                  'vendor_boot', 'vendor_kernel_boot'))
+    run('a partial with version-less partitions fires', 1, 'carry no PartitionUpdate.version',
+        [nover, '--vbmeta', vb_ok, '--target-files', _fixture_tf(tmp)])
 
     full = make_ota(p(tmp, 'full.zip'), FULL_SET)
     run('Google firmware partitions fire', 1, 'Google firmware partitions are inside',
