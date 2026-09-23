@@ -286,7 +286,18 @@ if [ "$MODE" = "--staged" ]; then
   exit "$FAIL"
 fi
 
-fw="$(printf '%s\n' "$listing" | grep -E '(^|/)((bootloader|radio)-[^/]*\.img|[^/]*\.ec\.bin)$' || true)"
+# Every Tensor firmware image, by partition name, with or without a trailing -<version>.
+#
+# This used to be '(bootloader|radio)-[^/]*\.img|[^/]*\.ec\.bin', which requires a dash: a factory
+# zip containing bootloader.img, radio.img, modem.img, abl.img, gsa.img, ldfw.img, tzsw.img or
+# bl1/bl2/bl31.img passed as "no Google firmware". Worse, those three patterns are exactly what
+# deblob_release.sh removes, so the checker could only ever confirm what the stripper already did
+# and was incapable of finding firmware the stripper does not know about.
+#
+# `super` is deliberately absent: super.img holds OUR partitions, not Google's.
+FW_NAMES='bootloader|radio|modem|abl|bl1|bl2|bl31|gcf|gsa|gsa_bl1|ldfw|pbl|tzsw|gsc'
+fw="$(printf '%s\n' "$listing" \
+  | grep -E "(^|/)(($FW_NAMES)([-_][^/]*)?\.img|[^/]*\.ec\.bin)\$" || true)"
 if [ -n "$fw" ] && [ "${RIST_SHIP_FIRMWARE:-}" = "true" ]; then
   pass "Google firmware present AND INTENDED ($(printf '%s\n' "$fw" | grep -c .) file(s), RIST_SHIP_FIRMWARE=true)"
   printf '%s\n' "$fw" | while read -r f; do note "  $f"; done

@@ -1,0 +1,38 @@
+
+# =========================================================================================
+# Rist layer: BoardConfig additions.
+# =========================================================================================
+#
+# WHAT THIS DOES
+#   Puts vendor/rist/pixel-phone/aosp/sepolicy into the build, which creates the `rist_app`
+#   SELinux domain and the seapp_contexts entry mapping watch.rist.assistant:ota into it.
+#   update_engine enforces no Java permission on its callers, so that domain is the whole
+#   access decision: without it the OTA client cannot talk to update_engine at all.
+#
+# HOW TO APPLY IT
+#
+#     cat vendor/rist/pixel-phone/image/boardconfig-wiring.txt \
+#       >> vendor/google_devices/stallion/BoardConfig.mk
+#
+#   TARGET FILE: vendor/google_devices/stallion/BoardConfig.mk  -- the adevtool-generated
+#                vendor tree, NOT device/google/stallion. A grep scoped to device/google/*
+#                gives a false negative on the very check meant to catch a silent failure.
+#
+#   TIMING:      AFTER `adevtool generate-all -d stallion`, never before. adevtool regenerates
+#                BoardConfig.mk exactly as it regenerates stallion.mk, so anything appended
+#                before that is silently discarded and the build still succeeds.
+#
+#   Use `+=`, never `:=`. GrapheneOS and the device tree already set this variable; `:=`
+#   drops their values and takes parts of the policy out of the image.
+#
+# HOW TO KNOW IT WORKED
+#   The build succeeding proves nothing here -- a missing sepolicy dir is not an error. After
+#   `m`, the only proof is that the domain reached the image:
+#
+#     grep rist_app $ANDROID_PRODUCT_OUT/system_ext/etc/selinux/system_ext_seapp_contexts
+#
+#   An empty result means this file never took effect. Re-check the target path and the timing
+#   above rather than editing the makefile by hand.
+# =========================================================================================
+
+SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS += vendor/rist/pixel-phone/aosp/sepolicy

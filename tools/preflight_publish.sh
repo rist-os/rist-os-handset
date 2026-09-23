@@ -36,7 +36,14 @@ fi
 TRACKED_COUNT=$(printf '%s\n' "$TRACKED" | wc -l | tr -d ' ')
 
 # .publish-denylist must exist on disk for check 3 but must never be tracked.
-BAD_TRACKED=$(printf '%s\n' "$TRACKED" | grep -E '(\.pk8|\.pem|\.jks|\.keystore|\.p12|\.der|_rsa|\.env$|\.env\.|local\.properties|adb_keys|^\.publish-denylist$|^\.publish-never-ship$)$' || true)
+# Three alternations, deliberately separate. They used to be one group with a trailing `$`, which
+# anchored EVERY branch: `_rsa` became `_rsa$` and `\.env\.` became `\.env\.$`, so a tracked
+# `app/.env.production` or `foo/id_rsa_backup` was not matched and the gate printed
+# "no key material or local config tracked". Suffixes need the anchor; substrings must not have it.
+BAD_TRACKED=$(printf '%s\n' "$TRACKED" | grep -E \
+  -e '(\.pk8|\.pem|\.jks|\.keystore|\.p12|\.der|\.env|local\.properties|adb_keys)$' \
+  -e '^\.publish-(denylist|never-ship)$' \
+  -e '(_rsa|\.env\.)' || true)
 if [ -n "$BAD_TRACKED" ]; then
   fail "key material or local config is tracked:"
   echo "$BAD_TRACKED" | while read -r f; do note "$f"; done
@@ -98,6 +105,21 @@ else
       HITS=0
       while IFS= read -r pat; do
         case "$pat" in ''|'#'*) continue ;; esac
+        # Validate the pattern BEFORE scanning with it. Every scan below treats a non-zero exit as
+        # "no match", but git grep returns 128 and grep returns 2 on an INVALID regex -- so one
+        # malformed entry (an unclosed paren, a leading `*`, `[z-a]`) silently disabled all four
+        # scans for that pattern while the run still printed "no denylisted string in tree,
+        # history or commit messages" and still counted it. A private string containing a literal
+        # `(` or `[` would never be searched for again.
+        # Status captured on its own line: inside `if ! cmd`, $? is the negation, not cmd's.
+        # grep exits 0 on match, 1 on no match, >1 only on a bad pattern.
+        printf '' | grep -E -e "$pat" >/dev/null 2>&1
+        grc=$?
+        if [ "$grc" -gt 1 ]; then
+          fail "denylist pattern is not a valid regex, so NOTHING was scanned for it: /$pat/"
+          HITS=1
+          continue
+        fi
         if git grep -I -l -E -e "$pat" "$REF" -- . >/dev/null 2>&1; then
           fail "denylisted pattern present in $REF: /$pat/"
           git grep -I -l -E -e "$pat" "$REF" -- . 2>/dev/null | sed 's/^/      /' | head -10
@@ -262,10 +284,20 @@ else
   if [ -n "$CURRENT_BUILD" ]; then
     DRIFT=""
     for f in README.md image/INSTALL.md; do
-      [ -f "$f" ] || continue
+      if [ ! -f "$f" ]; then
+        DRIFT="${DRIFT}   $f is missing"$'\n'; continue
+      fi
       WRONG=$(grep -oE '\b20[0-9]{2}[01][0-9][0-3][0-9][0-9]{2}\b' "$f" 2>/dev/null \
                 | grep -vxF "$CURRENT_BUILD" | sort -u || true)
       [ -n "$WRONG" ] && DRIFT="${DRIFT}$(printf '%s\n' "$WRONG" | sed "s|^|   $f names |")"$'\n'
+      # Absence is drift too, but only for documents that are supposed to carry the number.
+      # image/INSTALL.md embeds the download URL, so a missing build number there means
+      # set_release.sh substituted nothing and nobody noticed. README.md deliberately links to
+      # INSTALL.md instead of versioning itself, so it is checked for a WRONG number only.
+      if [ "$f" = "image/INSTALL.md" ]; then
+        grep -qF "$CURRENT_BUILD" "$f" 2>/dev/null \
+          || DRIFT="${DRIFT}   $f does not name $CURRENT_BUILD at all (set_release.sh substituted nothing)"$'\n'
+      fi
     done
 
     if [ -f CHANGELOG.md ]; then

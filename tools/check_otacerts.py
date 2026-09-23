@@ -17,7 +17,24 @@ import zipfile
 # sha256 of the DER, i.e. the openssl -sha256 fingerprint.
 RESERVE_SHA256 = "07c61378348dfd3f3b038b7a4eb79c75a1cc3719de8d87b35233d23831e36046"
 
-PRIMARY_SHA256 = None
+# The ONLY certificates that may legitimately sit beside the reserve, by DER sha256.
+#
+# This used to be `PRIMARY_SHA256 = None`, which made every primary-side test below unreachable:
+# the role label could never say "primary", the "pinned primary is absent" finding could never
+# fire, and the only surviving check was "the reserve is here ALONE". So a store holding the
+# reserve plus ANY other certificate passed -- including one signed by a key we do not control.
+# An image that trusts the wrong OTA key accepts updates from whoever holds it, and nothing short
+# of a new image can take that back, so this is the one check that must not be decorative.
+#
+# Two entries because the same tool runs twice per release against different artefacts:
+# pre-signing, target_files still carries AOSP's testkey; sign_target_files_apks' ReplaceOtaKeys
+# swaps it for our releasekey. Anything outside this set is a finding.
+KNOWN_PRIMARIES = {
+    "389ad20e5db8cd91a497ea7dffec13bbe8879fbdfdb8b77461bd0e681012cb48":
+        "keys/<device>/releasekey  (expected POST-sign)",
+    "a40da80a59d170caa950cf15c18c454d47a39b26989d8b640ecd745ba71bf5dc":
+        "AOSP testkey  (expected PRE-sign only; ReplaceOtaKeys must replace it)",
+}
 
 PEM_BEGIN = b"-----BEGIN CERTIFICATE-----"
 PEM_END = b"-----END CERTIFICATE-----"
@@ -116,10 +133,10 @@ def check_store(label, blob, revocation):
     for fp, (n, der) in sorted(seen.items(), key=lambda kv: kv[1][0]):
         if fp == RESERVE_SHA256:
             role = "RESERVE"
-        elif PRIMARY_SHA256 and fp == PRIMARY_SHA256:
+        elif fp in KNOWN_PRIMARIES:
             role = "primary"
         else:
-            role = "other  "
+            role = "UNKNOWN"
         print("      %s  %s  %s%s" % (role, fp, n, describe(der)))
 
     if RESERVE_SHA256 not in seen:
@@ -127,10 +144,14 @@ def check_store(label, blob, revocation):
                         "post-sign target_files, the PRODUCT_EXTRA_OTA_KEYS line did not survive "
                         "ReplaceOtaKeys." % (label, RESERVE_SHA256))
     others = [fp for fp in seen if fp != RESERVE_SHA256]
-    if PRIMARY_SHA256 and PRIMARY_SHA256 not in seen and not revocation:
-        findings.append("%s does not contain the pinned primary certificate (%s)"
-                        % (label, PRIMARY_SHA256))
-    elif not others and not revocation:
+    unknown = [fp for fp in others if fp not in KNOWN_PRIMARIES]
+    if unknown and not revocation:
+        for fp in sorted(unknown):
+            findings.append("%s contains a certificate that is NOT the reserve and NOT a known "
+                            "primary: %s. Every handset flashed with this image would accept an "
+                            "OTA signed by that key. Known primaries are: %s."
+                            % (label, fp, "; ".join(sorted(KNOWN_PRIMARIES.values()))))
+    if not others and not revocation:
         findings.append("%s contains ONLY the reserve certificate. The primary is gone: no "
                         "package signed with keys/<device>/releasekey would be accepted. Pass "
                         "--revocation if that is deliberate." % label)
@@ -162,6 +183,29 @@ def selftest():
     ]
     if good is not None:
         cases.append(("reserve alone, without --revocation", store([("keys/otareserve.x509.pem", good)])))
+
+    # The case that matters most, and the one this gate used to pass: the reserve beside a
+    # certificate nobody pinned. Before KNOWN_PRIMARIES existed, `others` was non-empty and every
+    # primary-side test was unreachable, so this shape reported OTACERTS PASS.
+    stranger = None
+    if shutil.which("openssl"):
+        tmpd = tempfile.mkdtemp()
+        try:
+            key = os.path.join(tmpd, "k.pem")
+            crt = os.path.join(tmpd, "c.pem")
+            rc = subprocess.call(
+                ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-keyout", key, "-out", crt,
+                 "-days", "1", "-nodes", "-subj", "/CN=not-our-key"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if rc == 0:
+                with open(crt, "rb") as f:
+                    stranger = f.read()
+        finally:
+            shutil.rmtree(tmpd, ignore_errors=True)
+    if good is not None and stranger is not None:
+        cases.append(("reserve + a certificate nobody pinned",
+                      store([("keys/otareserve.x509.pem", good),
+                             ("keys/releasekey.x509.pem", stranger)])))
 
     bad = 0
     for name, blob in cases:

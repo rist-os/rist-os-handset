@@ -29,7 +29,7 @@ done
 if minisign -Vm "$TMP/SHA256SUMS" -P "$KEY" >/dev/null 2>&1; then
   say "ok        SHA256SUMS carries our signature"
 else
-  bad "SHA256SUMS is NOT signed by the key in README.md -- treat the bucket as compromised"
+  bad "SHA256SUMS is NOT signed by the key in SECURITY.md / image/INSTALL.md -- treat the bucket as compromised"
   exit 1
 fi
 
@@ -44,7 +44,15 @@ if not e: print("{}"); sys.exit(0)
 print(json.dumps((e.get("published") or {}).get("artefacts") or {}))
 PY
 )"
-if [ "$LEDGER_JSON" = "{}" ]; then
+# An EMPTY value means the python above died -- ledger missing, malformed JSON, or no python3 on
+# PATH. That is not the same as "{}" (no entry for this build), and only "{}" used to be handled,
+# so a broken ledger left fail=0 and every artefact reported "ok ... but the ledger has no hash for
+# it" under a final PUBLISHED RELEASE OK. This tool exists to cross-check hashes; if it could not
+# read the hashes it must not pass.
+if [ -z "$LEDGER_JSON" ]; then
+  say "SKIP      releases/release-ledger.json could not be read (missing, malformed, or no python3)"
+  fail=1
+elif [ "$LEDGER_JSON" = "{}" ]; then
   say "SKIP      release-ledger.json has no entry for $BUILD -- hashes cannot be cross-checked"
   fail=1
 fi
