@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.telephony.TelephonyManager
 import android.util.Log
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 
 /**
  * Puts Rist's own incoming-call screen up when the phone rings.
@@ -46,9 +47,22 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 IncomingCall.show(context, number)
             }
             // OFFHOOK covers both "we answered" and "an outgoing call started"; IDLE covers hung up,
-            // missed and rejected. In every one of those the screen must go.
-            TelephonyManager.EXTRA_STATE_OFFHOOK, TelephonyManager.EXTRA_STATE_IDLE ->
+            // missed and rejected. In every one of those the incoming-call screen must go.
+            TelephonyManager.EXTRA_STATE_OFFHOOK -> {
                 IncomingCall.clear()
+                CallState.onOffHook()
+                // The transition to active is a separate moment from the accept, and the in-call
+                // screen only reliably survives the second one -- so raise it here as well as at the
+                // press. Without this a call can go live with Rist still in front and no way back to
+                // it: the kiosk has no shade, no ongoing-call chip and no recents.
+                CallState.returnToCall(context)
+                notifyHomeScreen(context)
+            }
+            TelephonyManager.EXTRA_STATE_IDLE -> {
+                IncomingCall.clear()
+                CallState.onIdle()
+                notifyHomeScreen(context)
+            }
             // A state we do not recognise, or a broadcast with no state at all, must not be able to
             // strand the call screen on top of the launcher. Guessing either way is wrong, so ask
             // telephony what is actually happening.
@@ -64,6 +78,18 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 }
             }
         }
+    }
+
+    /**
+     * Nudges the home screen so its in-call row appears or disappears while it is already on screen.
+     * Not the only path: MainActivity also re-renders on resume, which covers the ordinary case of
+     * pressing HOME during a call.
+     */
+    private fun notifyHomeScreen(context: Context) {
+        runCatching {
+            LocalBroadcastManager.getInstance(context.applicationContext)
+                .sendBroadcast(Intent(DeviceCommands.ACTION_STATE_CHANGED))
+        }.onFailure { Log.w(TAG, "could not refresh the home screen", it) }
     }
 
     private companion object {

@@ -20,9 +20,11 @@ import org.robolectric.RobolectricTestRunner
 class VolumePanelTest {
 
     private fun route(
-        call: Boolean = false, alarm: Boolean = false, picked: VolumeKeys.Channel? = null,
-        voice: Boolean = false, media: Boolean = false,
-    ) = VolumeKeys.route(call, alarm, picked, voice, media)
+        call: Boolean = false, ringing: Boolean = false, alarm: Boolean = false,
+        picked: VolumeKeys.Channel? = null,
+        voice: Boolean = false, media: Boolean = false, voip: Boolean = false,
+    ) = VolumeKeys.route(call, ringing, alarm, picked, voice, media, voiceOwnVolume = true,
+        voipCall = voip)
 
     @Test
     fun `the buttons start on the ringer`() {
@@ -41,9 +43,32 @@ class VolumePanelTest {
     }
 
     @Test
-    fun `calls and ringing alarms keep Android's own button behaviour`() {
-        assertNull("in a call the buttons set call volume", route(call = true, picked = VolumeKeys.Channel.MEDIA))
+    fun `a ringing phone and a ringing alarm keep Android's own button behaviour`() {
+        // A press while the phone is ringing must reach Android so it silences the ringer. That is a
+        // reflex people rely on and Rist must not intercept it.
+        assertNull("a ringing phone is Android's to silence", route(ringing = true))
         assertNull("a ringing alarm is its own screen's to handle", route(alarm = true))
+    }
+
+    @Test
+    fun `an active call gets the call slider`() {
+        // This asserted the opposite -- that a call falls through to Android -- which is why in a call
+        // you got Android's dialog instead of Rist's. The panel had no call channel to show either.
+        assertEquals(VolumeKeys.Channel.CALL, route(call = true))
+        assertEquals("a Rist video call wants the call slider too",
+            VolumeKeys.Channel.CALL, route(voip = true))
+        assertEquals("a slider picked in the open panel still wins",
+            VolumeKeys.Channel.MEDIA, route(call = true, picked = VolumeKeys.Channel.MEDIA))
+    }
+
+    @Test
+    fun `the call slider is offered only during a call`() {
+        // Off-call, setStreamVolume(STREAM_VOICE_CALL) writes to whatever output is notionally active
+        // and the person sees no effect, which is worse than not offering it at all.
+        assertTrue("a dead call slider must not be shown off-call",
+            VolumeKeys.Channel.CALL !in VolumeKeys.channels(voiceOwnVolume = true, inCall = false))
+        assertTrue("in a call it must be there",
+            VolumeKeys.Channel.CALL in VolumeKeys.channels(voiceOwnVolume = true, inCall = true))
     }
 
     @Test

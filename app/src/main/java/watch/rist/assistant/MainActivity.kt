@@ -983,6 +983,17 @@ class MainActivity : AppCompatActivity() {
             return r
         }
 
+        // A live call gets the first row, because without it there is no way back to one. The kiosk
+        // withholds notifications, so there is no shade and no ongoing-call chip, and HOME is enabled
+        // -- so one press used to leave a call running with End unreachable. This is that way back.
+        if (CallState.inCall(this)) {
+            any = true
+            val r = row()
+            r.addView(chip("📞 In call"))
+            r.addView(button("↩", "Return to the call") { CallState.returnToCall(ctx) })
+            r.addView(button("✕", "End the call") { CallState.endCall(ctx) })
+        }
+
         if (DeviceCommands.ringing()) {
             any = true
             val r = row()
@@ -1718,10 +1729,16 @@ class MainActivity : AppCompatActivity() {
         val up = k == android.view.KeyEvent.KEYCODE_VOLUME_UP
         if (up || k == android.view.KeyEvent.KEYCODE_VOLUME_DOWN) {
             val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+            // Telephony decides whether a telephony call is up, not AudioManager.mode -- see
+            // VolumeKeys.route and CallState.inCall for why mode is the wrong signal. mode is still
+            // read, but only for the one thing it can answer: whether a VoIP call (Rist's own video
+            // calls) is running, which also wants the call slider.
+            val tm = getSystemService(android.telephony.TelephonyManager::class.java)
+            val callState = runCatching { tm?.callState }.getOrNull()
             val channel = VolumeKeys.route(
-                callOrRinging = am.mode == android.media.AudioManager.MODE_IN_CALL ||
-                    am.mode == android.media.AudioManager.MODE_IN_COMMUNICATION ||
-                    am.mode == android.media.AudioManager.MODE_RINGTONE,
+                telephonyCall = callState == android.telephony.TelephonyManager.CALL_STATE_OFFHOOK,
+                telephonyRinging = callState == android.telephony.TelephonyManager.CALL_STATE_RINGING,
+                voipCall = am.mode == android.media.AudioManager.MODE_IN_COMMUNICATION,
                 alarmRinging = DeviceCommands.ringing(),
                 picked = volumePanel.target,
                 voiceSounding = Playback.isActive(),

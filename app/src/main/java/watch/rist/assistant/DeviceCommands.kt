@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
+import android.telecom.TelecomManager
 import android.util.Log
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import rist.v1.AlarmCommand
@@ -310,6 +311,16 @@ object DeviceCommands {
                 toast(ctx, "Calling $who\n$number")
                 Log.i(TAG, "comms: dialing ${maskNumber(number)}")
                 val placed = open(ctx, Intent(Intent.ACTION_CALL, android.net.Uri.parse("tel:$number")))
+                // Raise the in-call screen, as CommsFeedView.placeCall already does for a call the
+                // user starts from the feed. Without this a call the assistant places on the user's
+                // behalf goes live with Rist still in front and the dialer never brought forward: the
+                // kiosk has no shade, no ongoing-call chip and no recents, so there is no way to reach
+                // End. One such call ran 3m14s and ended only when the far end hung up.
+                if (placed) {
+                    runCatching {
+                        ctx.getSystemService(TelecomManager::class.java)?.showInCallScreen(false)
+                    }.onFailure { Log.w(TAG, "could not bring up the in-call screen", it) }
+                }
                 CommsResults.record(ctx, c.correlationId, "call", placed,
                     if (placed) "" else "the platform refused to place the call")
             }
