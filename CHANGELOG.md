@@ -6,12 +6,47 @@ Build numbers are `YYYYMMDDNN`. The log starts with 2026083110, the first publis
 
 ## Unreleased
 
+**Device:** Pixel 10a (`stallion`) only. **Android security patch level:** 2026-09-01.
+**Base:** GrapheneOS. **Download:** <https://dl.ristos.org/index.html>
+
+Same security patch month as 2026092200, so this build and that one are interchangeable as far as the
+bootloader is concerned, and a handset on either can move to the other.
+
+### New
+
+- **Call volume.** During a call the volume buttons open Rist's own panel, with a Call slider. A press
+  while the phone is *ringing* still goes to Android, so it silences the ringer as it always has.
+- **A way back to a live call.** A call in progress shows on the home screen with buttons to return to
+  it or end it. A call the assistant places on your behalf now brings the call screen up, as one you
+  place yourself already did.
+- **An over-the-air update now carries the firmware too** — the bootloader and radio/modem images, the
+  same Google bytes a fresh flash writes. Earlier notes said an update carried none; that was true of
+  the package published for 2026092200 and is not true here.
+
 ### Fixed
 
 - **Incoming calls appear on screen again.** Nothing told the app a call was ringing, so a call rang,
   vibrated and showed nothing, and could be answered only from the lock screen. The call screen is
   also upright now: sideways it was taller than the screen, which pushed DECLINE out of reach and put
   ANSWER where a person would tap for it.
+- **A live call could not be reached again once you left it.** There was no way back to it and so no
+  way to reach End; one call ran over three minutes and stopped only when the other end hung up.
+- **Updating over the air.** The 2026092200 package was refused by every phone before it installed
+  anything. This build's package is a different shape, and the check that would have caught the fault
+  now exists.
+
+### What does not
+
+- **Emergency calling is not validated.** There is no E911 row in the bring-up checklist and no
+  verification step has been run. See `SAFETY.md`.
+- **Wireless Emergency Alert text may not display.** The siren, vibration and speech fire; whether
+  the words render over the kiosk has not been confirmed on a handset.
+- **Location is GNSS-only by default.** The phone asks you once and you can change the answer.
+- **The published image is not reproducible from this repository.**
+- **No app store; arbitrary apps cannot be installed.**
+- **Installing an update over the air has not been watched through to the end on a handset.** The
+  trusted path remains `adb sideload` from recovery, which applies a signed package and does **not**
+  wipe the phone.
 
 ---
 
@@ -54,7 +89,7 @@ verified-boot rollback index, and a handset that has booted this build cannot be
 
 - **Incoming calls ring but do not appear on screen.** The phone rings and vibrates, and on a handset
   with a PIN the call can be answered from the lock screen, but unlocked there is nothing to press.
-  This is a regression in this build; a fix is in progress. There is no workaround beyond locking the
+  This is a regression in this build, fixed in the next one. There is no workaround beyond locking the
   screen.
 - **Updating over the air does not work in this build.** The published package is refused by the
   phone before it installs anything, so the phone stays on the build it has. Install this build with
@@ -66,8 +101,6 @@ verified-boot rollback index, and a handset that has booted this build cannot be
 - **Location is GNSS-only by default.** The phone asks you once and you can change the answer.
 - **The published image is not reproducible from this repository.**
 - **No app store; arbitrary apps cannot be installed.**
-- **An over-the-air update carries no firmware.** The bootloader and radio/modem images are in the
-  download only. A phone updated over the air keeps the firmware it was flashed with.
 
 ### Verifying the download
 
