@@ -172,13 +172,30 @@ fi
 if [ "$rc" -eq 0 ]; then
   echo "=== [5/5] OTA gate $(date -u) ==="
   PARTIAL_GATE="$RIST_REPO/tools/check_partial_ota.py"
-  OTAZIP="$(rist_newest "releases/$BN/release-$DEVICE-$BN/*ota_update*.zip")" || OTAZIP=""
+  # Count the matches rather than taking the newest. rist_newest is `ls -t | head -1`, so with two
+  # candidates -- say a package and a hand-regenerated variant beside it -- the gate examined one
+  # and whatever got published could be the other. check_release_gate.py refuses outright on the
+  # same ambiguity; these two tools used to disagree.
+  OTA_MATCHES=()
+  while IFS= read -r _m; do [ -n "$_m" ] && OTA_MATCHES+=("$_m"); done < <(
+    ls -1 releases/"$BN"/release-"$DEVICE"-"$BN"/*ota_update*.zip 2>/dev/null || true)
+  OTAZIP=""
+  [ "${#OTA_MATCHES[@]}" -eq 1 ] && OTAZIP="${OTA_MATCHES[0]}"
   VBMETA="releases/$BN/release-$DEVICE-$BN/$DEVICE-$BN/vbmeta.img"
   [ -f "$VBMETA" ] || VBMETA=""
-  if [ -z "$OTAZIP" ]; then
-    echo "  no *ota_update*.zip in releases/$BN/release-$DEVICE-$BN -- nothing to gate."
-    echo "  If you expected one, generate-release.sh did not emit it and the OTA channel has no"
-    echo "  package for this build."
+  if [ "${#OTA_MATCHES[@]}" -gt 1 ]; then
+    echo "  more than one *ota_update*.zip in releases/$BN/release-$DEVICE-$BN:" >&2
+    printf '    %s\n' "${OTA_MATCHES[@]}" >&2
+    echo "  Refusing to guess which one ships. Remove the ones that are not the release." >&2
+    echo "===VALIDATE_DONE rc=89 (ambiguous OTA package)==="; exit 89
+  elif [ -z "$OTAZIP" ]; then
+    # Never a pass. An OTA that was not produced is a release with no update path, and an OTA
+    # renamed by a change in generate-release.sh would otherwise publish completely ungated.
+    echo "  no *ota_update*.zip in releases/$BN/release-$DEVICE-$BN -- nothing was gated." >&2
+    echo "  If you expected one, generate-release.sh did not emit it and the OTA channel has no" >&2
+    echo "  package for this build. If the name changed, this glob needs updating -- do not" >&2
+    echo "  publish an OTA that no gate has examined." >&2
+    echo "===VALIDATE_DONE rc=89 (no OTA package to gate)==="; exit 89
   elif [ ! -f "$PARTIAL_GATE" ] || ! command -v python3 >/dev/null 2>&1; then
     echo "  the OTA gate could not run (need python3 and $PARTIAL_GATE)." >&2
     echo "  That is not a pass. $(basename "$OTAZIP") has not been examined." >&2

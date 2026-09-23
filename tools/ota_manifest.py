@@ -36,6 +36,57 @@ def payload_range(meta):
     raise SystemExit("payload.bin not listed in ota-streaming-property-files")
 
 
+def verify_payload_range(zip_path, offset, length):
+    """Prove the offset points at payload.bin's bytes, not just at what a text file claims.
+
+    The offset above is hearsay: ota-streaming-property-files is a string written INSIDE the
+    package when it was generated. Nothing downstream re-derives it. Any edit after generation --
+    re-signing with a different signapk, `zip -d` of care_map/apex_info, zipalign, a repack, or a
+    metadata entry copied from a sibling build -- leaves the string stale while the zip still
+    opens and FILE_SIZE still agrees, because both come from that same stale text.
+
+    ota_publish.sh cannot catch it either: it compares the remote 64 KiB at this offset against
+    the local 64 KiB at the same offset, so a wrong-but-consistent offset passes. The first thing
+    to notice would be a handset, which records "payload_offset does not point at a payload" and
+    then stalls on a 6-hour retry forever.
+    """
+    with zipfile.ZipFile(zip_path) as z:
+        try:
+            zi = z.getinfo("payload.bin")
+        except KeyError:
+            raise SystemExit("payload.bin is not in %s" % zip_path)
+        if zi.compress_type != zipfile.ZIP_STORED:
+            raise SystemExit(
+                "payload.bin is compressed (compress_type=%d); update_engine streams it by byte "
+                "range and cannot inflate it. It must be STORED." % zi.compress_type)
+        if zi.file_size != length:
+            raise SystemExit(
+                "payload.bin is %d bytes but the metadata claims %d -- the package was modified "
+                "after ota_from_target_files wrote its property files."
+                % (zi.file_size, length))
+        with open(zip_path, "rb") as fh:
+            fh.seek(zi.header_offset)
+            hdr = fh.read(30)
+            if len(hdr) != 30 or hdr[:4] != b"PK\x03\x04":
+                raise SystemExit("payload.bin has no local file header at %d" % zi.header_offset)
+            nlen = int.from_bytes(hdr[26:28], "little")
+            elen = int.from_bytes(hdr[28:30], "little")
+            true_off = zi.header_offset + 30 + nlen + elen
+            if true_off != offset:
+                raise SystemExit(
+                    "payload_offset is wrong: the metadata says %d, payload.bin's data actually "
+                    "starts at %d. Devices would stream 64 KiB of the wrong bytes and refuse the "
+                    "update." % (offset, true_off))
+            if offset + length > os.path.getsize(zip_path):
+                raise SystemExit("payload.bin runs past the end of the file")
+            fh.seek(offset)
+            magic = fh.read(4)
+            if magic != b"CrAU":
+                raise SystemExit(
+                    "the bytes at payload_offset %d are %r, not the CrAU payload magic"
+                    % (offset, magic))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("zip_path")
@@ -66,6 +117,7 @@ def main():
         raise SystemExit("ota-type=%r; only seamless A/B packages are supported" % meta.get("ota-type"))
 
     offset, length = payload_range(meta)
+    verify_payload_range(args.zip_path, offset, length)
 
     incremental_from = meta.get("pre-build-incremental") or meta.get("pre-build")
 
