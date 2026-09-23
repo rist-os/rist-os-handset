@@ -61,12 +61,12 @@ PY
   sign_manifest "$PM" --refresh "$EXPIRES_DAYS" || exit 1
 
   aws ${EP[@]+"${EP[@]}"} s3 cp "$PM" "$RIST_OTA_BUCKET/v1/ota/$DEVICE/$TO" \
-      --content-type application/json --only-show-errors || {
+      --content-type application/json --cache-control 'no-cache, max-age=0' --only-show-errors || {
     echo "manifest upload failed; $TO is unchanged" >&2; exit 1; }
 
   # sidecar second, always
   aws ${EP[@]+"${EP[@]}"} s3 cp "$PM.minisig" "$RIST_OTA_BUCKET/v1/ota/$DEVICE/$TO.minisig" \
-      --content-type text/plain --only-show-errors || {
+      --content-type text/plain --cache-control 'no-cache, max-age=0' --only-show-errors || {
     echo >&2
     echo "SIDECAR UPLOAD FAILED, AND THE MANIFEST IS ALREADY PUBLISHED at" >&2
     echo "  v1/ota/$DEVICE/$TO" >&2
@@ -98,6 +98,49 @@ MTMP="$(mktemp -d "${TMPDIR:-/tmp}/ota-publish.XXXXXX")" \
   || { echo "cannot create a temp directory" >&2; exit 2; }
 trap 'rm -rf "$MTMP"' EXIT
 MANIFEST="$MTMP/manifest.json"
+
+# Gate the package here, not only in sign_public.sh. That script gates the OTA it generated, but
+# anything published by hand -- a regenerated payload, a repacked zip, an incremental produced
+# outside the release script -- reached this point with nothing having examined its partitions,
+# vbmeta consistency, otacert or SPL. Build 2026092200 was published exactly that way.
+GATE="$HERE/check_partial_ota.py"
+if [ "${RIST_OTA_SKIP_GATE:-}" = "1" ]; then
+  # On stderr, not stdout. An exported variable persists for the rest of the shell session, so the
+  # one line saying the gate was skipped must not be the line most likely to scroll past unseen in a
+  # redirected build log.
+  echo "!! RIST_OTA_SKIP_GATE=1: publishing $NAME WITHOUT the OTA gate." >&2
+  echo "!! Nothing has checked its partitions, vbmeta, otacert or security patch level." >&2
+  echo "!! This is how 2026092200 was published. Unset it unless you have a reason you could" >&2
+  echo "!! defend afterwards, and record that reason with the release." >&2
+elif [ ! -f "$GATE" ] || ! command -v python3 >/dev/null 2>&1; then
+  echo "the OTA gate could not run (need python3 and $GATE). Nothing published." >&2
+  echo "An unchecked OTA package is not a publishable one. Set RIST_OTA_SKIP_GATE=1 to override." >&2
+  exit 2
+else
+  echo "==> gating the package before anything is signed or uploaded"
+  GARGS=()
+  [ -n "${RIST_TARGET_FILES:-}" ]           && GARGS+=(--target-files "$RIST_TARGET_FILES")
+  [ -n "${RIST_OTA_EXPECT_OTACERT:-}" ]     && GARGS+=(--expect-otacert "$RIST_OTA_EXPECT_OTACERT")
+  [ -n "${RIST_MIN_SPL:-}" ]                && GARGS+=(--min-security-patch "$RIST_MIN_SPL")
+  python3 "$GATE" "$ZIP" ${GARGS[@]+"${GARGS[@]}"}
+  grc=$?
+  # Exit 1 and exit 2 are different answers and were being reported as the same one. 2 means the gate
+  # could not reach a verdict -- most often because RIST_TARGET_FILES is not exported, so it has no
+  # vbmeta and no A/B partition list to check against. That printed "the OTA gate refused", which
+  # reads as a defect in the package and sent the operator looking in the wrong place.
+  if [ "$grc" -eq 2 ]; then
+    echo >&2
+    echo "the OTA gate could not reach a verdict on $NAME (exit 2). Nothing signed or uploaded." >&2
+    echo "This usually means it was not given enough to check. Export RIST_TARGET_FILES to the" >&2
+    echo "matching <device>-target_files.zip and run again; the UNCHECKED lines above name the rest." >&2
+    exit 89
+  elif [ "$grc" -ne 0 ]; then
+    echo >&2
+    echo "the OTA gate refused $NAME (exit $grc). Nothing has been signed or uploaded." >&2
+    echo "Read the FAIL lines above for the defect. Do NOT regenerate with --partial." >&2
+    exit 89
+  fi
+fi
 
 echo "==> generating the manifest from the package"
 python3 "$HERE/ota_manifest.py" "$ZIP" --url "$BASE/$NAME" --channel "$CHANNEL" \
@@ -165,7 +208,7 @@ echo "    ok: 64 KiB at offset $OFFSET is byte-identical over HTTP"
 echo "==> publishing the manifest"
 # the key is the path the device asks for (no .json), so Content-Type must be explicit
 aws ${EP[@]+"${EP[@]}"} s3 cp "$MANIFEST" "$RIST_OTA_BUCKET/v1/ota/$DEVICE/$CHANNEL" \
-  --content-type application/json --only-show-errors || {
+  --content-type application/json --cache-control 'no-cache, max-age=0' --only-show-errors || {
   echo "manifest upload failed; the package is uploaded but no device will see it yet" >&2
   exit 1
 }
@@ -173,7 +216,7 @@ aws ${EP[@]+"${EP[@]}"} s3 cp "$MANIFEST" "$RIST_OTA_BUCKET/v1/ota/$DEVICE/$CHAN
 echo "==> publishing the signature"
 # signature LAST: a manifest without its sidecar is refused and re-polled; the reverse order leaves a stale signature
 aws ${EP[@]+"${EP[@]}"} s3 cp "$MANIFEST.minisig" "$RIST_OTA_BUCKET/v1/ota/$DEVICE/$CHANNEL.minisig" \
-  --content-type text/plain --only-show-errors || {
+  --content-type text/plain --cache-control 'no-cache, max-age=0' --only-show-errors || {
   echo >&2
   echo "SIDECAR UPLOAD FAILED, AND THE MANIFEST IS ALREADY PUBLISHED at" >&2
   echo "  $BASE/v1/ota/$DEVICE/$CHANNEL" >&2
@@ -183,6 +226,44 @@ aws ${EP[@]+"${EP[@]}"} s3 cp "$MANIFEST.minisig" "$RIST_OTA_BUCKET/v1/ota/$DEVI
   echo "is cheap in everything but time." >&2
   exit 1
 }
+
+# Read back what devices will actually fetch. Everything above verifies the PACKAGE through the
+# CDN and never the two files a handset acts on, and both keys are overwritten in place -- so a
+# cached or half-replaced manifest/signature pair looks like a clean publish from here. A device
+# that gets a mismatched pair reports BAD_SIGNATURE and backs off; nobody would know why.
+echo "==> reading back the published manifest and signature over the public URL"
+RB="$MTMP/readback"
+mkdir -p "$RB"
+rb_ok=1
+for attempt in 1 2 3 4 5 6; do
+  rb_ok=1
+  curl -fsS -o "$RB/manifest" "$BASE/v1/ota/$DEVICE/$CHANNEL" 2>/dev/null || rb_ok=0
+  curl -fsS -o "$RB/manifest.minisig" "$BASE/v1/ota/$DEVICE/$CHANNEL.minisig" 2>/dev/null || rb_ok=0
+  # Compare the SIGNATURE too, not just the manifest. This block exists to catch a cached or
+  # half-replaced manifest/signature pair, and it could not: a fresh manifest served beside a stale
+  # sidecar passed. The minisign check below is not a substitute -- RIST_OTA_PUBLIC_KEY is optional,
+  # so in the ordinary case it does not run at all and the sidecar was never looked at.
+  if [ "$rb_ok" -eq 1 ] && cmp -s "$RB/manifest" "$MANIFEST" \
+     && cmp -s "$RB/manifest.minisig" "$MANIFEST.minisig"; then
+    if command -v minisign >/dev/null 2>&1 && [ -n "${RIST_OTA_PUBLIC_KEY:-}" ]; then
+      minisign -Vm "$RB/manifest" -p "$RIST_OTA_PUBLIC_KEY" >/dev/null 2>&1 || rb_ok=0
+    fi
+    [ "$rb_ok" -eq 1 ] && break
+  else
+    rb_ok=0
+  fi
+  [ "$attempt" -lt 6 ] && { echo "    served copy not consistent yet, retrying in $((attempt*5))s [$attempt/6]" >&2; sleep $((attempt*5)); }
+done
+if [ "$rb_ok" -ne 1 ]; then
+  echo >&2
+  echo "THE PUBLISHED MANIFEST DOES NOT MATCH WHAT WAS JUST UPLOADED, or its signature does not" >&2
+  echo "verify over the public URL. The package is fine; the two files devices read are not." >&2
+  echo "  $BASE/v1/ota/$DEVICE/$CHANNEL" >&2
+  echo "Re-run this publish. If it persists, an edge cache is serving a stale pair -- purge it" >&2
+  echo "before trusting the channel." >&2
+  exit 1
+fi
+echo "    ok: the served manifest is byte-identical and its signature verifies"
 
 echo
 echo "published $DEVICE build $BUILD"

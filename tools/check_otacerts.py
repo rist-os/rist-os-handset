@@ -17,7 +17,26 @@ import zipfile
 # sha256 of the DER, i.e. the openssl -sha256 fingerprint.
 RESERVE_SHA256 = "07c61378348dfd3f3b038b7a4eb79c75a1cc3719de8d87b35233d23831e36046"
 
-PRIMARY_SHA256 = None
+# The ONLY certificates that may legitimately sit beside the reserve, by DER sha256.
+#
+# This used to be `PRIMARY_SHA256 = None`, which made every primary-side test below unreachable:
+# the role label could never say "primary", the "pinned primary is absent" finding could never
+# fire, and the only surviving check was "the reserve is here ALONE". So a store holding the
+# reserve plus ANY other certificate passed -- including one signed by a key we do not control.
+# An image that trusts the wrong OTA key accepts updates from whoever holds it, and nothing short
+# of a new image can take that back, so this is the one check that must not be decorative.
+#
+# Two entries because the same tool runs twice per release against different artefacts:
+# pre-signing, target_files still carries AOSP's testkey; sign_target_files_apks' ReplaceOtaKeys
+# swaps it for our releasekey. Anything outside this set is a finding.
+KNOWN_PRIMARIES = {
+    "389ad20e5db8cd91a497ea7dffec13bbe8879fbdfdb8b77461bd0e681012cb48":
+        "keys/<device>/releasekey  (expected POST-sign)",
+    "a40da80a59d170caa950cf15c18c454d47a39b26989d8b640ecd745ba71bf5dc":
+        "AOSP testkey  (expected PRE-sign only; ReplaceOtaKeys must replace it)",
+}
+
+TESTKEY_SHA256 = "a40da80a59d170caa950cf15c18c454d47a39b26989d8b640ecd745ba71bf5dc"
 
 PEM_BEGIN = b"-----BEGIN CERTIFICATE-----"
 PEM_END = b"-----END CERTIFICATE-----"
@@ -85,7 +104,7 @@ def describe(der):
     return "  [%s]" % ", ".join(bits) if bits else ""
 
 
-def check_store(label, blob, revocation):
+def check_store(label, blob, revocation, pre_signing=False):
     try:
         z = zipfile.ZipFile(io.BytesIO(blob))
         names = [n for n in z.namelist() if not n.endswith("/")]
@@ -116,10 +135,10 @@ def check_store(label, blob, revocation):
     for fp, (n, der) in sorted(seen.items(), key=lambda kv: kv[1][0]):
         if fp == RESERVE_SHA256:
             role = "RESERVE"
-        elif PRIMARY_SHA256 and fp == PRIMARY_SHA256:
+        elif fp in KNOWN_PRIMARIES:
             role = "primary"
         else:
-            role = "other  "
+            role = "UNKNOWN"
         print("      %s  %s  %s%s" % (role, fp, n, describe(der)))
 
     if RESERVE_SHA256 not in seen:
@@ -127,10 +146,27 @@ def check_store(label, blob, revocation):
                         "post-sign target_files, the PRODUCT_EXTRA_OTA_KEYS line did not survive "
                         "ReplaceOtaKeys." % (label, RESERVE_SHA256))
     others = [fp for fp in seen if fp != RESERVE_SHA256]
-    if PRIMARY_SHA256 and PRIMARY_SHA256 not in seen and not revocation:
-        findings.append("%s does not contain the pinned primary certificate (%s)"
-                        % (label, PRIMARY_SHA256))
-    elif not others and not revocation:
+    unknown = [fp for fp in others if fp not in KNOWN_PRIMARIES]
+    # Not gated on `revocation`. A revocation build that carries a stranger's certificate is at least
+    # as serious as an ordinary build that does, and the suppression meant the single most important
+    # check in this file could be switched off by a flag whose stated purpose is something else.
+    if unknown:
+        for fp in sorted(unknown):
+            findings.append("%s contains a certificate that is NOT the reserve and NOT a known "
+                            "primary: %s. Every handset flashed with this image would accept an "
+                            "OTA signed by that key. Known primaries are: %s."
+                            % (label, fp, "; ".join(sorted(KNOWN_PRIMARIES.values()))))
+    # The testkey is allowlisted so the PRE-sign run does not cry wolf. Post-sign it is a shipped
+    # image that trusts a private key published in the AOSP source tree, which is the exact failure
+    # ReplaceOtaKeys silently not applying would produce -- so it has to be a finding unless the
+    # caller says this artefact has not been signed yet.
+    if TESTKEY_SHA256 in seen and not pre_signing:
+        findings.append("%s trusts the AOSP TESTKEY (%s). Its private key is published in the AOSP "
+                        "source tree, so anyone could sign an OTA this image would accept. If this "
+                        "is the post-sign target_files, ReplaceOtaKeys did not apply. Pass "
+                        "--pre-signing only for an artefact that has not been signed yet."
+                        % (label, TESTKEY_SHA256))
+    if not others and not revocation:
         findings.append("%s contains ONLY the reserve certificate. The primary is gone: no "
                         "package signed with keys/<device>/releasekey would be accepted. Pass "
                         "--revocation if that is deliberate." % label)
@@ -163,6 +199,29 @@ def selftest():
     if good is not None:
         cases.append(("reserve alone, without --revocation", store([("keys/otareserve.x509.pem", good)])))
 
+    # The case that matters most, and the one this gate used to pass: the reserve beside a
+    # certificate nobody pinned. Before KNOWN_PRIMARIES existed, `others` was non-empty and every
+    # primary-side test was unreachable, so this shape reported OTACERTS PASS.
+    stranger = None
+    if shutil.which("openssl"):
+        tmpd = tempfile.mkdtemp()
+        try:
+            key = os.path.join(tmpd, "k.pem")
+            crt = os.path.join(tmpd, "c.pem")
+            rc = subprocess.call(
+                ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-keyout", key, "-out", crt,
+                 "-days", "1", "-nodes", "-subj", "/CN=not-our-key"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if rc == 0:
+                with open(crt, "rb") as f:
+                    stranger = f.read()
+        finally:
+            shutil.rmtree(tmpd, ignore_errors=True)
+    if good is not None and stranger is not None:
+        cases.append(("reserve + a certificate nobody pinned",
+                      store([("keys/otareserve.x509.pem", good),
+                             ("keys/releasekey.x509.pem", stranger)])))
+
     bad = 0
     for name, blob in cases:
         del findings[:]
@@ -192,7 +251,8 @@ def selftest():
 def main():
     args = sys.argv[1:]
     revocation = "--revocation" in args
-    args = [a for a in args if a != "--revocation"]
+    pre_signing = "--pre-signing" in args
+    args = [a for a in args if a not in ("--revocation", "--pre-signing")]
     if "--selftest" in args:
         return selftest()
     if len(args) != 1:
@@ -217,7 +277,7 @@ def main():
                    if not n.endswith("/") and n.lower().endswith((".pem", ".der", ".crt", ".x509"))]
         if certish and len(certish) == len([n for n in names if not n.endswith("/")]):
             with open(target, "rb") as f:
-                n_certs = check_store(os.path.basename(target), f.read(), revocation)
+                n_certs = check_store(os.path.basename(target), f.read(), revocation, pre_signing)
             return report(1 if n_certs == 0 else 0)
         if any(n.endswith(".img") for n in names):
             print("CANNOT TELL: %s looks like a factory/img zip. otacerts.zip lives inside "
@@ -245,7 +305,7 @@ def main():
 
     total = 0
     for n in sorted(stores):
-        total += check_store(n, outer.read(n), revocation)
+        total += check_store(n, outer.read(n), revocation, pre_signing)
 
     rec = [n for n in stores if n.startswith(("BOOT/", "RECOVERY/", "VENDOR_BOOT/"))]
     if rec:

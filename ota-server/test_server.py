@@ -19,7 +19,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 
-PAYLOAD = b"".join(bytes([i % 251]) for i in range(200000))
+# Must begin with the CrAU payload magic: ota_manifest.py now refuses to describe a package whose
+# payload_offset does not point at a payload, and a fixture that is not shaped like one would be
+# asserting that the tool accepts something no device would.
+PAYLOAD = b"CrAU" + b"".join(bytes([i % 251]) for i in range(200000 - 4))
 TOKEN = "test-token-not-real"
 FAKE_SIG = (b"untrusted comment: signature from a test\n"
             b"RUQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"
