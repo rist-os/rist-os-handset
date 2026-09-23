@@ -42,28 +42,50 @@ internal object VolumeKeys {
         RINGER(AudioManager.STREAM_RING, "Ringer", R.drawable.ic_vol_ring),
         NOTIFICATIONS(AudioManager.STREAM_NOTIFICATION, "Alerts", R.drawable.ic_vol_notif),
         ALARM(AudioManager.STREAM_ALARM, "Alarm", R.drawable.ic_vol_alarm),
+
+        // Last, and only shown while a call is live. Voice stays the first slider deliberately -- it
+        // is the one with no other control anywhere -- and a slider that changes position between
+        // openings is harder to hit than one that does not. Which channel the BUTTONS act on does not
+        // depend on this order: route() targets CALL during a call wherever it sits.
+        //
+        // Off-call it is hidden because setStreamVolume(STREAM_VOICE_CALL) then writes to whatever
+        // output is notionally active and the person sees no effect, which is worse than not offering
+        // it. Note getStreamMinVolume(STREAM_VOICE_CALL) is 1, not 0: a call cannot be muted to
+        // nothing, and the slider already respects each stream's own minimum.
+        CALL(AudioManager.STREAM_VOICE_CALL, "Call", R.drawable.ic_vol_voice),
     }
 
     /**
      * The channel a press adjusts, or null to leave the press to Android.
      *
-     * A call or a ringing phone keeps Android's behaviour: the buttons set call volume, or
-     * silence the ringer, and nothing here should be in the way of that. A ringing alarm is the
-     * alarm screen's to handle. Otherwise the channel the person picked in the open panel wins,
-     * and the ringer otherwise.
+     * A ringing phone and a ringing alarm both keep Android's behaviour: a press while ringing must
+     * reach Android so it silences the ringer, which is a reflex people rely on, and a ringing alarm
+     * is the alarm screen's business. An active call used to be lumped in with them and fall through
+     * too -- so in a call you got Android's dialog instead of Rist's, and the panel had no call
+     * channel to show even if it had opened. It gets [Channel.CALL] now.
+     *
+     * `telephonyCall` and `voipCall` are separate inputs on purpose. They used to be one boolean read
+     * from `AudioManager.mode`, which is the wrong signal: `mode` is audio-policy state owned by
+     * whoever last called `setMode`, it reads MODE_IN_COMMUNICATION for a VoIP call with no telephony
+     * call at all -- including Rist's own video calls -- it lags the modem on an outgoing call, and a
+     * VoIP app killed without restoring MODE_NORMAL leaves it lying indefinitely. Both kinds of call
+     * want the call slider; only telephony can be trusted to say a telephony call is up.
      */
     fun route(
-        callOrRinging: Boolean,
+        telephonyCall: Boolean,
+        telephonyRinging: Boolean,
         alarmRinging: Boolean,
         picked: Channel?,
         voiceSounding: Boolean,
         mediaSounding: Boolean,
         voiceOwnVolume: Boolean = true,
+        voipCall: Boolean = false,
     ): Channel? {
         // The buttons always start on the ringer, even while
         // something plays; a slider tapped in the open panel takes them over until it closes.
         return when {
-            callOrRinging || alarmRinging -> null
+            telephonyRinging || alarmRinging -> null
+            telephonyCall || voipCall -> picked ?: Channel.CALL
             picked != null -> picked
             else -> Channel.RINGER
         }
@@ -85,7 +107,8 @@ internal object VolumeKeys {
      * Android's assistant volume, without it RIST's own level for replies played as media.
      */
     @Suppress("UNUSED_PARAMETER")
-    fun channels(voiceOwnVolume: Boolean): List<Channel> = Channel.values().toList()
+    fun channels(voiceOwnVolume: Boolean, inCall: Boolean = false): List<Channel> =
+        Channel.values().filter { it != Channel.CALL || inCall }
 
     /** Ring → vibrate → silent → ring, the order Android's own button cycles in. */
     fun nextRingerMode(mode: Int): Int = when (mode) {
@@ -268,7 +291,7 @@ internal class VolumePanel(private val activity: Activity) {
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT,
         ))
         val ownVoice = VolumeKeys.voiceHasOwnVolume(activity)
-        for (channel in VolumeKeys.channels(ownVoice)) {
+        for (channel in VolumeKeys.channels(ownVoice, inCall = CallState.inCall(activity))) {
             val col = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER_HORIZONTAL
