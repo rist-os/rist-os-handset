@@ -98,6 +98,35 @@ class OtaApplyTest {
     }
 
     @Test
+    fun aPayloadThisBuildCannotReadIsPermanentRatherThanRetriedForever() {
+        // 2026092200 shipped an OTA whose manifest the previous release's update_engine could not
+        // parse. Code 23 was unnamed, fell into the unknown-code branch, and the handset retried
+        // every six hours -- re-fetching the payload each time -- with no cap and no backoff.
+        // Every code here means "this package is wrong": another download produces the same bytes.
+        for (code in listOf(
+            OtaApply.ErrorCode.DOWNLOAD_MANIFEST_PARSE_ERROR,
+            OtaApply.ErrorCode.DOWNLOAD_INVALID_METADATA_MAGIC_STRING,
+            OtaApply.ErrorCode.DOWNLOAD_INVALID_METADATA_SIZE,
+            OtaApply.ErrorCode.DOWNLOAD_SIGNATURE_MISSING_IN_MANIFEST,
+            OtaApply.ErrorCode.DOWNLOAD_INVALID_METADATA_SIGNATURE,
+            OtaApply.ErrorCode.DOWNLOAD_METADATA_SIGNATURE_ERROR,
+            OtaApply.ErrorCode.DOWNLOAD_METADATA_SIGNATURE_VERIFICATION_ERROR,
+            OtaApply.ErrorCode.DOWNLOAD_METADATA_SIGNATURE_MISMATCH,
+            OtaApply.ErrorCode.SIGNED_DELTA_PAYLOAD_EXPECTED_ERROR,
+            OtaApply.ErrorCode.DOWNLOAD_PAYLOAD_PUB_KEY_VERIFICATION_ERROR,
+            OtaApply.ErrorCode.UNSUPPORTED_MAJOR_PAYLOAD_VERSION,
+            OtaApply.ErrorCode.UNSUPPORTED_MINOR_PAYLOAD_VERSION,
+            OtaApply.ErrorCode.NEW_ROOTFS_VERIFICATION_ERROR,
+            OtaApply.ErrorCode.NEW_KERNEL_VERIFICATION_ERROR,
+            OtaApply.ErrorCode.FILESYSTEM_VERIFIER_ERROR,
+        )) {
+            assertTrue(
+                "update_engine code $code must be permanent, not retried",
+                OtaApply.classify(code) is OtaApply.Outcome.Permanent)
+        }
+    }
+
+    @Test
     fun theOmahaFlagBitsDoNotTurnSuccessIntoAFailure() {
         val devModeFlag = 1 shl 31
         assertEquals(OtaApply.Outcome.Applied, OtaApply.classify(OtaApply.ErrorCode.SUCCESS or devModeFlag))
