@@ -419,8 +419,28 @@ def check(path, keep_set, vbmeta_path, target_files_arg, expect_otacert,
         rep.note('expected to carry, so the partial_update question cannot be answered. Pass')
         rep.note('    --target-files <device>-target_files.zip')
     else:
-        uncovered = sorted(p for p in ab_parts if p not in parts)
-        if not uncovered:
+        # Firmware is only "expected" when this build ships it. The device lists 24 A/B partitions,
+        # eleven of them Google firmware, but CHANGELOG.md promises users that "an over-the-air update
+        # carries no firmware" -- and the payload proven to apply (sideloaded to status 0) was the
+        # firmware-free shape. Counting those eleven as uncovered failed the one shape with device
+        # evidence behind it, which is the mirror of the mistake the firmware check made in the other
+        # direction. One switch governs both: RIST_SHIP_FIRMWARE says which product this build is, and
+        # the two checks agree by construction instead of contradicting each other.
+        #
+        # Not covering them is safe here and the reason is worth keeping: without partial_update an
+        # omitted partition is simply not written, so the target slot keeps the firmware the last
+        # flash put there -- and a RistOS install is a flash-all, which writes both slots. Our vbmeta
+        # covers none of the eleven, so verified boot does not compare them either.
+        expected = ab_parts if ship_firmware else {p for p in ab_parts
+                                                  if p not in GOOGLE_FIRMWARE_PARTITIONS}
+        uncovered = sorted(p for p in expected if p not in parts)
+        if not uncovered and not ship_firmware and len(expected) < len(ab_parts):
+            rep.ok('payload covers all %d non-firmware partitions the device updates; the %d firmware '
+                   'partitions are excluded on purpose (RIST_SHIP_FIRMWARE is not set)'
+                   % (len(expected), len(ab_parts) - len(expected)))
+            rep.note('Those keep whatever the last flash wrote, which is both slots on a flash-all,')
+            rep.note('and this build\'s vbmeta covers none of them.')
+        elif not uncovered:
             rep.ok('payload covers every partition in META/ab_partitions.txt (%d), so it is a '
                    'complete update and partial_update is neither needed nor wanted' % len(ab_parts))
         else:
@@ -915,6 +935,22 @@ def selftest():
     run('Google firmware fires when NOT declared', 1, 'Google firmware partitions are inside',
         [full, '--vbmeta', vb_ok, '--target-files', _fixture_tf(tmp)])
 
+    # The shape with device evidence: 13 partitions, no flag, against a device that lists 24. This is
+    # what sideloaded to status 0, and what CHANGELOG.md promises users ("an over-the-air update
+    # carries no firmware"). The coverage check counted the eleven firmware partitions as uncovered and
+    # failed it -- the mirror of the firmware check's mistake.
+    fwfree = make_ota(p(tmp, 'fwfree.zip'), CLEAN_SET)
+    run('the firmware-free shape passes against a 24-name device', 0, 'excluded on purpose',
+        [fwfree, '--vbmeta', vb_ok,
+         '--expect-otacert', cert_fingerprint(FIXTURE_CERT.encode()),
+         '--target-files', _fixture_tf_24(tmp)])
+
+    # And declaring firmware while shipping none is still a real finding: the payload then genuinely
+    # does not carry what the device is told to expect.
+    run('declaring firmware but omitting it fires', 1, 'does not carry 11 of the 24',
+        [fwfree, '--ship-firmware', '--vbmeta', vb_ok,
+         '--target-files', _fixture_tf_24(tmp)])
+
     # The case that made the gate unsatisfiable. This device's own ro.product.ab_ota_partitions names
     # 24 partitions, eleven of them Google firmware, so a payload that covers what the device updates
     # MUST carry them. Read from a handset on 2026-09-23. Before --ship-firmware existed this file
@@ -1007,6 +1043,22 @@ def selftest():
     print('SELFTEST PASS -- every check fired on a payload carrying its defect, the clean')
     print('                partial passed, and every "cannot tell" case exited 2 rather than 0.')
     return 0
+
+
+def _fixture_tf_24(tmp):
+    """A target_files whose META/ab_partitions.txt is the device's real 24-name list.
+
+    Read from a handset on 2026-09-23: ro.product.ab_ota_partitions names 24 partitions, eleven of
+    them Google firmware. The firmware-free payload shape has to be tested against THIS, not against a
+    13-name fixture, or the test agrees with itself and proves nothing.
+    """
+    path = os.path.join(tmp, 'tf24', 'stallion-target_files.zip')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if not os.path.exists(path):
+        with zipfile.ZipFile(path, 'w') as z:
+            z.writestr('SYSTEM/build.prop', 'ro.build.version.incremental=rist.2026082902\n')
+            z.writestr('META/ab_partitions.txt', '\n'.join(sorted(FULL_SET)) + '\n')
+    return path
 
 
 def _fixture_tf(tmp):
