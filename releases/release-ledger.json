@@ -130,23 +130,39 @@
     },
     {
       "build": "2026090701",
-      "variant": "public",
-      "spl": "2026-08-05",
-      "spl_month": "2026-08",
-      "target_files": {
-        "path": "",
-        "bytes": 0,
-        "sha256": ""
-      },
       "published": {
-        "base_url": "https://dl.ristos.org/2026090701/",
         "artefacts": {
           "stallion-factory-2026090701.zip": {
             "bytes": 2105928542,
             "sha256": "be6f4250ce709b3c23fa833b4efda4f2eb68e8988f90b7884d662d273e9f1a7e"
           }
-        }
-      }
+        },
+        "base_url": "https://dl.ristos.org/2026090701/"
+      },
+      "spl": "2026-08-05",
+      "spl_month": "2026-08",
+      "target_files": {
+        "bytes": 0,
+        "path": "",
+        "sha256": ""
+      },
+      "variant": "public"
+    },
+    {
+      "acknowledged_previous_lost": "2026090701",
+      "acknowledged_spl_change": "2026-09",
+      "build": "2026092200",
+      "recorded_utc": "2026-09-23T04:03:26Z",
+      "rollback_index": null,
+      "spl": "2026-09-01",
+      "spl_month": "2026-09",
+      "target_files": {
+        "bytes": 4552835226,
+        "entries": 9339,
+        "path": "s3://ristos-releases/target_files/2026092200/stallion-target_files.zip",
+        "sha256": "0dc1234452b298f901e165d4b57e4ecb5b4cb0f22ef30cc20e910c7207fef503"
+      },
+      "variant": "public"
     }
   ]
 }
