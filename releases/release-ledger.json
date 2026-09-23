@@ -152,6 +152,47 @@
       "acknowledged_previous_lost": "2026090701",
       "acknowledged_spl_change": "2026-09",
       "build": "2026092200",
+      "published": {
+        "artefacts": {
+          "./INSTALL.md": {
+            "bytes": 20225,
+            "sha256": "a8b1f50e4fe3dbec7988fefb0259557fa065fdcafc0094eb5ff290dd39435553"
+          },
+          "./stallion-alpha": {
+            "bytes": 42,
+            "sha256": "914df0a869ceccbafe144388b6b06fd255f67612dec80c756a4ad90d24e1ece1"
+          },
+          "./stallion-beta": {
+            "bytes": 41,
+            "sha256": "efcf457bc0e956d35664105d50851edb6e43248a50a6b08f1f27f4826c9a279a"
+          },
+          "./stallion-factory-2026092200.zip": {
+            "bytes": 2108505107,
+            "sha256": "ddd168184d044170e8414057f1daffdb4254a0d766e854b954c21454c6b4d851"
+          },
+          "./stallion-img-2026092200.zip": {
+            "bytes": 1956651049,
+            "sha256": "17e68412b90ec4d593eb8ddaa6f28702fc6fee3e65c72742701f19882311d633"
+          },
+          "./stallion-install-2026092200.zip": {
+            "bytes": 1953182754,
+            "sha256": "05096026cf37e124d5bb23257947c7d115fd4e654b17ae1dd2574d02163c0560"
+          },
+          "./stallion-ota_update-2026092200.zip": {
+            "bytes": 1420474657,
+            "sha256": "857dd4140817d3dd07d693205dc2f268abec3e24b789a9be3a116a27d13278b5"
+          },
+          "./stallion-stable": {
+            "bytes": 43,
+            "sha256": "868b7a6573a3ea498313b628ba2c791d5d69b71c232f120233794b2acad9f5dc"
+          },
+          "./stallion-testing": {
+            "bytes": 44,
+            "sha256": "7645bf8559cbfea0ae7ccb6f637b2e37055d90207ee04cc637e74fd50fbebb59"
+          }
+        },
+        "base_url": "https://dl.ristos.org/2026092200/"
+      },
       "recorded_utc": "2026-09-23T04:03:26Z",
       "rollback_index": null,
       "spl": "2026-09-01",
