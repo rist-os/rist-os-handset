@@ -13,6 +13,7 @@ import android.util.Log
 import android.view.Gravity
 import android.view.WindowManager
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.core.content.res.ResourcesCompat
 
@@ -81,7 +82,11 @@ class IncomingCallActivity : Activity() {
         val t = Themes.byId(Config.themeId(this))
         val name = CallerId.nameFor(this, number)
 
-        setContentView(LinearLayout(this).apply {
+        // Wrapped in a scroller so the buttons cannot be pushed out of reach. The activity is locked
+        // portrait now, which is the real fix for the sideways screen that hid DECLINE, but a button
+        // that decides whether a call is answered should not depend on the content fitting.
+        // fillViewport keeps it centred when there is room to spare, which is the ordinary case.
+        val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setBackgroundColor(t.ground)
@@ -111,7 +116,21 @@ class IncomingCallActivity : Activity() {
 
             addView(button("ANSWER", t.accent, t.ground) { answer() }, spaced(px(40f)))
             addView(button("DECLINE", t.inkMuted, t.ground) { decline() }, spaced(px(14f)))
-        })
+        }
+
+        setContentView(
+            ScrollView(this).apply {
+                isFillViewport = true
+                setBackgroundColor(t.ground)
+                addView(
+                    column,
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                    )
+                )
+            }
+        )
     }
 
     /**

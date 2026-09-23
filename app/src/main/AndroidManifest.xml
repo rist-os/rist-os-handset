@@ -308,12 +308,20 @@
             android:showWhenLocked="true"
             android:theme="@style/Theme.AppCompat.NoActionBar" />
 
+        <!-- screenOrientation="portrait" is not decoration. Every other activity in this app locks
+             portrait; this one did not, so it followed the sensor and came up sideways on a handset
+             that was not upright. In landscape the column of title, caller, ANSWER and DECLINE is
+             taller than the screen, so DECLINE was pushed off the bottom and the lowest button a
+             person could see and tap was ANSWER, so a call they meant to reject was answered instead.
+             Observed on a handset on 2026-09-23. The layout is also scrollable now, so no future
+             screen size can put a button out of reach. -->
         <activity
             android:name=".IncomingCallActivity"
             android:exported="false"
             android:taskAffinity=""
             android:launchMode="singleInstance"
             android:excludeFromRecents="true"
+            android:screenOrientation="portrait"
             android:showOnLockScreen="true"
             android:turnScreenOn="true"
             android:showWhenLocked="true"
