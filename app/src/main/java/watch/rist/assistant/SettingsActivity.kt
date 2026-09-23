@@ -483,19 +483,13 @@ class SettingsActivity : AppCompatActivity() {
             submit.visibility = vis
         }
 
-        if (Config.enrolRevoked(this)) {
-            status.text = getString(R.string.pair_revoked)
-            offerPairing(false)
-            return
-        }
-
-        if (!Enrolment.needed(this)) {
+        if (!Enrolment.canPair(this)) {
             status.text = getString(R.string.pair_connected)
             offerPairing(false)
             return
         }
 
-        status.text = getString(R.string.pair_prompt)
+        status.text = getString(if (Config.enrolRevoked(this)) R.string.pair_revoked else R.string.pair_prompt)
         offerPairing(true)
 
         input.setOnEditorActionListener { _, actionId, _ ->

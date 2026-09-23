@@ -47,6 +47,10 @@ object VoicemailTranscript {
                     resp.code == 404 -> { Log.i(TAG, "no transcript route or no such message: $id"); Result.NotFound }
                     resp.code == 401 -> { Enrolment.onCredentialDead(ctx); Result.Failed("not authorised") }
                     resp.code == 403 -> { Enrolment.onRevoked(ctx); Result.Failed("access turned off") }
+                    resp.code == Billing.PAYMENT_REQUIRED -> {
+                        Billing.onLapsed(ctx, Billing.lapseFrom(resp))
+                        Result.Failed("the subscription has ended")
+                    }
                     else -> Result.Failed("couldn't read that one (${resp.code})")
                 }
             }

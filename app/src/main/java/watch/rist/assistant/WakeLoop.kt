@@ -33,6 +33,10 @@ object WakeLoop {
     internal const val BACKOFF_MAX_MS = 60_000L
     /** How often to look again when there is no token to poll with. */
     internal const val NO_TOKEN_RECHECK_MS = 5L * 60 * 1000
+    /** A revoked token is asked again this rarely, so a reinstatement is noticed without a reset. */
+    internal const val REVOKED_RECHECK_MS = 60L * 60 * 1000
+    /** A 402 here is not in the contract; if one comes, ask again at this pace until it stops. */
+    internal const val LAPSED_RECHECK_MS = 5L * 60 * 1000
 
     /** Floor and ceiling on the server's poll_after_s: 0 must not become a tight loop. */
     internal const val POLL_GAP_MIN_MS = 1_000L
@@ -46,8 +50,10 @@ object WakeLoop {
         data class Signal(val signal: WakeSignal, val acked: List<String>) : Outcome()
         /** 401: the credential is dead. Enrolment clears it; the loop waits for a new one. */
         object Unauthorised : Outcome()
-        /** 403: revoked. Never poll again on this token. */
+        /** 403: revoked. Asked again only every [REVOKED_RECHECK_MS]. */
         object Revoked : Outcome()
+        /** 402: the subscription lapsed. The token is fine; nothing is cleared. */
+        data class Lapsed(val lapse: Billing.Lapse) : Outcome()
         /** 503 or a transport failure: back off and try again. */
         data class Retry(val why: String) : Outcome()
         /** No token, or no backend address: nothing to poll with yet. */
@@ -82,7 +88,6 @@ object WakeLoop {
 
     /** One held poll. Blocking; call off the main thread. */
     internal fun poll(ctx: Context, http: OkHttpClient = client): Outcome {
-        if (Config.enrolRevoked(ctx)) return Outcome.Revoked
         val bearer = Uploader.bearer(ctx) ?: return Outcome.NotReady
         val acks = NotificationQueue.pendingAcks(ctx)
         val url = wakeUrl(Config.backendUrl(ctx), acks, CommsFeed.MAX_NOTIFICATIONS) ?: return Outcome.NotReady
@@ -102,6 +107,7 @@ object WakeLoop {
                     200 -> Outcome.Signal(WakeSignal.parseFrom(resp.body?.bytes() ?: ByteArray(0)), acks)
                     401 -> Outcome.Unauthorised
                     403 -> Outcome.Revoked
+                    Billing.PAYMENT_REQUIRED -> Outcome.Lapsed(Billing.lapseFrom(resp))
                     else -> Outcome.Retry("HTTP ${resp.code}")
                 }
             }
@@ -173,6 +179,7 @@ object WakeLoop {
             kicks.tryReceive()
             when (out) {
                 is Outcome.Signal -> {
+                    runCatching { Enrolment.onReinstated(ctx) }
                     runCatching { apply(ctx, out.signal, out.acked) }
                         .onFailure { Log.w(TAG, "could not take a signal in", it) }
                     backoff = BACKOFF_MIN_MS
@@ -186,12 +193,16 @@ object WakeLoop {
                     refusedToken = token
                 }
                 Outcome.Revoked -> {
-                    Log.w(TAG, "403: this device is revoked; not polling")
+                    Log.w(TAG, "403: this device is revoked; asking again in ${REVOKED_RECHECK_MS / 60_000} min")
                     runCatching { Enrolment.onRevoked(ctx) }
-                    refusedToken = token
-                    // A revoked phone with no token at all passes the refused-token check on
-                    // every turn of the loop; this wait is what keeps that from spinning.
-                    waitOrKick(NO_TOKEN_RECHECK_MS)
+                    backoff = BACKOFF_MIN_MS
+                    waitOrKick(REVOKED_RECHECK_MS)
+                }
+                is Outcome.Lapsed -> {
+                    Log.w(TAG, "402: subscription ${out.lapse.reason}; keeping the token, asking again later")
+                    runCatching { Billing.onLapsed(ctx, out.lapse) }
+                    backoff = BACKOFF_MIN_MS
+                    waitOrKick(LAPSED_RECHECK_MS)
                 }
                 is Outcome.Retry -> {
                     Log.i(TAG, "retry in ${backoff}ms (${out.why})")

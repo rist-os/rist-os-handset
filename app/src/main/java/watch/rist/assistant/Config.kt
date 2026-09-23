@@ -45,6 +45,10 @@ object Config {
     private const val KEY_RIST_NUMBER = "rist_number"
     private const val KEY_ENROL_REVOKED = "enrol_revoked"
     private const val KEY_CREDENTIAL_REJECTED = "credential_rejected"
+    private const val KEY_BILLING_LAPSE = "billing_lapse"
+    private const val KEY_BILLING_RENEW = "billing_renew_url"
+    private const val KEY_BILLING_PORTAL = "billing_portal_path"
+    private const val KEY_BILLING_NO_PORTAL = "billing_no_portal"
     private const val KEY_COMMS_RESULTS = "comms_results"
     private const val KEY_VOICEMAILS = "voicemails"
     private const val KEY_SETTINGS_STATE = "settings_state"
@@ -196,7 +200,9 @@ object Config {
 
     private fun clearAuthTokenForHostChange(ctx: Context) {
         val had = authToken(ctx).length
-        prefs(ctx).edit().remove(KEY_AUTH_TOKEN).apply()
+        // A revocation or a lapse was one backend's word about this device, not the next one's.
+        prefs(ctx).edit().remove(KEY_AUTH_TOKEN).remove(KEY_ENROL_REVOKED).remove(KEY_BILLING_LAPSE)
+            .remove(KEY_BILLING_RENEW).remove(KEY_BILLING_PORTAL).remove(KEY_BILLING_NO_PORTAL).apply()
         if (had > 0) {
             android.util.Log.i("RistConfig", "backend endpoint changed; cleared the device token ($had chars)")
         }
@@ -258,6 +264,22 @@ object Config {
 
     fun setCredentialRejected(ctx: Context, v: Boolean) {
         prefs(ctx).edit().putBoolean(KEY_CREDENTIAL_REJECTED, v).apply()
+    }
+
+    fun billingLapse(ctx: Context): String = prefs(ctx).getString(KEY_BILLING_LAPSE, "") ?: ""
+    fun billingRenewUrl(ctx: Context): String = prefs(ctx).getString(KEY_BILLING_RENEW, "") ?: ""
+    fun billingPortalPath(ctx: Context): String = prefs(ctx).getString(KEY_BILLING_PORTAL, "") ?: ""
+    fun billingNoPortal(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_BILLING_NO_PORTAL, false)
+    fun setBillingNoPortal(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_BILLING_NO_PORTAL, v).apply() }
+
+    fun setBillingLapse(ctx: Context, reason: String, renewUrl: String, portalPath: String) {
+        prefs(ctx).edit().putString(KEY_BILLING_LAPSE, reason).putString(KEY_BILLING_RENEW, renewUrl)
+            .putString(KEY_BILLING_PORTAL, portalPath).apply()
+    }
+
+    fun clearBillingLapse(ctx: Context) {
+        prefs(ctx).edit().remove(KEY_BILLING_LAPSE).remove(KEY_BILLING_RENEW)
+            .remove(KEY_BILLING_PORTAL).remove(KEY_BILLING_NO_PORTAL).apply()
     }
 
     fun voicemailCount(ctx: Context): Int = prefs(ctx).getInt(KEY_VM_COUNT, 0)

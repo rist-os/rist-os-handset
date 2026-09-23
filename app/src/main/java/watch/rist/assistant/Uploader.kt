@@ -103,6 +103,7 @@ class Uploader(private val ctx: Context) {
                     .apply { bearer(ctx)?.let { header("Authorization", it) } }
                     .build()
                 client.newCall(httpRequest).execute().use { resp ->
+                    // Best-effort, so no status here changes any state: a 402 or 403 is the turn's to act on.
                     if (!resp.isSuccessful) Log.w(TAG, "progress HTTP ${resp.code}")
                 }
             }.onFailure { Log.w(TAG, "progress post failed (best-effort)", it) }
@@ -455,6 +456,10 @@ class Uploader(private val ctx: Context) {
     var lastFailure: String = ""
         private set
 
+    /** Set when the last send was refused for billing (402); the reply, if any, is the backend's line. */
+    var lastLapse: Billing.Lapse? = null
+        private set
+
     private fun post(
         requestProto: DeviceRequest,
         includeInboundSms: Boolean = false,
@@ -462,6 +467,7 @@ class Uploader(private val ctx: Context) {
         onLocationInterim: ((DeviceResponse) -> Unit)? = null
     ): DeviceResponse? {
         lastFailure = ""
+        lastLapse = null
         var req = requestProto
         val smsRead = if (includeInboundSms) SmsInbox.read(ctx) else SmsRead.Held(emptyList())
         if (smsRead is SmsRead.Unreadable) {
@@ -578,7 +584,23 @@ class Uploader(private val ctx: Context) {
                         Log.w(TAG, "backend 413 with an unparseable body")
                         return null
                     }
-                    // 401 = credential dead (re-enrol); 403 = revoked (never enrol); 503 = retry.
+                    // 402 = pay: the body is a spoken line like the 413's, and nothing is cleared.
+                    if (httpResp.code == Billing.PAYMENT_REQUIRED) {
+                        val lapse = Billing.lapseFrom(httpResp)
+                        lastLapse = lapse
+                        Billing.onLapsed(ctx, lapse)
+                        val parsed = httpResp.body?.bytes()?.takeIf { it.isNotEmpty() }
+                            ?.let { runCatching { DeviceResponse.parseFrom(it) }.getOrNull() }
+                            ?.takeIf { it.speech.text.isNotBlank() }
+                        if (parsed != null) {
+                            Log.w(TAG, "backend 402 (${lapse.reason}) req_id=${parsed.requestId}")
+                            return parsed
+                        }
+                        lastFailure = Billing.fallbackLine(lapse.renewUrl)
+                        Log.w(TAG, "backend 402 (${lapse.reason}) with an unparseable body")
+                        return null
+                    }
+                    // 401 = credential dead (re-enrol); 403 = revoked (pair again); 503 = retry.
                     lastFailure = when (httpResp.code) {
                         401 -> {
                             Enrolment.onCredentialDead(ctx)
@@ -586,7 +608,7 @@ class Uploader(private val ctx: Context) {
                         }
                         403 -> {
                             Enrolment.onRevoked(ctx)
-                            "this device's access has been turned off"
+                            "this device's access has been turned off — pair it again in Settings"
                         }
                         503 -> "the assistant is briefly unavailable — trying again shortly"
                         404 -> "the assistant endpoint wasn't found"
@@ -664,6 +686,8 @@ class Uploader(private val ctx: Context) {
                 "corridor=${resp.nav.hasCorridor()} tiles=${if (resp.nav.hasCorridor()) resp.nav.corridor.tilesCount else 0} frames=${resp.nav.framesCount} tiles=${resp.nav.tilesCount} turns=${resp.nav.turnsCount} routeId='${resp.nav.routeId}'" else "") +
             (if (resp.hasLocationRequest()) "maxAge=${resp.locationRequest.maxAgeS} minAcc=${resp.locationRequest.minAccuracyM}" else ""))
         // sms_ack is ignored: nothing is held on the device to clear.
+        runCatching { Billing.onServed(ctx) }
+        runCatching { Enrolment.onReinstated(ctx) }
         if (resp.smsAckCount > 0) Log.i(TAG, "backend acked ${resp.smsAckCount} SMS; nothing held to clear")
         // Ack before arm.
         if (resp.geofenceAckCount > 0) Geofences.ackCrossings(ctx, resp.geofenceAckList)

@@ -119,11 +119,12 @@ object CommsFeedView {
         val vmWaiting = CarrierVoicemail.showing(activity)
         val textsUnreadable = !SmsInbox.canRead(activity)
         val unconnected = Config.credentialRejected(activity) || Config.enrolRevoked(activity)
+        val lapsed = if (unconnected) null else Billing.notice(activity)
 
         val mailUnread = Config.pendingMail(activity)
         val unbadgedMail = CommsFeed.unbadgedMail(all, mailUnread)
 
-        if (shown.isEmpty() && !vmWaiting && !textsUnreadable && !unconnected &&
+        if (shown.isEmpty() && !vmWaiting && !textsUnreadable && !unconnected && lapsed == null &&
             unbadgedMail <= 0
         ) {
             host.visibility = View.GONE; return@runCatching
@@ -137,6 +138,8 @@ object CommsFeedView {
         val waiting = CommsFeed.waitingCount(all, vmWaiting, mailUnread)
 
         var drawn = 0
+        // Carries its own rule underneath, so what follows is laid out as if it were not there.
+        if (lapsed != null) host.addView(billingRow(activity, t, tf, d, lapsed))
         val headerDrawn = !unconnected
         if (headerDrawn) host.addView(header(activity, t, tf, muted, d, waiting, all, vmWaiting))
 
@@ -427,6 +430,64 @@ object CommsFeedView {
     }
 
     /** The × on every row. In ink, not muted: a control nobody can see is not a control. */
+    internal const val BILLING_ROW_TAG = "billing-lapse"
+    internal const val BILLING_BUTTON_TAG = "billing-update-payment"
+
+    /** The backend's renew line and one button; nothing here stands between the person and RECORD. */
+    private fun billingRow(
+        activity: Activity, t: RistTheme, tf: android.graphics.Typeface?, d: Float, line: String,
+    ): View = LinearLayout(activity).apply {
+        orientation = LinearLayout.VERTICAL
+        tag = BILLING_ROW_TAG
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        addView(TextView(activity).apply {
+            text = line
+            setTextColor(t.accent); typeface = tf
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setPadding(0, (6 * d).toInt(), 0, (6 * d).toInt())
+        })
+        if (Billing.offersPayment(activity)) addView(TextView(activity).apply {
+            text = activity.getString(R.string.billing_update_payment)
+            tag = BILLING_BUTTON_TAG
+            contentDescription = activity.getString(R.string.billing_update_payment_desc)
+            setTextColor(t.accent); typeface = tf; isAllCaps = true
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            gravity = Gravity.CENTER_VERTICAL
+            minHeight = (48 * d).toInt()
+            isClickable = true; isFocusable = true
+            setOnClickListener { openPortal(activity, this) }
+        })
+        addView(View(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, (1 * d).toInt())
+            )
+            setBackgroundColor(t.fieldBorder)
+        })
+    }
+
+    private fun openPortal(activity: Activity, button: TextView) {
+        if (!button.isEnabled) return
+        button.isEnabled = false
+        Toast.makeText(activity, activity.getString(R.string.billing_opening), Toast.LENGTH_SHORT).show()
+        val app = activity.applicationContext
+        Thread {
+            val out = Billing.fetchPortal(app)
+            activity.runOnUiThread {
+                if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                button.isEnabled = true
+                if (out is Billing.Portal.Open) {
+                    runCatching { activity.startActivity(LockedBrowserActivity.intent(activity, out.url)) }
+                        .onFailure { Log.w(TAG, "could not open the payment page", it) }
+                } else {
+                    Toast.makeText(activity, Billing.explain(out), Toast.LENGTH_LONG).show()
+                    render(activity)
+                }
+            }
+        }.start()
+    }
+
     private fun dismissButton(
         activity: Activity, t: RistTheme, tf: android.graphics.Typeface?, d: Float,
         spoken: String, onDismiss: () -> Unit,

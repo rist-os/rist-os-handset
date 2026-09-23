@@ -23,11 +23,26 @@ object Enrolment {
     private const val POLL_INTERVAL_MS = 3_000L
     private const val POLL_MAX_ATTEMPTS = 20
 
-    private const val MAX_ATTEMPTS = 3
+    // The first few texts go as fast as the nonce allows; after that each wait doubles, up to a day.
+    internal const val QUICK_ATTEMPTS = 3
+    internal const val BACKOFF_BASE_MS = 30L * 60L * 1000L
+    internal const val BACKOFF_MAX_MS = 24L * 60L * 60L * 1000L
 
-    enum class Readiness { READY, NO_SIM, NO_SERVICE, NOT_CONFIGURED, EXHAUSTED, REVOKED, ALREADY_ENROLLED }
+    enum class Readiness { READY, NO_SIM, NO_SERVICE, NOT_CONFIGURED, BACKING_OFF, ALREADY_ENROLLED }
 
     fun needed(ctx: Context): Boolean = Config.authToken(ctx).isBlank()
+
+    /** A revoked device holds a token that no longer works, so it pairs again like a new one. */
+    fun canPair(ctx: Context): Boolean = needed(ctx) || Config.enrolRevoked(ctx)
+
+    internal fun retryDelayMs(attempts: Int): Long {
+        if (attempts < QUICK_ATTEMPTS) return 0L
+        val doublings = (attempts - QUICK_ATTEMPTS).coerceAtMost(16)
+        return (BACKOFF_BASE_MS shl doublings).coerceAtMost(BACKOFF_MAX_MS)
+    }
+
+    internal fun nextAttemptAtMs(attempts: Int, lastSentAtMs: Long): Long =
+        if (attempts < QUICK_ATTEMPTS) 0L else lastSentAtMs + retryDelayMs(attempts)
 
     fun newNonce(): String {
         val bytes = ByteArray(16)
@@ -36,10 +51,11 @@ object Enrolment {
     }
 
     fun readiness(ctx: Context): Readiness {
-        if (!needed(ctx)) return Readiness.ALREADY_ENROLLED
-        if (Config.enrolRevoked(ctx)) return Readiness.REVOKED
+        if (!canPair(ctx)) return Readiness.ALREADY_ENROLLED
         if (target(ctx).isBlank()) return Readiness.NOT_CONFIGURED
-        if (Config.enrolAttempts(ctx) >= MAX_ATTEMPTS) return Readiness.EXHAUSTED
+        if (System.currentTimeMillis() < nextAttemptAtMs(Config.enrolAttempts(ctx), Config.enrolSentAtMs(ctx))) {
+            return Readiness.BACKING_OFF
+        }
         val tm = runCatching { ctx.getSystemService(TelephonyManager::class.java) }.getOrNull()
             ?: return Readiness.NO_SIM
         return when (tm.simState) {
@@ -56,10 +72,8 @@ object Enrolment {
             "Waiting for mobile service. Rist needs to send one text to finish setting up."
         Readiness.NOT_CONFIGURED ->
             "Enter the enrolment number your assistant service gave you."
-        Readiness.REVOKED ->
-            "This device's access was turned off by the assistant service. Setting it up again won't help."
-        Readiness.EXHAUSTED ->
-            "Setup couldn't be completed. Retrying will not help; check with whoever runs your assistant service."
+        Readiness.BACKING_OFF ->
+            "Setup hasn't finished yet. This phone will try again on its own a little later."
         Readiness.ALREADY_ENROLLED -> "Already set up."
         Readiness.READY -> "Setting up…"
     }
@@ -126,6 +140,7 @@ object Enrolment {
                                     false
                                 } else {
                                     clear(ctx)
+                                    Config.setEnrolRevoked(ctx, false)
                                     Log.i(TAG, "enrolled: stored a ${token.length}-char token")
                                     true
                                 }
@@ -171,6 +186,7 @@ object Enrolment {
         NOT_GRANTED,
         STORE_FAILED,
         LOCKED_OUT,
+        PAYMENT_REQUIRED,
     }
 
     // Backend floor: nonce min_length=8.
@@ -185,6 +201,7 @@ object Enrolment {
         code == 403 -> PairResult.REFUSED
         code == 400 || code == 422 -> PairResult.MALFORMED
         code == 429 -> PairResult.LOCKED_OUT
+        code == Billing.PAYMENT_REQUIRED -> PairResult.PAYMENT_REQUIRED
         else -> PairResult.NETWORK
     }
 
@@ -221,6 +238,8 @@ object Enrolment {
                     } else {
                         clear(ctx)
                         Config.setCredentialRejected(ctx, false)
+                        Config.setEnrolRevoked(ctx, false)
+                        Config.clearBillingLapse(ctx)
                         // Never log the code or the token.
                         Log.i(TAG, "paired: stored a ${token.length}-char token")
                     }
@@ -249,6 +268,8 @@ object Enrolment {
             "The assistant service answered but didn't connect this device. Get a new code and try again."
         PairResult.LOCKED_OUT ->
             "Too many attempts. Wait a few minutes, then get a new code and try again."
+        PairResult.PAYMENT_REQUIRED ->
+            "The assistant service says this account's subscription has ended. Renew it, then try again — your code has not been used."
         PairResult.STORE_FAILED ->
             "This device couldn't save the connection securely, so it isn't connected. " +
                 "Restart the phone and try a new code; if it keeps happening, report it."
@@ -272,9 +293,18 @@ object Enrolment {
         }
     }
 
+    // 403 only, never 402. The token is kept so the wake loop can notice a reinstatement, and
+    // pairing stays open so a new code can bring the phone back without a reset.
     fun onRevoked(ctx: Context) {
-        if (!Config.enrolRevoked(ctx)) Log.w(TAG, "this device has been revoked; enrolment disabled")
+        if (!Config.enrolRevoked(ctx)) Log.w(TAG, "this device has been revoked; pairing is open again")
         Config.setEnrolRevoked(ctx, true)
+    }
+
+    /** The backend served this device again, so whatever revoked it has been undone. */
+    fun onReinstated(ctx: Context) {
+        if (!Config.enrolRevoked(ctx)) return
+        Log.i(TAG, "served again after a revocation; clearing it")
+        Config.setEnrolRevoked(ctx, false)
     }
 
     fun run(ctx: Context) {

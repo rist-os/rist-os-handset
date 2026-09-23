@@ -160,12 +160,15 @@
     <string name="pair_submit_desc">Connect this device using the code you typed</string>
     <string name="pair_prompt">Enter your pairing code. Codes may be temporary, so if yours has expired, you may need to request a new one.</string>
     <string name="pair_connected">Your device is connected.</string>
-    <string name="pair_revoked">This device\'s access was turned off. Connecting it again will not restore it — contact support.</string>
+    <string name="pair_revoked">This device\'s access was turned off. To connect it again, get a new pairing code from your Rist account and enter it here.</string>
     <string name="pair_working">Connecting…</string>
 
     <string name="status_never_connected">Not connected yet. Tap here to connect this device.</string>
     <string name="status_connection_lost">This device is no longer connected. Tap here to reconnect.</string>
-    <string name="status_revoked">This device\'s access was turned off. Tap here to find out what to do.</string>
+    <string name="status_revoked">This device\'s access was turned off. Tap here to pair it again.</string>
+    <string name="billing_update_payment">Update payment</string>
+    <string name="billing_update_payment_desc">Open the payment page to renew your Rist Assistant subscription</string>
+    <string name="billing_opening">Opening the payment page…</string>
     <string name="mail_unread_one">You have an unread email.</string>
     <string name="mail_unread_many">You have %1$d unread emails.</string>
     <string name="apps_label">Apps</string>

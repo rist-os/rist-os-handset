@@ -356,6 +356,7 @@ class MainActivity : AppCompatActivity() {
             }
             activeEntryId = 0L
             if (userCancelled) statusText.text = getString(R.string.status_idle)
+            else if (reply == null && text.isBlank()) showFailure(failureLine(st))
             else status(if (text.isBlank()) st else "$st\n  “$text”")
             renderReply(reply, fallbackText = text)
         }
@@ -1878,13 +1879,30 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun announceFailure(reason: String) = runCatching {
+    // The status line is hidden on this layout, so a failure is also put where it can be seen.
+    internal fun announceFailure(reason: String) = runCatching {
         if (StreamingCancel.takeCancelledFlag()) {
             statusText.text = getString(R.string.status_idle)
             return@runCatching
         }
-        status("Sorry — " + reason.ifBlank { "something went wrong reaching the network" } + ".")
+        showFailure(failureLine(reason))
     }.onFailure { Log.w(TAG, "announceFailure", it) }.let { }
+
+    private fun showFailure(line: String) {
+        status(line)
+        Toast.makeText(this, line, Toast.LENGTH_LONG).show()
+        Haptics.final(this)
+        refreshBillingNotice()
+    }
+
+    private var billingNoticeShown: String? = null
+
+    private fun refreshBillingNotice() = runCatching {
+        val now = Billing.notice(this)
+        if (now == billingNoticeShown) return@runCatching
+        billingNoticeShown = now
+        CommsFeedView.render(this)
+    }.onFailure { Log.w(TAG, "billing notice", it) }.let { }
 
     private fun renderPendingConfirmation() = runCatching {
         if (pendingActionId.isBlank()) return@runCatching
@@ -1955,18 +1973,18 @@ class MainActivity : AppCompatActivity() {
         }.getOrDefault(0L)
         renderTranscript()
         uiScope.launch {
-            val reply = withContext(Dispatchers.IO) {
-                Uploader(applicationContext).sendConfirmation(actionId, approved)
-            }
+            val uploader = Uploader(applicationContext)
+            val reply = withContext(Dispatchers.IO) { uploader.sendConfirmation(actionId, approved) }
             if (entryId != 0L) runCatching {
                 Transcript.update(
                     this@MainActivity, entryId,
                     state = if (reply != null) EntryState.ANSWERED else EntryState.FAILED,
                     answer = reply?.speech?.text.orEmpty(),
                     requestId = reply?.requestId.orEmpty(),
-                    error = if (reply != null) "" else "no reply (transport error)",
+                    error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
                 )
             }
+            if (reply == null) announceFailure(uploader.lastFailure)
             handleReply(reply, subject = "confirmation", clear = true)
         }
     }
@@ -2249,6 +2267,7 @@ class MainActivity : AppCompatActivity() {
         val generation = ++attachmentGeneration
 
         if (clear) renderTranscript()
+        refreshBillingNotice()
 
         Haptics.final(this)
 
@@ -2697,6 +2716,14 @@ class MainActivity : AppCompatActivity() {
     internal companion object {
         private const val PHOTO_OPEN_GUARD_MS = 1_000L
         private const val TAG = "RistMain"
+
+        /** A backend sentence (the 402's renew line) is shown as it is; our own reasons get "Sorry — ". */
+        internal fun failureLine(reason: String): String {
+            val r = reason.trim()
+            if (r.isEmpty()) return "Sorry — something went wrong reaching the network."
+            if (r.first().isUpperCase() && r.last() in ".!?") return r
+            return "Sorry — " + r.trimEnd('.') + "."
+        }
 
         /**
          * "▸ prompt  2:17 PM  📌" as one piece of text, so it wraps as a sentence does and the
