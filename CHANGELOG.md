@@ -29,7 +29,8 @@ Build numbers are `YYYYMMDDNN`. The log starts with 2026083110, the first publis
 
 ### Fixed
 
-- The assistant app crashed on every phone call.
+- The incoming-call screen appears again. Nothing told the app a call was ringing, so a call rang,
+  vibrated and showed nothing, and could only be answered from the lock screen.
 - The phone could soft-reboot when the home app was stopped during a screen transition (framework
   patch 0008).
 

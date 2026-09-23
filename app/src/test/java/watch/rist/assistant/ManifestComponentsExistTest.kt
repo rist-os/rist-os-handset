@@ -52,11 +52,26 @@ class ManifestComponentsExistTest {
         )
     }
 
+    /**
+     * This test used to assert the opposite: that PhoneStateReceiver must NOT be declared, because
+     * "the class has never existed in this repo". That was true of this repo and false of the
+     * product. 2026090701 shipped a working PhoneStateReceiver compiled from BridgeAnswer.kt, and
+     * that file was withheld when the repository was reduced on 2026-09-08, taking the receiver with
+     * it. What crashed was never the shipped image -- it was Gradle builds of the reduced tree
+     * pushed over the system app, which had the declaration without the class.
+     *
+     * So the invariant is the reverse of what was written here: this receiver is the only thing that
+     * tells the app a call is ringing, and without it IncomingCall.show has no callers and the whole
+     * IncomingCallActivity answer screen is unreachable. An incoming call then rings, vibrates and
+     * shows nothing, because the stock dialer's alternative is a full-screen intent that lock task
+     * suppresses.
+     */
     @Test
-    fun `the receiver that crashed every call is gone`() {
+    fun `the receiver that raises our own call screen is declared`() {
         assertTrue(
-            "PhoneStateReceiver is declared again; the class has never existed in this repo",
-            declaredNames().none { it.endsWith("PhoneStateReceiver") },
+            "PhoneStateReceiver is not declared. Without it nothing calls IncomingCall.show(), " +
+                "IncomingCallActivity is dead code, and an incoming call cannot be answered.",
+            declaredNames().any { it.endsWith("PhoneStateReceiver") },
         )
     }
 }
