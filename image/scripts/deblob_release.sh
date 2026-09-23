@@ -522,9 +522,8 @@ for f in "$SRC"/*; do
       if [ "$grc" -ne 0 ]; then
         echo ""
         echo "BLOCKED  $b did not pass tools/check_partial_ota.py (exit $grc)." >&2
-        echo "         It is NOT copied into $OUT. Regenerate it with --partial -- see" >&2
-        echo "         tools/check_partial_ota.py --help for the ota_from_target_files invocation --" >&2
-        echo "         or publish it knowingly and separately, having read what it contains." >&2
+        echo "         It is NOT copied into $OUT. Read the FAIL lines above for the defect;" >&2
+        echo "         do NOT reach for --partial, which is what broke the 2026092200 OTA." >&2
         OTA_BLOCKED=1
         continue
       fi

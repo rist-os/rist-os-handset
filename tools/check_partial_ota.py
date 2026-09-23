@@ -113,6 +113,9 @@ class Manifest:
     def __init__(self, raw):
         self.partitions = []
         self.postinstall = {}
+        # Partitions with no PartitionUpdate.version. Harmless in a full payload; fatal in a
+        # partial one -- see the partial_update check below.
+        self.versionless = []
         self.partial_update = None
         self.max_timestamp = None
         self.minor_version = None
@@ -131,6 +134,7 @@ class Manifest:
                 name = None
                 run_post = False
                 post_path = None
+                version = None
                 for pfn, pwt, pv in _fields(v):
                     if pfn == 1:
                         name = pv.decode('utf-8', 'replace')
@@ -138,9 +142,14 @@ class Manifest:
                         run_post = bool(pv)
                     elif pfn == 3:
                         post_path = pv.decode('utf-8', 'replace')
+                    elif pfn == 17:
+                        # PartitionUpdate.version. Only partitions carrying build props get one.
+                        version = pv.decode('utf-8', 'replace')
                 if name is None:
                     raise ValueError('a PartitionUpdate carries no partition_name')
                 self.partitions.append(name)
+                if version is None:
+                    self.versionless.append(name)
                 if run_post:
                     self.postinstall[name] = post_path
             elif fn == 15:
@@ -346,9 +355,11 @@ def check(path, keep_set, vbmeta_path, target_files_arg, expect_otacert,
         rep.note('These are the contents of bootloader-<device>-*.img (abl bl1 bl2 bl31 gcf gsa')
         rep.note('gsa_bl1 ldfw pbl tzsw) and radio-<device>-*.img (modem), travelling under')
         rep.note('partition names rather than filenames. deblob_release.sh removes the file form')
-        rep.note('from the factory zip and does not touch this package. Regenerate the payload')
-        rep.note('with --partial naming only the partitions RistOS builds -- see')
-        rep.note('--help for the exact invocation.')
+        rep.note('from the factory zip and does not touch this package. Regenerate the payload from')
+        rep.note('a target_files whose ro.product.ab_ota_partitions names only the partitions')
+        rep.note('RistOS builds. Do NOT use --partial to exclude them: it sets partial_update, which')
+        rep.note('makes PartitionUpdate.version mandatory on partitions that cannot carry one, and')
+        rep.note('that is what made every handset refuse the 2026092200 OTA with error 23.')
     else:
         rep.ok('no Google firmware partitions among the %d in the payload' % len(parts))
 
@@ -363,20 +374,84 @@ def check(path, keep_set, vbmeta_path, target_files_arg, expect_otacert,
     else:
         rep.ok('every partition in the payload is inside the keep-set')
 
-    looks_partial = not fw
-    if looks_partial and manifest.partial_update is not True:
-        rep.fail('this payload omits partitions but is NOT marked partial_update.')
-        rep.note('update_engine gates the whole copy-forward path on manifest_.partial_update()')
-        rep.note('(delta_performer.cc). Without the flag, GenerateOperationsForPartitionsNotInPayload')
-        rep.note('never runs, the omitted partitions are never SOURCE_COPYd to the target slot,')
-        rep.note('and that slot boots with whatever the update before last left there.')
-        rep.note('Regenerate with --partial (which sets the flag) rather than by deleting images.')
-    elif manifest.partial_update is True:
-        rep.ok('manifest is marked partial_update=true, so update_engine will SOURCE_COPY every')
+    # Whether a payload is "partial" is decided by the DEVICE's A/B partition list, not by whether
+    # Google firmware happens to be in the zip.
+    #
+    # This used to read `looks_partial = not fw`, which made the gate unsatisfiable. Every publishable
+    # RistOS package omits firmware by design -- check_no_blobs and the keep-set both require it -- so
+    # `looks_partial` was true for every package that could ever ship, the gate demanded
+    # partial_update, and the check immediately below then failed because partial_update makes
+    # PartitionUpdate.version mandatory on partitions that can never carry one (dtbo, pvmfw, vbmeta,
+    # vendor_boot, vendor_kernel_boot have no build.prop to derive a version from). Generate with the
+    # flag and it failed there; generate without and it failed here. No package could pass, and the
+    # advice on the failure path was "regenerate with --partial", which is what shipped 2026092200 and
+    # broke every phone with kDownloadManifestParseError (23).
+    #
+    # The real question is whether the payload covers every partition the device expects to update. If
+    # it does, the payload is complete, needs no flag and needs no per-partition versions -- which is
+    # why the full 2026092200 payload sideloaded to status 0 while the partial one could not start.
+    # META/ab_partitions.txt in the target_files is that list, straight from the build.
+    ab_parts, ab_why = read_ab_partitions(path, target_files_arg)
+    if ab_parts is None:
+        rep.unknown('cannot tell whether this payload is complete: %s' % ab_why)
+        rep.note('META/ab_partitions.txt in the target_files is the device\'s own list of A/B')
+        rep.note('partitions. Without it there is no way to know which partitions this payload is')
+        rep.note('expected to carry, so the partial_update question cannot be answered. Pass')
+        rep.note('    --target-files <device>-target_files.zip')
+    else:
+        uncovered = sorted(p for p in ab_parts if p not in parts)
+        if not uncovered:
+            rep.ok('payload covers every partition in META/ab_partitions.txt (%d), so it is a '
+                   'complete update and partial_update is neither needed nor wanted' % len(ab_parts))
+        else:
+            rep.fail('this payload does not carry %d of the %d partitions the device updates:'
+                     % (len(uncovered), len(ab_parts)))
+            for p in uncovered:
+                rep.note('  %s' % p)
+            rep.note('update_engine only copies an omitted partition forward to the target slot when')
+            rep.note('manifest_.partial_update() is set (GenerateOperationsForPartitionsNotInPayload,')
+            rep.note('delta_performer.cc). Without the flag that slot keeps whatever the update before')
+            rep.note('last left there. But setting the flag is NOT the fix and never was: it makes')
+            rep.note('PartitionUpdate.version mandatory on every partition, and the omitted ones')
+            rep.note('cannot have one, so the manifest is refused with error 23 on every handset.')
+            rep.note('Fix this by narrowing ro.product.ab_ota_partitions in the device tree to the')
+            rep.note('partitions RistOS actually builds, so a full payload of them is complete.')
+            rep.note('Do NOT reach for --partial.')
+
+    if manifest.partial_update is True:
+        rep.note('manifest is marked partial_update=true, so update_engine will SOURCE_COPY every')
         rep.note('partition in the device\'s own ro.product.ab_ota_partitions that this payload')
-        rep.note('does not carry, forward from the running slot to the target slot')
+        rep.note('does not carry, forward from the running slot to the target slot -- and will')
+        rep.note('require a PartitionUpdate.version on every partition to do it (see below)')
     else:
         rep.ok('full payload (every partition present), partial_update not required')
+
+    # The check that 2026092200 needed and nobody had.
+    #
+    # Setting partial_update flips allow_empty_version to FALSE in
+    # DeltaPerformer::CheckTimestampError, which makes PartitionUpdate.version mandatory on EVERY
+    # partition in the payload. Only partitions carrying build props get a version, so a payload
+    # covering boot, dtbo, init_boot, pvmfw, vbmeta, vendor_boot or vendor_kernel_boot has
+    # version-less entries and update_engine refuses the manifest before writing anything:
+    #   ERROR delta_performer.cc "PartitionUpdate <name> doesn't have a version field.
+    #                             Not allowed in partial updates."  -> kDownloadManifestParseError (23)
+    #
+    # It is deterministic, it fires on every handset, and every other check in this file passes.
+    # Measured on 2026092200: 13 partitions, 6 versioned (product system system_dlkm system_ext
+    # vendor vendor_dlkm), 7 not. The full payload carries the same 6 and applies fine, because
+    # without the flag the requirement does not apply.
+    if manifest.partial_update is True and manifest.versionless:
+        rep.fail('partial_update is set, but %d of %d partitions carry no '
+                 'PartitionUpdate.version:' % (len(manifest.versionless), len(manifest.partitions)))
+        for n in sorted(manifest.versionless):
+            rep.note('  %s' % n)
+        rep.note('update_engine requires a version on EVERY partition once partial_update is set')
+        rep.note('(allow_empty_version becomes false in DeltaPerformer::CheckTimestampError), and')
+        rep.note('only partitions with build props have one. It will refuse this manifest with')
+        rep.note('kDownloadManifestParseError (23) before writing anything, on every device.')
+        rep.note('A full payload does not have this constraint. Do NOT publish this package.')
+    elif manifest.partial_update is True:
+        rep.ok('every partition in this partial payload carries a PartitionUpdate.version')
 
     for name, script in sorted(manifest.postinstall.items()):
         if name not in parts:
@@ -482,7 +557,7 @@ def check_vbmeta(z, path, parts, vbmeta_path, target_files_arg, rep):
             rep.note('')
             rep.note('The target slot would keep the vbmeta it already has, whose descriptors')
             rep.note('name the OLD images. Verified boot compares them against the new ones and')
-            rep.note('rejects the slot. `vbmeta` must be in the --partial list.')
+            rep.note('rejects the slot. `vbmeta` must be in the payload.')
         else:
             rep.ok('payload ships no AVB-covered partition and no vbmeta -- consistent')
         return
@@ -504,7 +579,7 @@ def check_vbmeta(z, path, parts, vbmeta_path, target_files_arg, rep):
         rep.note('HASHTREE mismatch (product, system, system_dlkm, system_ext, vendor,')
         rep.note('vendor_dlkm) fails dm-verity on first read.')
         rep.note('')
-        rep.note('Either add these to the --partial list, or do not ship vbmeta -- and read')
+        rep.note('Either add these partitions to the payload, or do not ship vbmeta -- and read')
         rep.note('carefully before choosing, because the second option has its own')
         rep.note('failure and it is the one above.')
     else:
@@ -596,6 +671,32 @@ def check_spl_and_timestamps(meta, manifest, min_security_patch, rep):
         rep.ok('security patch level %s is at or above the floor %s' % (spl, min_security_patch))
 
 
+def read_ab_partitions(path, target_files_arg):
+    """The device's own list of A/B partitions, from META/ab_partitions.txt in the target_files.
+
+    Returns (set_of_names, why) on success, or (None, reason) when it cannot be read. This is the
+    authority on whether a payload is complete: a payload that carries every name in this list needs
+    no partial_update flag, and one that does not cannot be made publishable by setting the flag.
+    """
+    try:
+        tf, why = find_target_files(path, target_files_arg)
+    except ValueError as e:
+        return None, str(e)
+    if not tf:
+        return None, 'no *target_files*.zip found beside this package'
+    try:
+        with zipfile.ZipFile(tf) as z:
+            raw = z.read('META/ab_partitions.txt').decode('utf-8', 'replace')
+    except KeyError:
+        return None, 'no META/ab_partitions.txt in %s' % os.path.basename(tf)
+    except Exception as e:                                  # noqa: BLE001 -- report, never raise
+        return None, 'could not read %s: %s' % (os.path.basename(tf), e)
+    names = {ln.strip() for ln in raw.splitlines() if ln.strip()}
+    if not names:
+        return None, 'META/ab_partitions.txt in %s is empty' % os.path.basename(tf)
+    return names, why
+
+
 def check_target_files_retained(path, target_files_arg, rep):
     try:
         tf, why = find_target_files(path, target_files_arg)
@@ -632,22 +733,29 @@ def _len_delim(fn, payload):
     return _tag(fn, 2) + _enc_varint(len(payload)) + payload
 
 
-def _partition_update(name, run_postinstall=False, post_path=None):
+def _partition_update(name, run_postinstall=False, post_path=None, version='1787957064'):
     b = _len_delim(1, name.encode())
     if run_postinstall:
         b += _tag(2, 0) + _enc_varint(1)
         if post_path:
             b += _len_delim(3, post_path.encode())
+    # PartitionUpdate.version (field 17). A partial payload is only applicable if EVERY partition
+    # has one, so the fixtures carry it by default: a fixture without it is not a valid partial and
+    # would be asserting that the gate accepts something update_engine refuses. Pass version=None
+    # to build the invalid shape deliberately.
+    if version is not None:
+        b += _len_delim(17, version.encode())
     return b
 
 
 def make_manifest(partitions, partial=None, max_timestamp=1787957064,
-                  postinstall=None):
+                  postinstall=None, versionless=()):
     b = _tag(3, 0) + _enc_varint(4096)          # block_size
     b += _tag(12, 0) + _enc_varint(0)           # minor_version
     for p in partitions:
         post = (postinstall or {}).get(p)
-        b += _len_delim(13, _partition_update(p, post is not None, post))
+        ver = None if p in versionless else '1787957064'
+        b += _len_delim(13, _partition_update(p, post is not None, post, version=ver))
     b += _tag(14, 0) + _enc_varint(max_timestamp)
     if partial is not None:
         b += _tag(16, 0) + _enc_varint(1 if partial else 0)
@@ -710,12 +818,14 @@ FIXTURE_CERT = (
 
 
 def make_ota(path, partitions, partial=None, secondary=False, metadata=None,
-             otacert=FIXTURE_CERT, max_timestamp=1787957064, postinstall=None):
+             otacert=FIXTURE_CERT, max_timestamp=1787957064, postinstall=None,
+             versionless=()):
     with zipfile.ZipFile(path, 'w') as z:
         z.writestr(METADATA_ENTRY, metadata if metadata is not None else DEFAULT_METADATA)
         z.writestr(PAYLOAD_ENTRY, make_payload(partitions, partial=partial,
                                                max_timestamp=max_timestamp,
-                                               postinstall=postinstall))
+                                               postinstall=postinstall,
+                                               versionless=versionless))
         z.writestr(PAYLOAD_PROPERTIES_ENTRY, 'FILE_SIZE=1\nFILE_HASH=x\n')
         if otacert is not None:
             z.writestr(OTACERT_ENTRY, otacert)
@@ -764,10 +874,22 @@ def selftest():
 
     p = os.path.join
 
-    clean = make_ota(p(tmp, 'clean.zip'), CLEAN_SET, partial=True)
-    run('a correct partial passes', 0, 'OTA OK',
+    # A payload carrying every partition the device updates. This is the shape RistOS actually
+    # ships and it needs no partial_update flag and no per-partition versions -- which is why the
+    # full 2026092200 payload applied to status 0 while the --partial one could not start.
+    clean = make_ota(p(tmp, 'clean.zip'), CLEAN_SET)
+    run('a complete payload of the device A/B set passes', 0, 'OTA OK',
         [clean, '--vbmeta', vb_ok, '--expect-otacert', cert_fingerprint(FIXTURE_CERT.encode()),
          '--target-files', _fixture_tf(tmp)])
+
+    # The 2026092200 shape: a partial payload whose version-less partitions make update_engine
+    # refuse the manifest with kDownloadManifestParseError (23) before it writes anything. Every
+    # other check in this file passed that package, which is how it reached the stable channel.
+    nover = make_ota(p(tmp, 'noversion.zip'), CLEAN_SET, partial=True,
+                     versionless=('boot', 'dtbo', 'init_boot', 'pvmfw', 'vbmeta',
+                                  'vendor_boot', 'vendor_kernel_boot'))
+    run('a partial with version-less partitions fires', 1, 'carry no PartitionUpdate.version',
+        [nover, '--vbmeta', vb_ok, '--target-files', _fixture_tf(tmp)])
 
     full = make_ota(p(tmp, 'full.zip'), FULL_SET)
     run('Google firmware partitions fire', 1, 'Google firmware partitions are inside',
@@ -782,9 +904,13 @@ def selftest():
     run('AVB partitions without vbmeta fires', 1, 'does NOT ship `vbmeta`',
         [novb, '--vbmeta', vb_ok, '--target-files', _fixture_tf(tmp)])
 
-    noflag = make_ota(p(tmp, 'noflag.zip'), CLEAN_SET)
-    run('partial without partial_update fires', 1, 'NOT marked partial_update',
-        [noflag, '--vbmeta', vb_ok, '--target-files', _fixture_tf(tmp)])
+    # This case used to assert that a payload without partial_update FAILS, which together with the
+    # version check made the gate unsatisfiable: no package could satisfy both. What actually matters
+    # is coverage of the device's A/B set, so the defect to catch is an omitted partition.
+    short = make_ota(p(tmp, 'short.zip'), [x for x in CLEAN_SET if x != 'system_dlkm'])
+    run('a payload omitting a device A/B partition fires', 1,
+        'does not carry 1 of the %d partitions' % len(CLEAN_SET),
+        [short, '--vbmeta', vb_ok, '--target-files', _fixture_tf(tmp)])
 
     sec = make_ota(p(tmp, 'sec.zip'), CLEAN_SET, partial=True, secondary=True)
     run('secondary payload fires', 1, 'carries a SECONDARY payload',
@@ -858,6 +984,9 @@ def _fixture_tf(tmp):
     if not os.path.exists(path):
         with zipfile.ZipFile(path, 'w') as z:
             z.writestr('SYSTEM/build.prop', 'ro.build.version.incremental=rist.2026082902\n')
+            # The device's own A/B partition list, which is what decides whether a payload is
+            # complete. Without it the gate cannot answer the partial_update question and says so.
+            z.writestr('META/ab_partitions.txt', '\n'.join(CLEAN_SET) + '\n')
     return path
 
 

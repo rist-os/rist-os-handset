@@ -15,6 +15,7 @@ object OtaState {
     private const val KEY_FAILURES = "consecutive_failures"
     private const val KEY_NOT_BEFORE = "not_before"
     private const val KEY_REFUSED_BUILD = "refused_build"
+    private const val KEY_REFUSED_BYTES = "refused_bytes"
     private const val KEY_READY_BUILD = "ready_build"
     private const val KEY_OFFER_BUILD = "offer_build"
     private const val KEY_OFFER_BYTES = "offer_bytes"
@@ -92,8 +93,28 @@ object OtaState {
 
     fun refusedBuild(ctx: Context): String = prefs(ctx).getString(KEY_REFUSED_BUILD, "").orEmpty()
 
-    fun setRefusedBuild(ctx: Context, build: String) {
-        prefs(ctx).edit().putString(KEY_REFUSED_BUILD, build).apply()
+    /**
+     * The payload size of the package that was refused, so a refusal names a package and not merely a
+     * build number.
+     *
+     * A refusal used to be keyed on the build number alone, which made it far broader than intended:
+     * republishing a corrected package under the same number could never reach a handset that had
+     * already refused it, and there was no way to clear the flag short of wiping app data. Recording
+     * the size means a genuinely different package offered under the same number is tried, while the
+     * identical bad one stays skipped. Zero means "refused before this was recorded" and still skips
+     * on the build number, so an upgrading device does not suddenly re-download what it rejected.
+     */
+    fun refusedBytes(ctx: Context): Long = prefs(ctx).getLong(KEY_REFUSED_BYTES, 0L)
+
+    fun setRefusedBuild(ctx: Context, build: String, payloadBytes: Long = 0L) {
+        prefs(ctx).edit()
+            .putString(KEY_REFUSED_BUILD, build)
+            .putLong(KEY_REFUSED_BYTES, payloadBytes)
+            .apply()
+    }
+
+    fun clearRefusedBuild(ctx: Context) {
+        prefs(ctx).edit().remove(KEY_REFUSED_BUILD).remove(KEY_REFUSED_BYTES).apply()
     }
 
     fun readyBuild(ctx: Context): String = prefs(ctx).getString(KEY_READY_BUILD, "").orEmpty()

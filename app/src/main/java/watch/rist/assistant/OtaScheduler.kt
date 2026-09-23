@@ -12,6 +12,15 @@ object OtaScheduler {
 
     private const val TAG = "RistOta"
 
+    /**
+     * How many consecutive failures it takes before a build is refused for good.
+     *
+     * A refusal is irreversible for a given package, so it is not a verdict to reach on one
+     * reading. Two means a single transient event -- a truncated first read, an edge serving a
+     * half-replaced object -- costs one retry instead of stranding the handset.
+     */
+    internal const val REFUSAL_CONFIRMATIONS = 2
+
     internal const val ACTION_TICK = "watch.rist.assistant.OTA_TICK"
 
     internal enum class Wake {
@@ -298,8 +307,16 @@ object OtaScheduler {
         }
 
         if (m.build == OtaState.refusedBuild(app)) {
-            OtaState.recordCheck(app, now, "${m.build} failed permanently; not retrying")
-            return POLL_INTERVAL_SECONDS
+            // Same number, but is it the same package? A refusal recorded before this check existed
+            // has no size and keeps its old, broader meaning.
+            val refusedBytes = OtaState.refusedBytes(app)
+            if (refusedBytes == 0L || refusedBytes == m.payloadSize) {
+                OtaState.recordCheck(app, now, "${m.build} failed permanently; not retrying")
+                return POLL_INTERVAL_SECONDS
+            }
+            Log.i(TAG, "${m.build} was refused at $refusedBytes bytes but is now offered at " +
+                "${m.payloadSize}; this is a different package, so trying it")
+            OtaState.clearRefusedBuild(app)
         }
         if (unavailable != null) {
             OtaState.recordCheck(app, now,
@@ -428,12 +445,30 @@ class OtaResultReceiver : BroadcastReceiver() {
                 OtaConsent.cancelOfferNotification(app)
                 OtaState.recordCheck(app, now, "$build installed; restart to finish updating")
             }
+            // A refusal is the only verdict this device cannot walk back on its own: a refused build
+            // is skipped forever, and republishing a fixed package under the same number will not
+            // reach it. So one failure is not enough to latch it, however confident update_engine
+            // sounds. Several of the codes that map to Permanent -- a manifest that will not parse, a
+            // metadata signature that will not verify -- are raised on the FIRST few kilobytes of the
+            // payload, before any hash is checked, so an edge serving a half-replaced or truncated
+            // object produces them for a package that is perfectly good. Requiring a second,
+            // independent failure costs one extra download and removes the only way this scheduler
+            // can permanently strand a handset.
             OtaService.VERDICT_PERMANENT -> {
-                OtaState.setRefusedBuild(app, build)
+                // Read the offered size before clearOffer discards it: it is what makes the refusal
+                // name a package rather than a build number.
+                val offeredBytes = OtaState.offeredBytes(app)
+                OtaState.noteFailure(app)
                 OtaState.clearApprovals(app)
                 OtaState.clearOffer(app)
                 OtaConsent.cancelOfferNotification(app)
-                OtaState.recordCheck(app, now, "$build refused permanently: $detail")
+                if (OtaState.failures(app) >= OtaScheduler.REFUSAL_CONFIRMATIONS) {
+                    OtaState.setRefusedBuild(app, build, offeredBytes)
+                    OtaState.recordCheck(app, now, "$build refused permanently: $detail")
+                } else {
+                    OtaState.recordCheck(app, now,
+                        "$build looks unusable ($detail); trying once more before giving up on it")
+                }
             }
             OtaService.VERDICT_RETRY -> {
                 OtaState.noteFailure(app)

@@ -303,16 +303,52 @@ class OtaDownloadGateTest {
     }
 
     @Test
-    fun `a permanent failure spends the approval and refuses the build`() {
+    fun `one permanent failure spends the approval but does not yet refuse the build`() {
+        // A refusal is the only verdict a handset cannot walk back on its own, so it takes a second,
+        // independent failure. Several codes that map to Permanent -- an unparseable manifest, a
+        // metadata signature that will not verify -- are raised on the first few kilobytes of the
+        // payload, before any hash is checked, so an edge serving a truncated or half-replaced object
+        // produces them for a package that is fine. Latching on the first reading let one transient
+        // read strand a handset until an entirely new build number shipped.
         OtaState.recordOffer(app(), build, OtaFixtures.PAYLOAD_SIZE)
         OtaState.approveBuild(app(), build, allowMetered = true)
 
         result(build, OtaService.VERDICT_PERMANENT, "payload mismatch")
 
-        assertEquals(build, OtaState.refusedBuild(app()))
+        assertEquals("one failure must not latch a refusal", "", OtaState.refusedBuild(app()))
         assertEquals("keeping the approval would be a stored yes to a build that can only fail",
             "", OtaState.approvedBuild(app()))
         assertEquals("", OtaState.offeredBuild(app()))
+    }
+
+    @Test
+    fun `a second permanent failure refuses the build and records which package`() {
+        for (attempt in 1..OtaScheduler.REFUSAL_CONFIRMATIONS) {
+            OtaState.recordOffer(app(), build, OtaFixtures.PAYLOAD_SIZE)
+            OtaState.approveBuild(app(), build, allowMetered = true)
+            result(build, OtaService.VERDICT_PERMANENT, "payload mismatch")
+        }
+
+        assertEquals(build, OtaState.refusedBuild(app()))
+        assertEquals(
+            "the refusal must name the package, not just the build number, or a corrected " +
+                "republish under the same number can never reach this handset",
+            OtaFixtures.PAYLOAD_SIZE, OtaState.refusedBytes(app())
+        )
+    }
+
+    @Test
+    fun `a refusal can be cleared`() {
+        for (attempt in 1..OtaScheduler.REFUSAL_CONFIRMATIONS) {
+            OtaState.recordOffer(app(), build, OtaFixtures.PAYLOAD_SIZE)
+            result(build, OtaService.VERDICT_PERMANENT, "payload mismatch")
+        }
+        assertEquals(build, OtaState.refusedBuild(app()))
+
+        OtaState.clearRefusedBuild(app())
+
+        assertEquals("there was no way at all to un-refuse a build", "", OtaState.refusedBuild(app()))
+        assertEquals(0L, OtaState.refusedBytes(app()))
     }
 
     @Test

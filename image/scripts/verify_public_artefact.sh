@@ -499,8 +499,8 @@ if [ -n "$OTA" ]; then
     echo ""
     if [ "$ota_bad" -ne 0 ]; then
       fail "an OTA package in this artefact did not clear the OTA gate (see above)."
-      note "Regenerate it with --partial, or supply what the UNCHECKED lines ask for."
-      note "tools/check_partial_ota.py --help shows the ota_from_target_files invocation."
+      note "Read the FAIL lines for the defect, or supply what the UNCHECKED lines ask for."
+      note "Do NOT regenerate it with --partial: that is what broke the 2026092200 OTA."
     else
       pass "the OTA package in this artefact cleared tools/check_partial_ota.py"
     fi

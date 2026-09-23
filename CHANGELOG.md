@@ -6,6 +6,24 @@ Build numbers are `YYYYMMDDNN`. The log starts with 2026083110, the first publis
 
 ## Unreleased
 
+### Fixed
+
+- **Incoming calls appear on screen again.** Nothing told the app a call was ringing, so a call rang,
+  vibrated and showed nothing, and could be answered only from the lock screen. The call screen is
+  also upright now: sideways it was taller than the screen, which pushed DECLINE out of reach and put
+  ANSWER where a person would tap for it.
+
+---
+
+## 2026092200
+
+**Device:** Pixel 10a (`stallion`) only. **Android security patch level:** 2026-09-01.
+**Base:** GrapheneOS. **Download:** <https://dl.ristos.org/index.html>
+
+Updating from 2026090701 raises the security patch level from 2026-08 to 2026-09. That moves the
+verified-boot rollback index, and a handset that has booted this build cannot be put back on any
+2026-08 or earlier image.
+
 ### New
 
 - **Streaming replies.** A live status line while the assistant works, a Stop button, and turns of
@@ -29,41 +47,27 @@ Build numbers are `YYYYMMDDNN`. The log starts with 2026083110, the first publis
 
 ### Fixed
 
-- The incoming-call screen appears again. Nothing told the app a call was ringing, so a call rang,
-  vibrated and showed nothing, and could only be answered from the lock screen.
 - The phone could soft-reboot when the home app was stopped during a screen transition (framework
   patch 0008).
 
----
-
-## 2026090701
-
-**Device:** Pixel 10a (`stallion`) only. **Android security patch level:** 2026-08-05.
-**Base:** GrapheneOS. **Download:** <https://dl.ristos.org/index.html>
-
-### What works
-
-- Push-to-talk assistant as the sole launcher, with a fixed app row: phone, messages, camera,
-  gallery, offline maps (Organic Maps, bundled), settings.
-- Telephony — calls, a full-screen incoming-call UI, SMS, carrier voicemail surfaced in the dialer.
-- Turn-by-turn navigation, backend-rendered tiles over a dependency-free on-device C nav core.
-- Timers, alarms and calendar; media playback; camera and torch.
-- Device-Owner kiosk with a lock-task allowlist.
-- Verified boot re-locked onto the RistOS AVB key shipped in the download, so the phone boots only
-  images signed with it. A build you make and sign yourself locks onto your key instead.
-
 ### What does not
 
+- **Incoming calls ring but do not appear on screen.** The phone rings and vibrates, and on a handset
+  with a PIN the call can be answered from the lock screen, but unlocked there is nothing to press.
+  This is a regression in this build; a fix is in progress. There is no workaround beyond locking the
+  screen.
+- **Updating over the air does not work in this build.** The published package is refused by the
+  phone before it installs anything, so the phone stays on the build it has. Install this build with
+  `adb sideload`, which applies a signed package and does **not** wipe the phone.
 - **Emergency calling is not validated.** There is no E911 row in the bring-up checklist and no
   verification step has been run. See `SAFETY.md`.
 - **Wireless Emergency Alert text may not display.** The siren, vibration and speech fire; whether
   the words render over the kiosk has not been confirmed on a handset.
 - **Location is GNSS-only by default.** The phone asks you once and you can change the answer.
-- **Updates.** The phone checks for updates every six hours and offers one when it finds it, but
-  the phone installing an update by itself has not been verified end to end. The trusted path is
-  `adb sideload` from recovery, which applies a signed package and does **not** wipe the phone.
 - **The published image is not reproducible from this repository.**
 - **No app store; arbitrary apps cannot be installed.**
+- **An over-the-air update carries no firmware.** The bootloader and radio/modem images are in the
+  download only. A phone updated over the air keeps the firmware it was flashed with.
 
 ### Verifying the download
 
@@ -79,6 +83,12 @@ sha256sum --ignore-missing -c SHA256SUMS   # macOS: shasum -a 256 --ignore-missi
 
 The kernel this build ships is published as source in the same directory as the image, no request
 needed. The GPL/LGPL userspace components are available under the written offer in `NOTICE`.
+
+---
+
+## 2026090701
+
+Superseded by 2026092200.
 
 ---
 

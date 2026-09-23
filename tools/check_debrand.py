@@ -532,12 +532,19 @@ def run(path, only=None):
         print("Could not check: %s" % ", ".join(unchecked))
         print("Nothing has been established about those. The image is not cleared to ship.")
         return 2
+    # Print the gap BEFORE the verdict, not as a footnote after it. Every caller passes only the
+    # target_files zip, which cannot carry flash-all.sh, so the flash-script check has skipped on
+    # every release this tool has ever gated -- while the caller printed "GATE PASS: no GrapheneOS
+    # branding". FLASH_MUST_NOT has therefore never been evaluated against a shipped artefact, and
+    # a GrapheneOS banner in flash-all.sh is exactly the 2026090600 defect this check exists for.
+    if skipped:
+        print("NOT COVERED BY THIS RUN: %s" % ", ".join(skipped))
+        print("This artefact cannot carry them, so they were not examined here. Run this tool")
+        print("again against the FACTORY zip to cover them; until then nothing has checked the")
+        print("flash scripts, and the verdict below is only about what this artefact contains.")
+        print("")
     print("PASS: no GrapheneOS branding, and the camera-extensions removal is complete,")
     print("      in %s" % path)
-    if skipped:
-        print("")
-        print("NOT COVERED BY THIS RUN: %s" % ", ".join(skipped))
-        print("This artefact cannot carry them. The PASS above does not include them.")
     return 0
 
 
