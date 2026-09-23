@@ -14,10 +14,23 @@ object IncomingCall {
 
     @Volatile private var best: String = ""
 
+    /**
+     * Every RINGING broadcast re-raises the screen, including a repeat for a number already shown.
+     *
+     * There used to be a guard here that returned early when the number had not changed. It looked
+     * like a sensible saving and it was the most harmful line in the file: once [ringing] was true
+     * for a number, no later broadcast could raise the screen again. One press of HOME during a ring
+     * -- and HOME is live, the kiosk enables LOCK_TASK_FEATURE_HOME -- left the call ringing with the
+     * launcher on top and no way back to it, which is the same unanswerable call this screen exists
+     * to prevent. Re-raising is cheap and safe instead: [IncomingCallActivity] is singleInstance, so
+     * the repeat arrives at onNewIntent rather than stacking a second screen, and that activity
+     * repaints only when the number it is showing actually changes.
+     *
+     * A start that the system refuses does not throw -- ActivityTaskManager returns START_ABORTED --
+     * so this cannot confirm the screen appeared. Retrying on every broadcast is what covers that.
+     */
     fun show(ctx: Context, number: String?) {
         val n = number.orEmpty()
-        if (ringing && n.isBlank()) return
-        if (ringing && n == best) return
         if (n.isNotBlank()) best = n
         ringing = true
         val app = ctx.applicationContext
@@ -28,10 +41,24 @@ object IncomingCall {
                     // NEW_TASK only, never CLEAR_TASK.
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
-            Log.i(TAG, "showing incoming call from ${mask(best)}")
+            Log.i(TAG, "asked for the incoming-call screen for ${mask(best)}")
         }.onFailure {
             Log.e(TAG, "could not show the incoming-call screen; the call will ring unanswerable", it)
         }
+    }
+
+    /**
+     * Adopts a ring that telephony reports but this process has no memory of.
+     *
+     * [ringing] and [best] are process-global statics with no persistence. If the app is killed
+     * mid-ring and the system recreates [IncomingCallActivity], they start empty, the watchdog sees
+     * "not ringing" and closes the screen in the middle of a live ring. Telephony is the authority,
+     * so the activity asks it and tells us the answer here.
+     */
+    fun adoptRing(number: String) {
+        if (number.isNotBlank()) best = number
+        if (!ringing) Log.i(TAG, "adopting a ring telephony reports but this process had lost")
+        ringing = true
     }
 
     fun clear() {

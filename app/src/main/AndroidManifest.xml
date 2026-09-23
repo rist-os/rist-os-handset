@@ -308,12 +308,20 @@
             android:showWhenLocked="true"
             android:theme="@style/Theme.AppCompat.NoActionBar" />
 
+        <!-- screenOrientation="portrait" is not decoration. Every other activity in this app locks
+             portrait; this one did not, so it followed the sensor and came up sideways on a handset
+             that was not upright. In landscape the column of title, caller, ANSWER and DECLINE is
+             taller than the screen, so DECLINE was pushed off the bottom and the lowest button a
+             person could see and tap was ANSWER, so a call they meant to reject was answered instead.
+             Observed on a handset on 2026-09-23. The layout is also scrollable now, so no future
+             screen size can put a button out of reach. -->
         <activity
             android:name=".IncomingCallActivity"
             android:exported="false"
             android:taskAffinity=""
             android:launchMode="singleInstance"
             android:excludeFromRecents="true"
+            android:screenOrientation="portrait"
             android:showOnLockScreen="true"
             android:turnScreenOn="true"
             android:showWhenLocked="true"
@@ -351,13 +359,20 @@
             </intent-filter>
         </receiver>
 
-        <!-- A .PhoneStateReceiver was declared here with a PHONE_STATE filter, and the class
-             does not exist anywhere: not in the tree, not in history, not in the box backup.
-             Every call therefore crashed the app before it could do anything, because Android
-             instantiates a declared receiver when its action fires. It was presumably meant to
-             call IncomingCall.show(), which still has no callers. Removed rather than stubbed:
-             a receiver that does nothing is not worth waking the process for. Restoring caller
-             ID means writing that class deliberately. -->
+        <!-- Tells the app the phone is ringing, so IncomingCall.show() can put OUR call screen up.
+             Restored deliberately: the note that used to sit here said this class existed nowhere,
+             which was true of this tree and false of the build that shipped. 2026090701 carried a
+             working PhoneStateReceiver compiled from BridgeAnswer.kt, and that file was withheld
+             when the repository was reduced, taking the receiver with it. Between then and now an
+             incoming call rang and showed nothing. exported="true" because PHONE_STATE is a system
+             broadcast. -->
+        <receiver
+            android:name=".PhoneStateReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.PHONE_STATE" />
+            </intent-filter>
+        </receiver>
 
         <!-- android:process=":ota" is matched by the seapp_contexts entry in aosp/sepolicy/; do not remove. -->
         <service

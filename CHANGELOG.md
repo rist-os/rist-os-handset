@@ -4,6 +4,17 @@ Build numbers are `YYYYMMDDNN`. The log starts with 2026083110, the first publis
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **Incoming calls appear on screen again.** Nothing told the app a call was ringing, so a call rang,
+  vibrated and showed nothing, and could be answered only from the lock screen. The call screen is
+  also upright now: sideways it was taller than the screen, which pushed DECLINE out of reach and put
+  ANSWER where a person would tap for it.
+
+---
+
 ## 2026092200
 
 **Device:** Pixel 10a (`stallion`) only. **Android security patch level:** 2026-09-01.
