@@ -105,8 +105,13 @@ MANIFEST="$MTMP/manifest.json"
 # vbmeta consistency, otacert or SPL. Build 2026092200 was published exactly that way.
 GATE="$HERE/check_partial_ota.py"
 if [ "${RIST_OTA_SKIP_GATE:-}" = "1" ]; then
-  echo "!! RIST_OTA_SKIP_GATE=1: publishing $NAME WITHOUT the OTA gate."
-  echo "!! Nothing has checked its partitions, vbmeta, otacert or security patch level."
+  # On stderr, not stdout. An exported variable persists for the rest of the shell session, so the
+  # one line saying the gate was skipped must not be the line most likely to scroll past unseen in a
+  # redirected build log.
+  echo "!! RIST_OTA_SKIP_GATE=1: publishing $NAME WITHOUT the OTA gate." >&2
+  echo "!! Nothing has checked its partitions, vbmeta, otacert or security patch level." >&2
+  echo "!! This is how 2026092200 was published. Unset it unless you have a reason you could" >&2
+  echo "!! defend afterwards, and record that reason with the release." >&2
 elif [ ! -f "$GATE" ] || ! command -v python3 >/dev/null 2>&1; then
   echo "the OTA gate could not run (need python3 and $GATE). Nothing published." >&2
   echo "An unchecked OTA package is not a publishable one. Set RIST_OTA_SKIP_GATE=1 to override." >&2
@@ -117,9 +122,22 @@ else
   [ -n "${RIST_TARGET_FILES:-}" ]           && GARGS+=(--target-files "$RIST_TARGET_FILES")
   [ -n "${RIST_OTA_EXPECT_OTACERT:-}" ]     && GARGS+=(--expect-otacert "$RIST_OTA_EXPECT_OTACERT")
   [ -n "${RIST_MIN_SPL:-}" ]                && GARGS+=(--min-security-patch "$RIST_MIN_SPL")
-  if ! python3 "$GATE" "$ZIP" ${GARGS[@]+"${GARGS[@]}"}; then
+  python3 "$GATE" "$ZIP" ${GARGS[@]+"${GARGS[@]}"}
+  grc=$?
+  # Exit 1 and exit 2 are different answers and were being reported as the same one. 2 means the gate
+  # could not reach a verdict -- most often because RIST_TARGET_FILES is not exported, so it has no
+  # vbmeta and no A/B partition list to check against. That printed "the OTA gate refused", which
+  # reads as a defect in the package and sent the operator looking in the wrong place.
+  if [ "$grc" -eq 2 ]; then
     echo >&2
-    echo "the OTA gate refused $NAME. Nothing has been signed or uploaded." >&2
+    echo "the OTA gate could not reach a verdict on $NAME (exit 2). Nothing signed or uploaded." >&2
+    echo "This usually means it was not given enough to check. Export RIST_TARGET_FILES to the" >&2
+    echo "matching <device>-target_files.zip and run again; the UNCHECKED lines above name the rest." >&2
+    exit 89
+  elif [ "$grc" -ne 0 ]; then
+    echo >&2
+    echo "the OTA gate refused $NAME (exit $grc). Nothing has been signed or uploaded." >&2
+    echo "Read the FAIL lines above for the defect. Do NOT regenerate with --partial." >&2
     exit 89
   fi
 fi

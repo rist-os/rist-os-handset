@@ -323,6 +323,18 @@ def check_previous_retention(prev, override, rehash, rep, ack=None):
                  % prev.get("build", "?"))
         return
     path = override or rec["path"]
+    # A recorded path can be a remote URI: the 2026092200 entry reads
+    # s3://ristos-releases/target_files/.../stallion-target_files.zip, because that is where a 4.5 GB
+    # file actually lives once the build box is gone. os.path.isfile is False for any such string, so
+    # the next release would have failed with "the PREVIOUS release's target_files is gone", which is
+    # both false and alarming, and would have stopped build day at sign_public.sh rc=88. The file is
+    # not gone; it is off-box and cannot be hashed from here. Say that instead, and say how to fix it.
+    if not override and re.match(r'^[a-z][a-z0-9+.-]*://', str(path)):
+        rep.unknown("the previous release's target_files is recorded off-box at %s, so it cannot be "
+                    "verified from here." % path)
+        rep.note("Fetch it and pass --previous-target-files <local path> to check it is the same")
+        rep.note("file the ledger recorded. This is not a pass and not a failure: nothing is known.")
+        return
     if not os.path.isfile(path):
         if _previous_lost(prev, ack, rep, "Recorded at %s, which does not exist." % path):
             return

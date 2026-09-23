@@ -70,7 +70,13 @@ done
 
 # CHANGELOG.md is append-only: a new section goes in above the previous one.
 if [ -f CHANGELOG.md ]; then
-  if grep -q "^## Unreleased" CHANGELOG.md; then
+  if grep -q "^## $NEW" CHANGELOG.md; then
+    # 2026092200 ended up with TWO "## 2026092200" headings, the second a "Not written yet." stub
+    # sitting above the real notes, and preflight's heading check could not see it: that check reads
+    # the FIRST heading only, and both headings were the same number, so it passed. Never insert a
+    # section for a build the log already documents.
+    echo "ok    CHANGELOG.md already has a '## $NEW' section; not inserting another"
+  elif grep -q "^## Unreleased" CHANGELOG.md; then
     # the notes were written ahead of the build: give them its number
     perl -0pi -e "s/^## Unreleased\$/## $NEW/m" CHANGELOG.md
   elif grep -q "^## $CUR" CHANGELOG.md; then
