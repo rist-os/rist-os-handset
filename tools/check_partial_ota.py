@@ -292,7 +292,7 @@ def find_target_files(beside, explicit):
 
 
 def check(path, keep_set, vbmeta_path, target_files_arg, expect_otacert,
-          min_security_patch, rep):
+          min_security_patch, rep, ship_firmware=False):
     if not os.path.exists(path):
         rep.unknown('no such path: %s' % path)
         return
@@ -347,19 +347,39 @@ def check(path, keep_set, vbmeta_path, target_files_arg, expect_otacert,
              % (len(parts), manifest.partial_update, manifest.max_timestamp))
 
     fw = sorted(p for p in parts if p in GOOGLE_FIRMWARE_PARTITIONS)
-    if fw:
+    if fw and ship_firmware:
+        # Firmware in an OTA is the intended product, and this check was the last place that had not
+        # been told. check_no_blobs.sh learned it; this file did not, and that asymmetry made the gate
+        # unsatisfiable: a payload covering the device's own 24-name ro.product.ab_ota_partitions
+        # necessarily carries these eleven, so the firmware check failed every publishable package,
+        # while a --partial payload that excluded them failed the coverage and version checks instead.
+        #
+        # Proof it was the gate that was wrong, not the package: run this file against
+        # stallion-ota_update-2026083110.zip -- the last OTA known to have applied to a handset -- and
+        # without this branch it prints "OTA FAIL -- do not publish" for a package that demonstrably
+        # worked, while agreeing in the same breath that the payload is complete and needs no
+        # partial_update.
+        rep.ok('Google firmware present AND INTENDED (%d partitions, RIST_SHIP_FIRMWARE=true)'
+               % len(fw))
+        for p in fw:
+            rep.note('  %s' % p)
+        rep.note('These are Google\'s bytes, redistributed unmodified (see README.md), travelling')
+        rep.note('under partition names rather than filenames. A handset updated over the air gets')
+        rep.note('the same firmware a fresh flash would.')
+    elif fw:
         rep.fail('Google firmware partitions are inside this payload:')
         for p in fw:
             rep.note(p)
         rep.note('')
         rep.note('These are the contents of bootloader-<device>-*.img (abl bl1 bl2 bl31 gcf gsa')
         rep.note('gsa_bl1 ldfw pbl tzsw) and radio-<device>-*.img (modem), travelling under')
-        rep.note('partition names rather than filenames. deblob_release.sh removes the file form')
-        rep.note('from the factory zip and does not touch this package. Regenerate the payload from')
-        rep.note('a target_files whose ro.product.ab_ota_partitions names only the partitions')
-        rep.note('RistOS builds. Do NOT use --partial to exclude them: it sets partial_update, which')
-        rep.note('makes PartitionUpdate.version mandatory on partitions that cannot carry one, and')
-        rep.note('that is what made every handset refuse the 2026092200 OTA with error 23.')
+        rep.note('partition names rather than filenames.')
+        rep.note('')
+        rep.note('If this build is MEANT to ship firmware -- which is the norm here -- pass')
+        rep.note('--ship-firmware or set RIST_SHIP_FIRMWARE=true, the same switch check_no_blobs.sh')
+        rep.note('reads. Do NOT use --partial to exclude them instead: that sets partial_update,')
+        rep.note('which makes PartitionUpdate.version mandatory on partitions that cannot carry one,')
+        rep.note('and that is what made every handset refuse the 2026092200 OTA with error 23.')
     else:
         rep.ok('no Google firmware partitions among the %d in the payload' % len(parts))
 
@@ -892,8 +912,18 @@ def selftest():
         [nover, '--vbmeta', vb_ok, '--target-files', _fixture_tf(tmp)])
 
     full = make_ota(p(tmp, 'full.zip'), FULL_SET)
-    run('Google firmware partitions fire', 1, 'Google firmware partitions are inside',
+    run('Google firmware fires when NOT declared', 1, 'Google firmware partitions are inside',
         [full, '--vbmeta', vb_ok, '--target-files', _fixture_tf(tmp)])
+
+    # The case that made the gate unsatisfiable. This device's own ro.product.ab_ota_partitions names
+    # 24 partitions, eleven of them Google firmware, so a payload that covers what the device updates
+    # MUST carry them. Read from a handset on 2026-09-23. Before --ship-firmware existed this file
+    # printed "OTA FAIL -- do not publish" for stallion-ota_update-2026083110.zip, the last OTA known
+    # to have applied to a real phone.
+    run('Google firmware passes when declared', 0, 'AND INTENDED',
+        [full, '--ship-firmware', '--vbmeta', vb_ok,
+         '--expect-otacert', cert_fingerprint(FIXTURE_CERT.encode()),
+         '--target-files', _fixture_tf(tmp)])
 
     brick = make_ota(p(tmp, 'brick.zip'), ['system', 'system_ext', 'product', 'vbmeta'],
                      partial=True)
@@ -1010,6 +1040,10 @@ def main(argv=None):
     ap.add_argument('--expect-otacert', metavar='SHA256|PEM',
                     help='pin the package otacert: a sha256 hex digest of the DER, or a path to '
                          'the certificate')
+    ap.add_argument('--ship-firmware', action='store_true',
+                    help='this build deliberately ships Google firmware in the OTA, so firmware '
+                         'partitions in the payload are reported rather than refused. Also read '
+                         'from RIST_SHIP_FIRMWARE=true, the switch check_no_blobs.sh uses.')
     ap.add_argument('--min-security-patch', metavar='YYYY-MM[-DD]',
                     help='refuse a package whose security patch level is older than this')
     ap.add_argument('--selftest', action='store_true',
@@ -1032,8 +1066,11 @@ def main(argv=None):
 
     rep = Report()
     print('=== check_partial_ota: %s' % args.package)
+    # RIST_SHIP_FIRMWARE is the same switch check_no_blobs.sh reads, so one setting governs both
+    # gates and they cannot disagree about what this build is.
+    ship_fw = args.ship_firmware or os.environ.get('RIST_SHIP_FIRMWARE') == 'true'
     check(args.package, keep, args.vbmeta, args.target_files, args.expect_otacert,
-          args.min_security_patch, rep)
+          args.min_security_patch, rep, ship_firmware=ship_fw)
     return rep.verdict(args.package)
 
 

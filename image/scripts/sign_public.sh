@@ -237,8 +237,16 @@ if [ "$rc" -eq 0 ]; then
       ls -la releases/$BN/release-$DEVICE-$BN/*factory*.zip 2>/dev/null
       echo "===VALIDATE_DONE rc=89 (OTA gate inconclusive)==="; exit 89
     fi
-    echo "  GATE PASS: $(basename "$OTAZIP") carries no Google firmware and its vbmeta is"
-    echo "             consistent with the partitions it ships."
+    # Do NOT say "carries no Google firmware" here. Under the ship-firmware decision the payload
+    # carries eleven firmware partitions on purpose, and a success line asserting the opposite teaches
+    # the operator to read this gate backwards. Say what actually passed.
+    if [ "${RIST_SHIP_FIRMWARE:-}" = "true" ]; then
+      echo "  GATE PASS: $(basename "$OTAZIP") covers every partition the device updates, its"
+      echo "             firmware is present as intended, and its vbmeta is consistent."
+    else
+      echo "  GATE PASS: $(basename "$OTAZIP") carries no Google firmware and its vbmeta is"
+      echo "             consistent with the partitions it ships."
+    fi
   fi
 fi
 
