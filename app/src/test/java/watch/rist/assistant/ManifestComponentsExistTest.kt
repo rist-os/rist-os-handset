@@ -78,4 +78,25 @@ class ManifestComponentsExistTest {
             declaredNames().any { it.endsWith("PhoneStateReceiver") },
         )
     }
+
+    /**
+     * The call screen came up sideways on a handset that was not upright, because this activity was
+     * the only one in the app that did not lock portrait. That is not cosmetic: in landscape the
+     * column of title, caller, ANSWER and DECLINE is taller than the screen, DECLINE was pushed off
+     * the bottom, and the lowest button a person could see and tap was ANSWER. A call meant to be
+     * rejected was answered instead. Observed on a handset on 2026-09-23.
+     */
+    @Test
+    fun `the call screen is locked to portrait`() {
+        val text = manifest.readText()
+        val block = Regex("""<activity[^>]*\.IncomingCallActivity.*?/>""", RegexOption.DOT_MATCHES_ALL)
+            .find(text)?.value
+        assertTrue("IncomingCallActivity is not declared at all", block != null)
+        assertTrue(
+            "IncomingCallActivity must set screenOrientation=\"portrait\". Without it the screen " +
+                "follows the sensor, and in landscape DECLINE is pushed off the bottom -- so a tap " +
+                "meant for it lands on ANSWER.",
+            block!!.contains("android:screenOrientation=\"portrait\""),
+        )
+    }
 }
