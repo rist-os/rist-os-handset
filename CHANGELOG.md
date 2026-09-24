@@ -4,7 +4,7 @@ Build numbers are `YYYYMMDDNN`. The log starts with 2026083110, the first publis
 
 ---
 
-## Unreleased
+## 2026092300
 
 **Device:** Pixel 10a (`stallion`) only. **Android security patch level:** 2026-09-01.
 **Base:** GrapheneOS. **Download:** <https://dl.ristos.org/index.html>

@@ -241,6 +241,14 @@ def build_index(directory, build, spl):
     if not names:
         raise SystemExit('SHA256SUMS in %s lists nothing.' % directory)
 
+    # SHA256SUMS cannot list itself, and its signature is written after it. So the two files a reader
+    # needs in order to verify ANYTHING are the two the derived list can never contain -- and with no
+    # directory listing on R2, a file this page does not link is a file nobody can find. Add them by
+    # name, and only if they are really there.
+    for extra in ('SHA256SUMS', 'SHA256SUMS.minisig'):
+        if extra not in names and os.path.isfile(os.path.join(directory, extra)):
+            names.append(extra)
+
     missing, sizes = [], {}
     for n in names:
         f = os.path.join(directory, n)

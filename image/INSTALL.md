@@ -3,7 +3,7 @@
 > RistOS is experimental, pre-release software. Installing it erases the device, not all features
 > have been thoroughly tested, and emergency calling in particular has not been verified.
 
-### [⬇ Download RistOS for Pixel 10a (3.5 GB)](https://dl.ristos.org/2026092200/stallion-factory-2026092200.zip)
+### [⬇ Download RistOS for Pixel 10a (3.5 GB)](https://dl.ristos.org/2026092300/stallion-factory-2026092300.zip)
 
 ## Before you Install
 
@@ -218,11 +218,11 @@ Skip it if you are only trying RistOS out. Do it if you are going to re-lock the
 
 Download `SHA256SUMS` and `SHA256SUMS.minisig` into the folder the zip is in, and run these there.
 The bucket serves files but does not list directories, so link the files themselves rather than the
-folder — <https://dl.ristos.org/2026092200/> returns 404, and a reader following it lands on an
+folder — <https://dl.ristos.org/2026092300/> returns 404, and a reader following it lands on an
 error page in the middle of the verification step:
 
-- <https://dl.ristos.org/2026092200/SHA256SUMS>
-- <https://dl.ristos.org/2026092200/SHA256SUMS.minisig>
+- <https://dl.ristos.org/2026092300/SHA256SUMS>
+- <https://dl.ristos.org/2026092300/SHA256SUMS.minisig>
 
 ```sh
 # macOS: brew install minisign  |  Debian/Ubuntu: apt install minisign
@@ -239,7 +239,7 @@ for — without it you get `FAILED open or read` lines for files that were never
 If the signature fails, delete the download — that is not a bad transfer to retry.
 
 **On Windows** there is no `sha256sum`. The built-in is `certutil -hashfile
-stallion-factory-2026092200.zip SHA256`, which prints the hash of one file for you to compare by eye
+stallion-factory-2026092300.zip SHA256`, which prints the hash of one file for you to compare by eye
 against that file's line in `SHA256SUMS` — certutil has no check mode that reads a sums file. For
 minisign, use `scoop install minisign` or `choco install minisign`, or take
 `minisign-0.12-win64.zip` from <https://github.com/jedisct1/minisign/releases>; the `-Vm` line above
