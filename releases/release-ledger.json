@@ -204,6 +204,22 @@
         "sha256": "0dc1234452b298f901e165d4b57e4ecb5b4cb0f22ef30cc20e910c7207fef503"
       },
       "variant": "public"
+    },
+    {
+      "acknowledged_previous_lost": null,
+      "acknowledged_spl_change": null,
+      "build": "2026092300",
+      "recorded_utc": "2026-09-24T04:20:13Z",
+      "rollback_index": null,
+      "spl": "2026-09-01",
+      "spl_month": "2026-09",
+      "target_files": {
+        "bytes": 4552870229,
+        "entries": 9339,
+        "path": "/Users/myhomefolder/rist-publish/2026092300-retain/stallion-target_files.zip",
+        "sha256": "0a065fc61d53112b98d5bcef32148425dbd1d18014a34ca1fe59b15850930c26"
+      },
+      "variant": "public"
     }
   ]
 }

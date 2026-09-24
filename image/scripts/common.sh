@@ -43,7 +43,7 @@ fi
 # actually runs ccache when CCACHE_EXEC also points at the binary, and nothing in this repository
 # sets that -- so the cache stayed inert and the lines looked harmless. They are not. On 2026-09-22
 # a CCACHE_EXEC in the build user's .bashrc completed the pair and a sandboxed compile action died
-# with "ccache: error: Failed to create directory /home/builder/.cache/ccache/tmp: Read-only file
+# with "ccache: error: Failed to create directory <build user home>/.cache/ccache/tmp: Read-only file
 # system", which reads like a failing disk and is not one.
 #
 # The build box is destroyed after every release, so the cache is always cold -- measured 0 hits
