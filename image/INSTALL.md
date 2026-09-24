@@ -193,9 +193,10 @@ six hours and posts a "System update" notification when a newer build is publish
 ships configured, and nothing on the phone changes or clears it — turning the checking off, or
 pointing it at your own bucket, means editing code.
 
-What has never been watched through end to end is the phone installing one of those updates itself,
-so the path we trust is still the manual one. It does not require going through any of this again. A
-signed update package is applied from recovery, and it does not wipe the phone:
+Updating over the air has worked on handsets. The one exception is the package published for
+2026092200, which every phone refused before installing anything; that was a fault in how the package
+was generated, not in the update path. If an update will not apply, the recovery route below always
+works, does not require going through any of this again, and does not wipe the phone:
 
 ```sh
 adb reboot recovery
