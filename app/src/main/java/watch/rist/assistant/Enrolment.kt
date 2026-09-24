@@ -53,7 +53,10 @@ object Enrolment {
     fun readiness(ctx: Context): Readiness {
         if (!canPair(ctx)) return Readiness.ALREADY_ENROLLED
         if (target(ctx).isBlank()) return Readiness.NOT_CONFIGURED
-        if (System.currentTimeMillis() < nextAttemptAtMs(Config.enrolAttempts(ctx), Config.enrolSentAtMs(ctx))) {
+        val now = System.currentTimeMillis()
+        // A send stamped in the future (the clock was wrong then) must not hold the phone off for years.
+        val sentAt = Config.enrolSentAtMs(ctx).let { if (it > now) 0L else it }
+        if (now < nextAttemptAtMs(Config.enrolAttempts(ctx), sentAt)) {
             return Readiness.BACKING_OFF
         }
         val tm = runCatching { ctx.getSystemService(TelephonyManager::class.java) }.getOrNull()
@@ -141,6 +144,7 @@ object Enrolment {
                                 } else {
                                     clear(ctx)
                                     Config.setEnrolRevoked(ctx, false)
+                                    WakeLoop.kick()
                                     Log.i(TAG, "enrolled: stored a ${token.length}-char token")
                                     true
                                 }
@@ -240,6 +244,8 @@ object Enrolment {
                         Config.setCredentialRejected(ctx, false)
                         Config.setEnrolRevoked(ctx, false)
                         Config.clearBillingLapse(ctx)
+                        // The wake loop may be sitting out a refused token's wait.
+                        WakeLoop.kick()
                         // Never log the code or the token.
                         Log.i(TAG, "paired: stored a ${token.length}-char token")
                     }

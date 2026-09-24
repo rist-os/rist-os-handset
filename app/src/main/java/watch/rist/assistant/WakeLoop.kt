@@ -159,14 +159,24 @@ object WakeLoop {
         withTimeoutOrNull(ms) { kicks.receive() }
     }
 
+    /** Whether the loop sits out this token: it is the one last refused, and the refusal still holds. */
+    internal fun sitsOut(token: String?, refusedToken: String?, refusedUntilMs: Long, nowMs: Long): Boolean =
+        token != null && token == refusedToken && nowMs < refusedUntilMs
+
+    /** When a token refused with 403 at [nowMs] is asked again. */
+    internal fun revokedUntil(nowMs: Long): Long = nowMs + REVOKED_RECHECK_MS
+
     /** The whole client (§3 "Your loop"). Runs until its coroutine is cancelled. */
     suspend fun run(ctx: Context) {
         var backoff = BACKOFF_MIN_MS
         var refusedToken: String? = null
+        var refusedUntil = Long.MAX_VALUE
         while (true) {
             val token = Uploader.bearer(ctx)
-            if (token != null && token == refusedToken) {
-                waitOrKick(NO_TOKEN_RECHECK_MS)
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (sitsOut(token, refusedToken, refusedUntil, now)) {
+                // Short waits, so a new token (a re-pair) is polled with soon; a kick only re-checks.
+                waitOrKick(minOf(NO_TOKEN_RECHECK_MS, refusedUntil - now))
                 continue
             }
             // A kick asks for a poll, and this is it. Left queued, it would cut short the wait
@@ -179,6 +189,7 @@ object WakeLoop {
             kicks.tryReceive()
             when (out) {
                 is Outcome.Signal -> {
+                    refusedToken = null
                     runCatching { Enrolment.onReinstated(ctx) }
                     runCatching { apply(ctx, out.signal, out.acked) }
                         .onFailure { Log.w(TAG, "could not take a signal in", it) }
@@ -191,12 +202,16 @@ object WakeLoop {
                     Log.w(TAG, "401: stopping until the phone has a new credential")
                     runCatching { Enrolment.onCredentialDead(ctx) }
                     refusedToken = token
+                    refusedUntil = Long.MAX_VALUE
                 }
                 Outcome.Revoked -> {
                     Log.w(TAG, "403: this device is revoked; asking again in ${REVOKED_RECHECK_MS / 60_000} min")
                     runCatching { Enrolment.onRevoked(ctx) }
                     backoff = BACKOFF_MIN_MS
-                    waitOrKick(REVOKED_RECHECK_MS)
+                    // Refuse this token for the hour rather than sleeping it: a kick must not
+                    // re-ask a revoked token, and a new one from a re-pair must not wait the hour.
+                    refusedToken = token
+                    refusedUntil = revokedUntil(android.os.SystemClock.elapsedRealtime())
                 }
                 is Outcome.Lapsed -> {
                     Log.w(TAG, "402: subscription ${out.lapse.reason}; keeping the token, asking again later")

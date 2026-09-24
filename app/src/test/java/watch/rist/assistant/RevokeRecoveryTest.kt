@@ -135,4 +135,34 @@ class RevokeRecoveryTest {
         )
         assertTrue(WakeLoop.REVOKED_RECHECK_MS in 60_000L..24L * 60 * 60 * 1000)
     }
+
+    @Test
+    fun `a revoked token is sat out for the hour, kicks or not, then asked again`() {
+        val t0 = 1_000_000L
+        val until = WakeLoop.revokedUntil(t0)
+        assertTrue(WakeLoop.sitsOut("Bearer old", "Bearer old", until, t0 + 1))
+        assertTrue(WakeLoop.sitsOut("Bearer old", "Bearer old", until, until - 1))
+        assertFalse("the hourly re-ask never comes", WakeLoop.sitsOut("Bearer old", "Bearer old", until, until))
+    }
+
+    @Test
+    fun `a new token from a re-pair is polled with at once, not after the revoked token's hour`() {
+        val t0 = 1_000_000L
+        val until = WakeLoop.revokedUntil(t0)
+        assertFalse(WakeLoop.sitsOut("Bearer new", "Bearer old", until, t0 + 1))
+        assertFalse(WakeLoop.sitsOut(null, "Bearer old", until, t0 + 1))
+    }
+
+    @Test
+    fun `a 401'd token is sat out until it changes`() {
+        assertTrue(WakeLoop.sitsOut("Bearer dead", "Bearer dead", Long.MAX_VALUE, Long.MAX_VALUE - 1))
+    }
+
+    @Test
+    fun `a send stamped in the future by a wrong clock does not hold enrolment off`() {
+        Config.setRistNumber(ctx, "+15550100")
+        Config.setEnrolAttempts(ctx, 20)
+        Config.setEnrolSentAtMs(ctx, System.currentTimeMillis() + 10L * 365 * 24 * 60 * 60 * 1000)
+        assertNotEquals(Enrolment.Readiness.BACKING_OFF, Enrolment.readiness(ctx))
+    }
 }
