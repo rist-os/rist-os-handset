@@ -46,8 +46,24 @@ object Billing {
         Config.setBillingLapse(ctx, lapse.reason, lapse.renewUrl, lapse.portalPath)
     }
 
-    fun onServed(ctx: Context) {
+    /** The numbers the backend still dials for a lapsed account (emergency_turn.py), with a 200. */
+    internal val EMERGENCY_DIALS = setOf("911", "112", "988", "933")
+
+    /** A served reply proves the account is paid, except the emergency dial let through its 402. */
+    internal fun provesPaid(ctx: Context, resp: rist.v1.DeviceResponse): Boolean {
+        if (!resp.hasComms()) return true
+        val action = resp.comms.action.trim().lowercase()
+        if (action != "dial" && action != "call") return true
+        val digits = resp.comms.number.filter { it.isDigit() }
+        return digits !in EMERGENCY_DIALS && !DeviceCommands.isEmergency(ctx, resp.comms.number)
+    }
+
+    fun onServed(ctx: Context, resp: rist.v1.DeviceResponse? = null) {
         if (Config.billingLapse(ctx).isEmpty()) return
+        if (resp != null && !provesPaid(ctx, resp)) {
+            Log.i(TAG, "an emergency dial was let through; the lapse stands")
+            return
+        }
         Log.i(TAG, "served again; the lapse is over")
         Config.clearBillingLapse(ctx)
     }
@@ -73,7 +89,7 @@ object Billing {
     /** Only Stripe's hosted page, over https, and only a link this endpoint just handed over. */
     internal fun openablePortal(url: String): String? {
         val parsed = url.trim().toHttpUrlOrNull() ?: return null
-        if (!parsed.isHttps || parsed.host.lowercase() != PORTAL_HOST) return null
+        if (!parsed.isHttps || parsed.host.lowercase() != PORTAL_HOST || parsed.port != 443) return null
         if (parsed.username.isNotEmpty() || parsed.password.isNotEmpty()) return null
         return SiteLock.openable(parsed.toString())
     }

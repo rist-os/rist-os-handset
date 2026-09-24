@@ -131,8 +131,9 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.RistAssistant" />
 
-        <!-- The site a scanned QR code points at, and nowhere else. Never exported: the only way
-             in is LinkActivity, with a link the camera's QR scanner has just handed over. -->
+        <!-- The site a scanned QR code points at, and nowhere else. Never exported: the only ways
+             in are LinkActivity, with a link the camera's QR scanner has just handed over, and the
+             Update payment button, with a billing.stripe.com link the backend has just issued. -->
         <activity
             android:name=".LockedBrowserActivity"
             android:exported="false"

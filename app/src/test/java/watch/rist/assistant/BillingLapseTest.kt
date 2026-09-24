@@ -237,4 +237,55 @@ class BillingLapseTest {
         assertTrue(Enrolment.explainPair(Enrolment.PairResult.PAYMENT_REQUIRED).contains("has not been used"))
         assertFalse(Config.enrolRevoked(ctx))
     }
+
+    private fun dialing(number: String) = MockResponse().setResponseCode(200)
+        .setHeader("Content-Type", "application/x-protobuf")
+        .setBody(Buffer().write(DeviceResponse.newBuilder()
+            .setSpeech(Speech.newBuilder().setText("Ready to call."))
+            .setComms(rist.v1.CommsCommand.newBuilder().setAction("dial").setNumber(number))
+            .build().toByteArray()))
+
+    @Test
+    fun `the emergency dial a lapsed account is still given does not end the lapse`() {
+        server.enqueue(lapsed())
+        server.enqueue(dialing("911"))
+        server.enqueue(dialing("988"))
+        Uploader(ctx).sendText("weather")
+        assertEquals("Ready to call.", Uploader(ctx).sendText("call 911")?.speech?.text)
+        assertNotNull("the backend's 911 exception is not proof of payment", Billing.lapse(ctx))
+        Uploader(ctx).sendText("call 988")
+        assertNotNull(Billing.lapse(ctx))
+    }
+
+    @Test
+    fun `an ordinary dial after a lapse does end it`() {
+        server.enqueue(lapsed())
+        server.enqueue(dialing("+15550100"))
+        Uploader(ctx).sendText("weather")
+        Uploader(ctx).sendText("call mom")
+        assertNull(Billing.lapse(ctx))
+    }
+
+    @Test
+    fun `lookalike and odd portal addresses are refused`() {
+        for (bad in listOf(
+            "https://billing.stripe.com:8443/p/s",
+            "https://billing.stripe.com.evil.example/p/s",
+            "https://evil.example/billing.stripe.com",
+            "https://billing.stripe.com@evil.example/p/s",
+            "https://evil.example\\@billing.stripe.com/p/s",
+            "https://x:y@billing.stripe.com/p/s",
+            "javascript:alert(1)//billing.stripe.com",
+            "intent://billing.stripe.com#Intent;end",
+            "file:///billing.stripe.com",
+            "//billing.stripe.com/p/s",
+            "billing.stripe.com/p/s",
+            "https://billing.stripe.co/p/s",
+            "https://xbilling.stripe.com/p/s",
+            "https://stripe.com/p/s",
+        )) assertNull("let through: $bad", Billing.openablePortal(bad))
+        assertEquals("https://billing.stripe.com/p/s", Billing.openablePortal("https://BILLING.Stripe.com:443/p/s"))
+        assertEquals("https://billing.stripe.com/@evil.example",
+            Billing.openablePortal("https://billing.stripe.com\\@evil.example"))
+    }
 }

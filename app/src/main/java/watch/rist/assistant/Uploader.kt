@@ -686,7 +686,7 @@ class Uploader(private val ctx: Context) {
                 "corridor=${resp.nav.hasCorridor()} tiles=${if (resp.nav.hasCorridor()) resp.nav.corridor.tilesCount else 0} frames=${resp.nav.framesCount} tiles=${resp.nav.tilesCount} turns=${resp.nav.turnsCount} routeId='${resp.nav.routeId}'" else "") +
             (if (resp.hasLocationRequest()) "maxAge=${resp.locationRequest.maxAgeS} minAcc=${resp.locationRequest.minAccuracyM}" else ""))
         // sms_ack is ignored: nothing is held on the device to clear.
-        runCatching { Billing.onServed(ctx) }
+        runCatching { Billing.onServed(ctx, resp) }
         runCatching { Enrolment.onReinstated(ctx) }
         if (resp.smsAckCount > 0) Log.i(TAG, "backend acked ${resp.smsAckCount} SMS; nothing held to clear")
         // Ack before arm.
