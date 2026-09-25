@@ -290,6 +290,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // What the backend offers this account changed: take down anything it no longer offers.
+    private val featuresReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) = applyFeatures(repaint = true)
+    }
+
+    private fun applyFeatures(repaint: Boolean = false) = runCatching {
+        if (!Features.isOn(this, Features.Id.MEDIA)) nowPlayingCard.visibility = View.GONE
+        if (!Features.isOn(this, Features.Id.MAPS) && currentNav != null) closeNav()
+        if (repaint) {
+            CommsFeedView.render(this)
+            refreshGearBadge()
+        }
+    }.onFailure { Log.w(TAG, "applying features failed", it) }.let { }
+
     private val mediaStatusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             status(intent.getStringExtra(PlaybackService.EXTRA_MEDIA_STATUS).orEmpty())
@@ -591,6 +605,7 @@ class MainActivity : AppCompatActivity() {
         lbm.registerReceiver(cmdStateReceiver, IntentFilter(DeviceCommands.ACTION_STATE_CHANGED))
         lbm.registerReceiver(streamProgressReceiver, IntentFilter(StreamingStatus.ACTION_PROGRESS))
         lbm.registerReceiver(streamEndedReceiver, IntentFilter(StreamingStatus.ACTION_STREAM_ENDED))
+        lbm.registerReceiver(featuresReceiver, IntentFilter(Features.ACTION_CHANGED))
         runCatching {
             registerReceiver(timeTickReceiver, IntentFilter().apply {
                 addAction(Intent.ACTION_TIME_TICK)
@@ -636,6 +651,9 @@ class MainActivity : AppCompatActivity() {
         cmdHandler.removeCallbacks(cmdTicker)
         if (DeviceCommands.anythingRunning()) cmdHandler.post(cmdTicker)
         enterKioskIfOwner()
+        applyFeatures()
+        // A phone removed from its account says so once, on a screen of its own.
+        if (RemovedActivity.showIfDue(this)) return
         // Captured before askIfDue, which stamps asked-at and makes isDue() false.
         val networkQuestionWasDue = NetworkLocationConsent.isDue(this)
         NetworkLocationPromptActivity.askIfDue(this)
@@ -716,6 +734,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.commandText)?.apply { typeface = tf }
         updateGlance()
         findViewById<ImageView>(R.id.settingsGear)?.setColorFilter(t.inkMuted)
+        findViewById<TextView>(R.id.emergencyButton)?.apply { setTextColor(t.ink); background = themedField(t) }
         (findViewById<View>(R.id.replyContainer) as? android.view.ViewGroup)?.let { rc ->
             for (i in 0 until rc.childCount) (rc.getChildAt(i) as? TextView)?.apply { setTextColor(t.ink); typeface = tf }
         }
@@ -776,6 +795,11 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.maintenanceHotspot)?.apply {
             isClickable = false
             isFocusable = false
+        }
+        // Always on the home screen, whatever the backend, the network or the account says.
+        findViewById<View>(R.id.emergencyButton)?.setOnClickListener {
+            if (appDrawerOpen) closeAppDrawer()
+            EmergencyDial.open(this)
         }
     }
 
@@ -846,6 +870,7 @@ class MainActivity : AppCompatActivity() {
         lbm.unregisterReceiver(nowPlayingReceiver)
         lbm.unregisterReceiver(streamProgressReceiver)
         lbm.unregisterReceiver(streamEndedReceiver)
+        lbm.unregisterReceiver(featuresReceiver)
     }
 
     private fun renderAwaitingReply() = runCatching {
@@ -1893,6 +1918,8 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, line, Toast.LENGTH_LONG).show()
         Haptics.final(this)
         refreshBillingNotice()
+        // The turn just learned this phone was removed: say so now, not on the next return home.
+        RemovedActivity.showIfDue(this)
     }
 
     private var billingNoticeShown: String? = null
@@ -2275,7 +2302,7 @@ class MainActivity : AppCompatActivity() {
             dispatchMedia(reply.media, reply.toolId.orEmpty())
         }
 
-        if (reply != null && reply.hasNav()) {
+        if (reply != null && reply.hasNav() && Features.isOn(this, Features.Id.MAPS)) {
             showNav(reply.nav)
         }
 
@@ -2369,7 +2396,8 @@ class MainActivity : AppCompatActivity() {
     private fun isSpeechBusy(): Boolean = Playback.isActive()
 
     private fun updateNowPlaying(intent: Intent) {
-        val active = intent.getBooleanExtra(PlaybackService.EXTRA_NP_ACTIVE, false)
+        val active = intent.getBooleanExtra(PlaybackService.EXTRA_NP_ACTIVE, false) &&
+            Features.isOn(this, Features.Id.MEDIA)
         if (!active) { nowPlayingCard.visibility = View.GONE; return }
         nowPlayingCard.visibility = View.VISIBLE
 

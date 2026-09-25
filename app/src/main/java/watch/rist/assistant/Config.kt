@@ -49,6 +49,10 @@ object Config {
     private const val KEY_BILLING_RENEW = "billing_renew_url"
     private const val KEY_BILLING_PORTAL = "billing_portal_path"
     private const val KEY_BILLING_NO_PORTAL = "billing_no_portal"
+    private const val KEY_BILLING_ACCOUNT_URL = "billing_account_url"
+    private const val KEY_FEATURES = "features"
+    private const val KEY_CONTACTS_SYNC_OFF = "contacts_sync_off"
+    private const val KEY_REMOVED_NOTICE_SHOWN = "removed_notice_shown"
     private const val KEY_COMMS_RESULTS = "comms_results"
     private const val KEY_VOICEMAILS = "voicemails"
     private const val KEY_SETTINGS_STATE = "settings_state"
@@ -202,7 +206,8 @@ object Config {
         val had = authToken(ctx).length
         // A revocation or a lapse was one backend's word about this device, not the next one's.
         prefs(ctx).edit().remove(KEY_AUTH_TOKEN).remove(KEY_ENROL_REVOKED).remove(KEY_BILLING_LAPSE)
-            .remove(KEY_BILLING_RENEW).remove(KEY_BILLING_PORTAL).remove(KEY_BILLING_NO_PORTAL).apply()
+            .remove(KEY_BILLING_RENEW).remove(KEY_BILLING_PORTAL).remove(KEY_BILLING_NO_PORTAL).remove(KEY_BILLING_ACCOUNT_URL)
+            .remove(KEY_FEATURES).remove(KEY_CONTACTS_SYNC_OFF).remove(KEY_REMOVED_NOTICE_SHOWN).apply()
         if (had > 0) {
             android.util.Log.i("RistConfig", "backend endpoint changed; cleared the device token ($had chars)")
         }
@@ -272,15 +277,27 @@ object Config {
     fun billingNoPortal(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_BILLING_NO_PORTAL, false)
     fun setBillingNoPortal(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_BILLING_NO_PORTAL, v).apply() }
 
-    fun setBillingLapse(ctx: Context, reason: String, renewUrl: String, portalPath: String) {
+    fun billingAccountUrl(ctx: Context): String = prefs(ctx).getString(KEY_BILLING_ACCOUNT_URL, "") ?: ""
+
+    fun setBillingLapse(ctx: Context, reason: String, renewUrl: String, portalPath: String, accountUrl: String = "") {
         prefs(ctx).edit().putString(KEY_BILLING_LAPSE, reason).putString(KEY_BILLING_RENEW, renewUrl)
-            .putString(KEY_BILLING_PORTAL, portalPath).apply()
+            .putString(KEY_BILLING_PORTAL, portalPath).putString(KEY_BILLING_ACCOUNT_URL, accountUrl).apply()
     }
 
     fun clearBillingLapse(ctx: Context) {
         prefs(ctx).edit().remove(KEY_BILLING_LAPSE).remove(KEY_BILLING_RENEW)
-            .remove(KEY_BILLING_PORTAL).remove(KEY_BILLING_NO_PORTAL).apply()
+            .remove(KEY_BILLING_PORTAL).remove(KEY_BILLING_NO_PORTAL).remove(KEY_BILLING_ACCOUNT_URL).apply()
     }
+
+    /** The last feature set the backend sent, as JSON; empty when none has ever arrived. */
+    fun features(ctx: Context): String = prefs(ctx).getString(KEY_FEATURES, "") ?: ""
+    fun setFeatures(ctx: Context, json: String) { prefs(ctx).edit().putString(KEY_FEATURES, json).apply() }
+
+    fun contactsSyncOff(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_CONTACTS_SYNC_OFF, false)
+    fun setContactsSyncOff(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_CONTACTS_SYNC_OFF, v).apply() }
+
+    fun removedNoticeShown(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_REMOVED_NOTICE_SHOWN, false)
+    fun setRemovedNoticeShown(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_REMOVED_NOTICE_SHOWN, v).apply() }
 
     fun voicemailCount(ctx: Context): Int = prefs(ctx).getInt(KEY_VM_COUNT, 0)
     fun setVoicemailCount(ctx: Context, n: Int) { prefs(ctx).edit().putInt(KEY_VM_COUNT, n).apply() }

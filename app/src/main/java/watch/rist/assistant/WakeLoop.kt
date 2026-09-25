@@ -125,6 +125,7 @@ object WakeLoop {
         val fresh = NotificationQueue.unheldIds(ctx, signal.notificationsList)
         if (signal.notificationsCount > 0) NotificationQueue.store(ctx, signal.notificationsList)
         NotificationQueue.setMailUnread(ctx, signal.mailUnread)
+        if (signal.hasFeatures()) runCatching { Features.apply(ctx, signal.features) }
         if (Config.voicemailCount(ctx) != signal.voicemailUnheard) {
             Config.setVoicemailCount(ctx, signal.voicemailUnheard)
             NotificationQueue.countsChanged(ctx)

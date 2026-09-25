@@ -39,7 +39,11 @@ object CommsFeedView {
     fun waitingCount(ctx: Context): Int = waiting(ctx).total
 
     fun waiting(ctx: Context): CommsFeed.Waiting =
-        CommsFeed.waiting(candidates(ctx), CarrierVoicemail.showing(ctx), Config.pendingMail(ctx))
+        CommsFeed.waiting(candidates(ctx), CarrierVoicemail.showing(ctx), pendingMail(ctx))
+
+    /** Unread mail, counted only while this account has email. */
+    internal fun pendingMail(ctx: Context): Int =
+        if (Features.isOn(ctx, Features.Id.EMAIL)) Config.pendingMail(ctx) else 0
 
     private fun missedCalls(ctx: Context): List<FeedItem> = runCatching {
         // No date cutoff, for the same reason as SmsInbox.arrivals: the feed keeps a missed
@@ -121,7 +125,7 @@ object CommsFeedView {
         val unconnected = Config.credentialRejected(activity) || Config.enrolRevoked(activity)
         val lapsed = if (unconnected) null else Billing.notice(activity)
 
-        val mailUnread = Config.pendingMail(activity)
+        val mailUnread = pendingMail(activity)
         val unbadgedMail = CommsFeed.unbadgedMail(all, mailUnread)
 
         if (shown.isEmpty() && !vmWaiting && !textsUnreadable && !unconnected && lapsed == null &&
@@ -432,6 +436,7 @@ object CommsFeedView {
     /** The × on every row. In ink, not muted: a control nobody can see is not a control. */
     internal const val BILLING_ROW_TAG = "billing-lapse"
     internal const val BILLING_BUTTON_TAG = "billing-update-payment"
+    internal const val BILLING_ACCOUNT_TAG = "billing-account-page"
 
     /** The backend's renew line and one button; nothing here stands between the person and RECORD. */
     private fun billingRow(
@@ -458,6 +463,21 @@ object CommsFeedView {
             minHeight = (48 * d).toInt()
             isClickable = true; isFocusable = true
             setOnClickListener { openPortal(activity, this) }
+        })
+        if (Billing.offersAccountPage(activity)) addView(TextView(activity).apply {
+            text = activity.getString(R.string.billing_open_account)
+            tag = BILLING_ACCOUNT_TAG
+            contentDescription = activity.getString(R.string.billing_open_account_desc)
+            setTextColor(t.accent); typeface = tf; isAllCaps = true
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            gravity = Gravity.CENTER_VERTICAL
+            minHeight = (48 * d).toInt()
+            isClickable = true; isFocusable = true
+            setOnClickListener {
+                val url = Billing.accountPage(activity) ?: return@setOnClickListener
+                runCatching { activity.startActivity(LockedBrowserActivity.intent(activity, url)) }
+                    .onFailure { Log.w(TAG, "could not open the account page", it) }
+            }
         })
         addView(View(activity).apply {
             layoutParams = LinearLayout.LayoutParams(

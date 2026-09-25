@@ -122,9 +122,15 @@ object Alarms {
      * 07:00 is worse than not waking them at all, and the backend still holds the record.
      */
     @Synchronized
-    fun reschedule(ctx: Context, nowEpochS: Long = System.currentTimeMillis() / 1000) {
-        val all = held(ctx)
-        if (all.isEmpty()) return
+    fun reschedule(
+        ctx: Context,
+        nowEpochS: Long = System.currentTimeMillis() / 1000,
+        zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
+    ) {
+        val stored = held(ctx)
+        if (stored.isEmpty()) return
+        val all = stored.map { followZone(it, nowEpochS, zone) }
+        val moved = all.zip(stored).count { (a, b) -> a != b }
 
         val keep = ArrayList<Armed>(all.size)
         var dropped = 0
@@ -147,8 +153,23 @@ object Alarms {
             keep += due
             DeviceCommands.rearm(ctx, due)
         }
-        if (dropped > 0 || rolled > 0 || late > 0) save(ctx, keep)
-        Log.i(TAG, "boot: re-armed ${keep.size} ($late rung late, $rolled rolled forward), dropped $dropped")
+        if (dropped > 0 || rolled > 0 || late > 0 || moved > 0) save(ctx, keep)
+        Log.i(TAG, "re-armed ${keep.size} ($late rung late, $rolled rolled forward, $moved moved to " +
+            "the clock of ${zone.id}), dropped $dropped")
+    }
+
+    /**
+     * A repeating alarm follows the phone's clock: "7 AM on weekdays" rings at 7 in whatever zone
+     * the phone is now in, so after a time zone change it moves to the next 7 AM here. A one-shot
+     * keeps its instant, as the backend does. A snoozed ring keeps its nine minutes; only the
+     * schedule it returns to moves.
+     */
+    internal fun followZone(a: Armed, nowEpochS: Long, zone: java.time.ZoneId): Armed {
+        if (!repeats(a.recurrence)) return a
+        if (timeOfDay(a.scheduledEpochS, zone) == a.todSec) return a
+        val next = nextOccurrence(nowEpochS - 2L * 86_400L, a.todSec, a.recurrence, nowEpochS, zone) ?: return a
+        val snoozed = a.fireAtEpochS != a.scheduledEpochS
+        return a.copy(scheduledEpochS = next, fireAtEpochS = if (snoozed) a.fireAtEpochS else next)
     }
 
     // ---- recurrence ----

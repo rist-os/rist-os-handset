@@ -39,7 +39,7 @@
         android:paddingBottom="7dp"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toStartOf="@id/settingsGear">
+        app:layout_constraintEnd_toStartOf="@id/emergencyButton">
 
         <TextView
             android:id="@+id/clockText"
@@ -688,6 +688,28 @@
         android:importantForAccessibility="no"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
+
+    <!-- Always shown: an emergency call must never depend on the network, the backend or the account. -->
+    <TextView
+        android:id="@+id/emergencyButton"
+        android:layout_width="wrap_content"
+        android:layout_height="48dp"
+        android:minWidth="48dp"
+        android:translationZ="12dp"
+        android:layout_marginEnd="2dp"
+        android:gravity="center"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:text="@string/emergency_button"
+        android:contentDescription="@string/emergency_button_desc"
+        android:textColor="@color/ink"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:fontFamily="@font/pixel"
+        android:clickable="true"
+        android:focusable="true"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintEnd_toStartOf="@id/settingsGear" />
 
     <ImageView
         android:id="@+id/settingsGear"

@@ -596,7 +596,7 @@ class Uploader(private val ctx: Context) {
                             Log.w(TAG, "backend 402 (${lapse.reason}) req_id=${parsed.requestId}")
                             return parsed
                         }
-                        lastFailure = Billing.fallbackLine(lapse.renewUrl)
+                        lastFailure = Billing.lineFor(lapse)
                         Log.w(TAG, "backend 402 (${lapse.reason}) with an unparseable body")
                         return null
                     }
@@ -608,7 +608,7 @@ class Uploader(private val ctx: Context) {
                         }
                         403 -> {
                             Enrolment.onRevoked(ctx)
-                            "this device's access has been turned off — pair it again in Settings"
+                            "this phone was removed from your account — pair it again in Settings"
                         }
                         503 -> "the assistant is briefly unavailable — trying again shortly"
                         404 -> "the assistant endpoint wasn't found"
@@ -688,6 +688,7 @@ class Uploader(private val ctx: Context) {
         // sms_ack is ignored: nothing is held on the device to clear.
         runCatching { Billing.onServed(ctx, resp) }
         runCatching { Enrolment.onReinstated(ctx) }
+        if (resp.hasFeatures()) runCatching { Features.apply(ctx, resp.features) }
         if (resp.smsAckCount > 0) Log.i(TAG, "backend acked ${resp.smsAckCount} SMS; nothing held to clear")
         // Ack before arm.
         if (resp.geofenceAckCount > 0) Geofences.ackCrossings(ctx, resp.geofenceAckList)

@@ -119,6 +119,13 @@
             android:theme="@style/Theme.RistAssistant" />
 
         <activity
+            android:name=".RemovedActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:lockTaskMode="if_whitelisted"
+            android:theme="@style/Theme.RistAssistant" />
+
+        <activity
             android:name=".BackgroundLocationPromptActivity"
             android:exported="false"
             android:screenOrientation="portrait"
@@ -347,6 +354,7 @@
         <receiver android:name=".AlarmReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
         </receiver>
 

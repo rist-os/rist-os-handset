@@ -22,7 +22,9 @@ object DeviceProfile {
 
     fun capabilities(ctx: Context): Capabilities {
         val dm = ctx.resources.displayMetrics
-        return capabilities(dm.widthPixels, dm.heightPixels)
+        // A phone whose account has no video calls does not offer to open one.
+        return capabilities(dm.widthPixels, dm.heightPixels,
+            videoCalls = VideoCalls.SHIPPED && Features.isOn(ctx, Features.Id.VIDEO_CALLS))
     }
 
     internal fun capabilities(screenW: Int, screenH: Int, videoCalls: Boolean = VideoCalls.SHIPPED): Capabilities =

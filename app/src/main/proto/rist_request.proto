@@ -158,6 +158,21 @@ message DeviceResponse {
 
   // Open or leave a video call (v15). Sent only to a device listing the `video_call` component.
   VideoCallCommand video_call = 31;
+
+  // PENDING, not yet in the canonical proto: proposed to the backend as schema v19. Which
+  // features this account has; absent = the backend said nothing this time.
+  FeatureSet features = 32;
+}
+
+// PENDING (proposed v19). The whole list for this account each time it is sent.
+message FeatureSet {
+  repeated FeatureState features = 1;
+}
+
+// feature: a stable id such as "email" or "video_calls"; state: "on", "off" or "unavailable".
+message FeatureState {
+  string feature = 1;
+  string state   = 2;
 }
 
 // join: show the join screen; nothing loads and no camera or microphone opens before the tap.
@@ -207,6 +222,11 @@ message WakeSignal {
 
   // Seconds to wait before polling again; 0 = reconnect immediately.
   uint32 poll_after_s = 7;
+
+  reserved 8, 9;
+
+  // PENDING (proposed v19): the same list as `DeviceResponse.features`.
+  FeatureSet features = 10;
 }
 
 // One text that arrived on the SIM.

@@ -191,6 +191,7 @@ object Enrolment {
         STORE_FAILED,
         LOCKED_OUT,
         PAYMENT_REQUIRED,
+        HELD_ELSEWHERE,
     }
 
     // Backend floor: nonce min_length=8.
@@ -205,6 +206,8 @@ object Enrolment {
         code == 403 -> PairResult.REFUSED
         code == 400 || code == 422 -> PairResult.MALFORMED
         code == 429 -> PairResult.LOCKED_OUT
+        // The backend still holds this phone on the account it was removed from.
+        code == 409 -> PairResult.HELD_ELSEWHERE
         code == Billing.PAYMENT_REQUIRED -> PairResult.PAYMENT_REQUIRED
         else -> PairResult.NETWORK
     }
@@ -275,7 +278,10 @@ object Enrolment {
         PairResult.LOCKED_OUT ->
             "Too many attempts. Wait a few minutes, then get a new code and try again."
         PairResult.PAYMENT_REQUIRED ->
-            "The assistant service says this account's subscription has ended. Renew it, then try again — your code has not been used."
+            "The assistant service says this account's subscription isn't active. Finish signing up or renew it in your Rist account, then try again — your code has not been used."
+        PairResult.HELD_ELSEWHERE ->
+            "This phone is still listed on another Rist account. Remove it on that account's Phones page, " +
+                "then get a new code and try again — your code has not been used."
         PairResult.STORE_FAILED ->
             "This device couldn't save the connection securely, so it isn't connected. " +
                 "Restart the phone and try a new code; if it keeps happening, report it."
@@ -302,7 +308,11 @@ object Enrolment {
     // 403 only, never 402. The token is kept so the wake loop can notice a reinstatement, and
     // pairing stays open so a new code can bring the phone back without a reset.
     fun onRevoked(ctx: Context) {
-        if (!Config.enrolRevoked(ctx)) Log.w(TAG, "this device has been revoked; pairing is open again")
+        if (!Config.enrolRevoked(ctx)) {
+            Log.w(TAG, "this device has been revoked; pairing is open again")
+            // A new removal is told once more, on its own screen (RemovedActivity).
+            Config.setRemovedNoticeShown(ctx, false)
+        }
         Config.setEnrolRevoked(ctx, true)
     }
 

@@ -23,27 +23,77 @@ object Billing {
     internal const val DEFAULT_PORTAL_PATH = "/v1/billing/portal"
     internal const val PORTAL_HOST = "billing.stripe.com"
 
-    data class Lapse(val reason: String, val renewUrl: String, val portalPath: String)
+    /**
+     * PENDING: the `X-Rist-Billing` value proposed for an account whose subscription has never
+     * started (signed up, first payment not made). Every other value (lapsed, ended, disputed, or
+     * one this build has not heard of) is an ended subscription.
+     */
+    const val REASON_NOT_ACTIVE = "not-active"
 
-    internal fun lapseFrom(reason: String?, renewUrl: String?, portalPath: String?): Lapse = Lapse(
-        reason = reason?.trim()?.takeIf { it.isNotEmpty() } ?: "lapsed",
+    /** Hosts the account page may be opened on, over https only. */
+    internal val ACCOUNT_HOSTS = setOf("ristassistant.com", "www.ristassistant.com", "ristmobile.com", "www.ristmobile.com")
+
+    data class Lapse(
+        val reason: String,
+        val renewUrl: String,
+        val portalPath: String,
+        /** PENDING header `X-Rist-Account-Url`; empty when the backend did not send one. */
+        val accountUrl: String = "",
+    ) {
+        val notActiveYet: Boolean get() = reason == REASON_NOT_ACTIVE
+    }
+
+    internal fun lapseFrom(reason: String?, renewUrl: String?, portalPath: String?, accountUrl: String? = null): Lapse = Lapse(
+        reason = reason?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: "lapsed",
         renewUrl = renewUrl?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_RENEW_URL,
         portalPath = portalPath?.trim()?.takeIf { it.startsWith("/") } ?: DEFAULT_PORTAL_PATH,
+        accountUrl = accountUrl?.trim().orEmpty(),
     )
 
     internal fun lapseFrom(resp: okhttp3.Response): Lapse = lapseFrom(
         resp.header("X-Rist-Billing"),
         resp.header("X-Rist-Renew-Url"),
         resp.header("X-Rist-Billing-Portal"),
+        resp.header("X-Rist-Account-Url"),
     )
 
     /** Said only when the 402's own body cannot be read; the backend's line is always preferred. */
     fun fallbackLine(renewUrl: String = DEFAULT_RENEW_URL): String =
         "Your Rist Assistant subscription has ended — renew at ${renewUrl.ifBlank { DEFAULT_RENEW_URL }}."
 
+    /** The same, for an account whose subscription has not started yet. */
+    fun notActiveLine(renewUrl: String = DEFAULT_RENEW_URL): String =
+        "Your Rist Assistant subscription isn't active yet — finish signing up at ${renewUrl.ifBlank { DEFAULT_RENEW_URL }}."
+
+    fun lineFor(lapse: Lapse): String =
+        if (lapse.notActiveYet) notActiveLine(lapse.renewUrl) else fallbackLine(lapse.renewUrl)
+
     fun onLapsed(ctx: Context, lapse: Lapse) {
         if (Config.billingLapse(ctx).isEmpty()) Log.w(TAG, "402: subscription ${lapse.reason}")
-        Config.setBillingLapse(ctx, lapse.reason, lapse.renewUrl, lapse.portalPath)
+        Config.setBillingLapse(ctx, lapse.reason, lapse.renewUrl, lapse.portalPath, lapse.accountUrl)
+    }
+
+    /**
+     * The account page to open, or null. The backend's own address when it sent one, otherwise the
+     * renew address it speaks; either way only https on one of [ACCOUNT_HOSTS].
+     */
+    internal fun accountPage(lapse: Lapse): String? {
+        val raw = lapse.accountUrl.ifBlank { lapse.renewUrl }.trim()
+        val withScheme = if ("://" in raw) raw else "https://$raw"
+        val parsed = withScheme.toHttpUrlOrNull() ?: return null
+        if (!parsed.isHttps || parsed.port != 443) return null
+        if (parsed.username.isNotEmpty() || parsed.password.isNotEmpty()) return null
+        if (parsed.host.lowercase() !in ACCOUNT_HOSTS) return null
+        return parsed.toString()
+    }
+
+    fun accountPage(ctx: Context): String? = lapse(ctx)?.let { accountPage(it) }
+
+    /** Not active yet: the account page, where signing up is finished. No portal: there is nothing to update. */
+    fun offersAccountPage(ctx: Context): Boolean {
+        val l = lapse(ctx) ?: return false
+        if (accountPage(l) == null) return false
+        return l.notActiveYet || Config.billingNoPortal(ctx)
     }
 
     /** The numbers the backend still dials for a lapsed account (emergency_turn.py), with a 200. */
@@ -71,12 +121,15 @@ object Billing {
     fun lapse(ctx: Context): Lapse? {
         val reason = Config.billingLapse(ctx)
         if (reason.isEmpty()) return null
-        return lapseFrom(reason, Config.billingRenewUrl(ctx), Config.billingPortalPath(ctx))
+        return lapseFrom(reason, Config.billingRenewUrl(ctx), Config.billingPortalPath(ctx), Config.billingAccountUrl(ctx))
     }
 
-    fun notice(ctx: Context): String? = lapse(ctx)?.let { fallbackLine(it.renewUrl) }
+    fun notice(ctx: Context): String? = lapse(ctx)?.let { lineFor(it) }
 
-    fun offersPayment(ctx: Context): Boolean = lapse(ctx) != null && !Config.billingNoPortal(ctx)
+    fun offersPayment(ctx: Context): Boolean {
+        val l = lapse(ctx) ?: return false
+        return !l.notActiveYet && !Config.billingNoPortal(ctx)
+    }
 
     internal fun portalUrl(backendUrl: String, path: String): String? {
         val base = backendUrl.trim().trimEnd('/').let {
