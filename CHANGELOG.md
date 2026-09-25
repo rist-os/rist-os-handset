@@ -4,7 +4,7 @@ Build numbers are `YYYYMMDDNN`. The log starts with 2026083110, the first publis
 
 ---
 
-## Unreleased
+## 2026092300
 
 **Device:** Pixel 10a (`stallion`) only. **Android security patch level:** 2026-09-01.
 **Base:** GrapheneOS. **Download:** <https://dl.ristos.org/index.html>
@@ -44,9 +44,8 @@ bootloader is concerned, and a handset on either can move to the other.
 - **Location is GNSS-only by default.** The phone asks you once and you can change the answer.
 - **The published image is not reproducible from this repository.**
 - **No app store; arbitrary apps cannot be installed.**
-- **Installing an update over the air has not been watched through to the end on a handset.** The
-  trusted path remains `adb sideload` from recovery, which applies a signed package and does **not**
-  wipe the phone.
+- **If an update will not apply,** `adb sideload` from recovery always works: it applies a signed
+  package and does **not** wipe the phone.
 
 ---
 
