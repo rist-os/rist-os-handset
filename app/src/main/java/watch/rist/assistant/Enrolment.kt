@@ -192,21 +192,27 @@ object Enrolment {
         LOCKED_OUT,
         PAYMENT_REQUIRED,
         HELD_ELSEWHERE,
+        DEVICE_LIMIT,
     }
+
+    /** The server's own words for the last refused pairing, shown for a 409. */
+    @Volatile internal var lastPairDetail: String = ""
 
     // Backend floor: nonce min_length=8.
     internal const val MIN_CODE_LEN = 8
 
     internal fun isPlausibleCode(raw: String): Boolean = raw.trim().length >= MIN_CODE_LEN
 
-    internal fun classifyPair(code: Int, tokenBlank: Boolean): PairResult = when {
+    internal fun classifyPair(code: Int, tokenBlank: Boolean, detail: String = ""): PairResult = when {
         code in 200..299 && tokenBlank -> PairResult.NOT_GRANTED
         code in 200..299 -> PairResult.OK
         code == 404 -> PairResult.NOT_RECOGNISED
         code == 403 -> PairResult.REFUSED
         code == 400 || code == 422 -> PairResult.MALFORMED
         code == 429 -> PairResult.LOCKED_OUT
-        // The backend still holds this phone on the account it was removed from.
+        // Two 409s: the account is at its device limit, or another account holds this phone.
+        // Either way the code is used up. Told apart by the server's detail.
+        code == 409 && detail.contains("maximum", ignoreCase = true) -> PairResult.DEVICE_LIMIT
         code == 409 -> PairResult.HELD_ELSEWHERE
         code == Billing.PAYMENT_REQUIRED -> PairResult.PAYMENT_REQUIRED
         else -> PairResult.NETWORK
@@ -232,11 +238,14 @@ object Enrolment {
                 .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
             client.newCall(req).execute().use { resp ->
+                val bodyText = runCatching { resp.body?.string().orEmpty() }.getOrDefault("")
                 val token = if (resp.isSuccessful) {
-                    runCatching { JSONObject(resp.body?.string().orEmpty()).optString("token").trim() }
-                        .getOrDefault("")
+                    runCatching { JSONObject(bodyText).optString("token").trim() }.getOrDefault("")
                 } else ""
-                var verdict = classifyPair(resp.code, token.isBlank())
+                val detail = if (resp.isSuccessful) "" else
+                    runCatching { JSONObject(bodyText).optString("detail").trim() }.getOrDefault("")
+                lastPairDetail = detail
+                var verdict = classifyPair(resp.code, token.isBlank(), detail)
                 if (verdict == PairResult.OK) {
                     Config.setAuthToken(ctx, token)
                     if (Config.authToken(ctx) != token) {
@@ -281,7 +290,11 @@ object Enrolment {
             "The assistant service says this account's subscription isn't active. Finish signing up or renew it in your Rist account, then try again — your code has not been used."
         PairResult.HELD_ELSEWHERE ->
             "This phone is still listed on another Rist account. Remove it on that account's Phones page, " +
-                "then get a new code and try again — your code has not been used."
+                "then get a new code and try again. This code has been used."
+        PairResult.DEVICE_LIMIT ->
+            lastPairDetail.takeIf { it.isNotBlank() }?.let { "$it This code has been used; get a new one after that." }
+                ?: ("This account already has as many phones as it can. Remove one on the Phones page, " +
+                    "then get a new code and try again. This code has been used.")
         PairResult.STORE_FAILED ->
             "This device couldn't save the connection securely, so it isn't connected. " +
                 "Restart the phone and try a new code; if it keeps happening, report it."
@@ -294,9 +307,11 @@ object Enrolment {
         else base.trimEnd('/') + "/v1/enroll"
     }
 
-    // Only a 401 may reach here; never 503 or 403.
+    // Only a 401 may reach here; never 503 or 403. A phone removed on the website gets 401, so
+    // this opens the pairing screen once (RemovedActivity); nothing waits on SMS enrolment.
     fun onCredentialDead(ctx: Context) {
         if (Config.enrolRevoked(ctx)) return
+        if (!Config.credentialRejected(ctx)) Config.setRemovedNoticeShown(ctx, false)
         // Must be set before the clear below.
         Config.setCredentialRejected(ctx, true)
         if (Config.authToken(ctx).isNotBlank()) {

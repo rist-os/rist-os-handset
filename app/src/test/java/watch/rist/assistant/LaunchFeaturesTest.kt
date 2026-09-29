@@ -38,7 +38,7 @@ class LaunchFeaturesTest {
         "email" to "unavailable", "texting" to "unavailable", "contacts" to "unavailable",
         "calendar" to "unavailable", "maps" to "unavailable", "media" to "unavailable",
         "sound_id" to "unavailable", "video_calls" to "unavailable",
-        "call_screening" to "unavailable", "voicemail" to "unavailable",
+        "calls" to "unavailable",
     )
 
     @Before
@@ -156,5 +156,13 @@ class LaunchFeaturesTest {
             Config.clearDeployDefaultsForTest()
             runCatching { server.shutdown() }
         }
+    }
+
+    @Test
+    fun `calls on keeps call screening and voicemail, keyed on the backend's own id`() {
+        Features.apply(ctx, set("calls" to "on", "email" to "off"))
+        assertTrue(Features.isOn(ctx, Features.Id.CALLS))
+        assertFalse(Features.isOn(ctx, Features.Id.EMAIL))
+        assertEquals("calls", Features.Id.CALLS.wire)
     }
 }

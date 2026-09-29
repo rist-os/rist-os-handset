@@ -30,8 +30,8 @@ object Features {
         MEDIA("media"),
         SOUND_ID("sound_id"),
         VIDEO_CALLS("video_calls"),
-        CALL_SCREENING("call_screening"),
-        VOICEMAIL("voicemail"),
+        // Call screening and voicemail are one feature to the backend.
+        CALLS("calls"),
     }
 
     enum class State(val wire: String) { ON("on"), OFF("off"), UNAVAILABLE("unavailable") }

@@ -20,6 +20,9 @@ import rist.v1.Location
 class Uploader(private val ctx: Context) {
 
     companion object {
+        /** Statuses whose body is a DeviceResponse with a line to say. */
+        internal val SPOKEN_ERRORS = setOf(401, 403, 503)
+
         // Null when no token is provisioned, so no Authorization header is sent. Never logged.
         internal fun bearer(c: Context): String? =
             Config.authToken(c).takeIf { it.isNotBlank() }?.let { "Bearer $it" }
@@ -44,6 +47,12 @@ class Uploader(private val ctx: Context) {
 
         // Device-generated so the turn is cancellable from the instant it is sent.
         internal fun newRequestId(): String = java.util.UUID.randomUUID().toString()
+
+        /**
+         * One per thing the user said or tapped; resending that same request reuses it, so the
+         * backend runs the turn once (v18). A new request always gets a new one.
+         */
+        internal fun newUtteranceId(): String = java.util.UUID.randomUUID().toString()
 
         // Zero bytes parse as a valid empty message, so emptiness is checked before parsing.
         internal fun parseOneOrNull(input: java.io.InputStream): DeviceResponse? {
@@ -195,6 +204,7 @@ class Uploader(private val ctx: Context) {
                 .setSessionId(sessionId)
                 .setTimestamp(timestamp)
                 .setRequestId(newRequestId())
+                .setUtteranceId(newUtteranceId())
                 .setAudio(audio)
                 .setAuthToken(authToken)
                 .setCaps(caps)
@@ -219,6 +229,7 @@ class Uploader(private val ctx: Context) {
                 .setSessionId(sessionId)
                 .setTimestamp(timestamp)
                 .setRequestId(newRequestId())
+                .setUtteranceId(newUtteranceId())
                 .apply { if (caption.isNotBlank()) setText(caption) }
                 .addAllImages(images)
                 .setAuthToken(authToken)
@@ -241,6 +252,7 @@ class Uploader(private val ctx: Context) {
                 .setSessionId(sessionId)
                 .setTimestamp(timestamp)
                 .setRequestId(newRequestId())
+                .setUtteranceId(newUtteranceId())
                 .setImage(image)
                 .setAuthToken(authToken)
                 .setCaps(caps)
@@ -259,6 +271,7 @@ class Uploader(private val ctx: Context) {
                 .setSessionId(sessionId)
                 .setTimestamp(timestamp)
                 .setRequestId(newRequestId())
+                .setUtteranceId(newUtteranceId())
                 .setText(text)
                 .setAuthToken(authToken)
                 .setCaps(caps)
@@ -315,6 +328,7 @@ class Uploader(private val ctx: Context) {
             .setSessionId(Config.sessionId(ctx))
             .setTimestamp(System.currentTimeMillis())
             .setRequestId(newRequestId())
+                .setUtteranceId(newUtteranceId())
             .setAuthToken(Config.authToken(ctx))
             .setCaps(DeviceProfile.capabilities(ctx))
             .setConfirm(Confirmation.newBuilder().setActionId(actionId).setApproved(approved))
@@ -331,6 +345,7 @@ class Uploader(private val ctx: Context) {
             // Same clock as `GeofenceEvent.at_ms`.
             .setTimestamp(System.currentTimeMillis())
             .setRequestId(newRequestId())
+                .setUtteranceId(newUtteranceId())
             .setAuthToken(Config.authToken(ctx))
             .setCaps(DeviceProfile.capabilities(ctx))
             .build()
@@ -469,6 +484,7 @@ class Uploader(private val ctx: Context) {
         lastFailure = ""
         lastLapse = null
         var req = requestProto
+        if (req.utteranceId.isBlank()) req = req.toBuilder().setUtteranceId(newUtteranceId()).build()
         val smsRead = if (includeInboundSms) SmsInbox.read(ctx) else SmsRead.Held(emptyList())
         if (smsRead is SmsRead.Unreadable) {
             lastFailure = smsUnreadableFailure(smsRead.why)
@@ -600,17 +616,32 @@ class Uploader(private val ctx: Context) {
                         Log.w(TAG, "backend 402 (${lapse.reason}) with an unparseable body")
                         return null
                     }
-                    // 401 = credential dead (re-enrol); 403 = revoked (pair again); 503 = retry.
+                    // 401, 403 and 503 each carry their own spoken line in a DeviceResponse body.
+                    val spoken = if (httpResp.code in SPOKEN_ERRORS) {
+                        httpResp.body?.bytes()?.takeIf { it.isNotEmpty() }
+                            ?.let { runCatching { DeviceResponse.parseFrom(it) }.getOrNull() }
+                            ?.takeIf { it.speech.text.isNotBlank() }
+                    } else null
+                    // A 503 is the backend briefly unable to check this phone; the credential is
+                    // fine, so its line is played as the answer and nothing is cleared.
+                    if (httpResp.code == 503 && spoken != null) {
+                        Log.w(TAG, "backend 503 req_id=${spoken.requestId}; playing its line")
+                        return spoken
+                    }
+                    // 401 = removed from its account or credential dead (pair again with a code);
+                    // 403 = revoked (pair again). Both stay failures so the pairing screen opens.
                     lastFailure = when (httpResp.code) {
                         401 -> {
                             Enrolment.onCredentialDead(ctx)
-                            "this device is setting itself up again"
+                            spoken?.speech?.text?.trim()
+                                ?: "this phone is no longer connected to your account — pair it again with a code"
                         }
                         403 -> {
                             Enrolment.onRevoked(ctx)
-                            "this phone was removed from your account — pair it again in Settings"
+                            spoken?.speech?.text?.trim()
+                                ?: "this phone was removed from your account — pair it again in Settings"
                         }
-                        503 -> "the assistant is briefly unavailable — trying again shortly"
+                        503 -> "the assistant can't be reached right now — try again in a moment"
                         404 -> "the assistant endpoint wasn't found"
                         429 -> "the assistant is busy — try again in a moment"
                         in 500..599 -> "the assistant is having trouble right now"
@@ -749,7 +780,10 @@ class Uploader(private val ctx: Context) {
             runCatching { AutoTimeZone.consider(ctx, fix) }
 
             // Re-POST exactly once; isResend=true prevents a loop.
-            val resendReq = requestProto.toBuilder().setLocation(protoLocation(fix)).build()
+            // A new turn, not a retry: the first one finished by asking for the location, and the
+            // same utterance_id would only replay that question.
+            val resendReq = requestProto.toBuilder().setLocation(protoLocation(fix))
+                .setRequestId(newRequestId()).setUtteranceId(newUtteranceId()).build()
             return post(resendReq, includeInboundSms = includeInboundSms, isResend = true) ?: resp
         }
 

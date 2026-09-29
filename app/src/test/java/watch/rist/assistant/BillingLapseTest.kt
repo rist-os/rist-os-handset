@@ -137,7 +137,8 @@ class BillingLapseTest {
         server.enqueue(MockResponse().setResponseCode(503))
         val down = Uploader(ctx).also { it.sendText("hi") }.lastFailure
         assertEquals("the assistant is busy — try again in a moment", busy)
-        assertEquals("the assistant is briefly unavailable — trying again shortly", down)
+        // Nothing retries on its own, so the line promises nothing.
+        assertEquals("the assistant can't be reached right now — try again in a moment", down)
         assertNull("neither is a billing lapse", Billing.lapse(ctx))
         assertFalse(Config.enrolRevoked(ctx))
     }
@@ -287,5 +288,52 @@ class BillingLapseTest {
         assertEquals("https://billing.stripe.com/p/s", Billing.openablePortal("https://BILLING.Stripe.com:443/p/s"))
         assertEquals("https://billing.stripe.com/@evil.example",
             Billing.openablePortal("https://billing.stripe.com\\@evil.example"))
+    }
+
+    private fun refused(code: Int, text: String) = MockResponse().setResponseCode(code)
+        .setHeader("Content-Type", "application/x-protobuf")
+        .setBody(Buffer().write(DeviceResponse.newBuilder().setStatus(1).setRequestId("r$code")
+            .setSpeech(Speech.newBuilder().setText(text)).build().toByteArray()))
+
+    @Test
+    fun `a 503 plays the backend's own line and keeps the credential`() {
+        // Robolectric's store never holds a token, so "kept" is checked as "never rejected".
+        val line = "I can't reach my servers to check this device right now. Try again in a moment."
+        server.enqueue(refused(503, line))
+        val reply = Uploader(ctx).sendText("hi")
+        assertEquals(line, reply?.speech?.text)
+        assertFalse(Config.credentialRejected(ctx))
+        assertFalse(Config.enrolRevoked(ctx))
+    }
+
+    @Test
+    fun `a 401 shows the backend's line and opens the pairing screen once`() {
+        Config.setRemovedNoticeShown(ctx, true)
+        val line = "This phone isn't connected to a Rist account. Pair it again with a code."
+        server.enqueue(refused(401, line))
+        val u = Uploader(ctx)
+        assertNull(u.sendText("hi"))
+        assertEquals(line, u.lastFailure)
+        assertTrue(Config.credentialRejected(ctx))
+        assertTrue("the pairing screen is due", RemovedActivity.isDue(ctx))
+        // No SMS enrolment is started: nothing is waiting on a nonce.
+        assertEquals("", Config.enrolNonce(ctx))
+        Config.setCredentialRejected(ctx, false)
+    }
+
+    @Test
+    fun `the two 409s on pairing are told apart, and neither says the code is unused`() {
+        val limit = "This account already has its maximum of 2 devices. Remove one before adding another."
+        assertEquals(Enrolment.PairResult.DEVICE_LIMIT, Enrolment.classifyPair(409, true, limit))
+        assertEquals(Enrolment.PairResult.HELD_ELSEWHERE,
+            Enrolment.classifyPair(409, true, "this device id is already registered to another account"))
+        assertEquals(Enrolment.PairResult.HELD_ELSEWHERE, Enrolment.classifyPair(409, true, ""))
+        Enrolment.lastPairDetail = limit
+        val shown = Enrolment.explainPair(Enrolment.PairResult.DEVICE_LIMIT)
+        assertTrue(shown.startsWith(limit))
+        for (r in listOf(Enrolment.PairResult.DEVICE_LIMIT, Enrolment.PairResult.HELD_ELSEWHERE)) {
+            assertFalse(Enrolment.explainPair(r).contains("has not been used"))
+        }
+        Enrolment.lastPairDetail = ""
     }
 }

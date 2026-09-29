@@ -16,8 +16,8 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 
 /**
- * "This phone was removed from your account." Shown once when the backend answers 403, which it
- * does only when the phone has been removed (revoked) from its account.
+ * "This phone was removed from your account." Shown once when the backend answers 403 (revoked)
+ * or 401 (removed on the website, which deletes the phone's record).
  *
  * Removal is not a reset. The token and everything on the phone are kept, pairing is open again,
  * and a new code from the account's Phones page brings the phone back. The phone's own functions
@@ -119,7 +119,8 @@ class RemovedActivity : AppCompatActivity() {
         internal const val TAG_LATER = "removed-later"
 
         /** Due once per removal: the flag is cleared when the phone is paired or served again. */
-        fun isDue(a: Activity): Boolean = Config.enrolRevoked(a) && !Config.removedNoticeShown(a)
+        fun isDue(a: android.content.Context): Boolean =
+            (Config.enrolRevoked(a) || Config.credentialRejected(a)) && !Config.removedNoticeShown(a)
 
         /** Opens the screen if it is due. Returns whether it did. */
         fun showIfDue(a: Activity): Boolean {
