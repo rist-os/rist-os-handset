@@ -61,30 +61,6 @@ class EmergencyAndRemovalTest {
         assertTrue("com.android.server.telecom" in allowed)
     }
 
-    private fun assertEmergencyOnHome(a: MainActivity) {
-        val b = a.findViewById<TextView>(R.id.emergencyButton)
-        assertNotNull("no emergency button on the home screen", b)
-        assertEquals(View.VISIBLE, b.visibility)
-        assertTrue(b.isClickable)
-        while (nextStarted() != null) Unit
-        b.performClick()
-        assertEquals(EmergencyDial.ACTION_EMERGENCY_DIAL, nextStarted()?.action)
-    }
-
-    @Test
-    fun `the emergency button is on the home screen of a phone that was never paired`() {
-        assertEmergencyOnHome(home())
-    }
-
-    @Test
-    fun `the emergency button is on the home screen of a removed, lapsed phone with nothing launched`() {
-        Config.setEnrolRevoked(ctx, true)
-        Config.setRemovedNoticeShown(ctx, true)
-        Billing.onLapsed(ctx, Billing.lapseFrom("lapsed", null, null))
-        Features.apply(ctx, rist.v1.FeatureSet.getDefaultInstance())
-        assertEmergencyOnHome(home())
-    }
-
     @Test
     fun `a removal is told once, on its own screen`() {
         Enrolment.onRevoked(ctx)

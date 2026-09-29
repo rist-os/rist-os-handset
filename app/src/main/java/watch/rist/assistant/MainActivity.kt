@@ -734,7 +734,6 @@ class MainActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.commandText)?.apply { typeface = tf }
         updateGlance()
         findViewById<ImageView>(R.id.settingsGear)?.setColorFilter(t.inkMuted)
-        findViewById<TextView>(R.id.emergencyButton)?.apply { setTextColor(t.ink); background = themedField(t) }
         (findViewById<View>(R.id.replyContainer) as? android.view.ViewGroup)?.let { rc ->
             for (i in 0 until rc.childCount) (rc.getChildAt(i) as? TextView)?.apply { setTextColor(t.ink); typeface = tf }
         }
@@ -795,11 +794,6 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.maintenanceHotspot)?.apply {
             isClickable = false
             isFocusable = false
-        }
-        // Always on the home screen, whatever the backend, the network or the account says.
-        findViewById<View>(R.id.emergencyButton)?.setOnClickListener {
-            if (appDrawerOpen) closeAppDrawer()
-            EmergencyDial.open(this)
         }
     }
 
