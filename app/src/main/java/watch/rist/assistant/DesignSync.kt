@@ -53,6 +53,12 @@ object DesignSync {
     const val COMPONENT = "design_v1"
     const val CATALOGUE = 1
     const val FACTORY_BASE = "ledger"
+
+    /** Base labels the backend uses; the tokens alone say what to draw. */
+    internal val KNOWN_BASES = setOf("ledger", "night", "high_contrast")
+
+    /** The key a spec refused whole is reported under. */
+    const val WHOLE = "*"
     const val MAX_SPEC_BYTES = 4096
     const val MAX_TOKENS = 64
     const val NAME_MAX = 24
@@ -132,8 +138,8 @@ object DesignSync {
     internal fun resolve(spec: DesignSpec, fontOk: (String) -> Boolean): Resolution {
         val notes = mutableListOf<SettingsValue>()
         val base = spec.baseTheme.trim().lowercase()
-        if (base.isNotEmpty() && base != FACTORY_BASE) {
-            notes += note("base_theme", spec.baseTheme, UNKNOWN, "only the factory look is built in")
+        if (base.isNotEmpty() && base !in KNOWN_BASES) {
+            notes += note("base_theme", spec.baseTheme, UNKNOWN, "drawn over the factory look")
         }
         if (spec.catalogue > CATALOGUE) {
             notes += note("catalogue", spec.catalogue.toString(), UNKNOWN, "this phone knows catalogue $CATALOGUE")
@@ -304,6 +310,8 @@ object DesignSync {
     /** The look to draw. Never throws: anything unreadable is the factory look. */
     fun theme(ctx: Context): RistTheme {
         cachedTheme?.let { return it }
+        // So the very first frame of a design build is still the user's Night.
+        runCatching { migrateLegacyTheme(ctx, redraw = false) }
         val spec = held(ctx)
         val t = if (spec == null) Themes.FACTORY
         else runCatching { resolve(spec) { Fonts.isAvailable(ctx, it) }.theme }
@@ -346,13 +354,13 @@ object DesignSync {
         if (heldVersion != 0L && incoming.version <= heldVersion) return false
         if (incoming.serializedSize > MAX_SPEC_BYTES || incoming.tokensCount > MAX_TOKENS) {
             queueState(ctx, DesignState.newBuilder().setVersion(incoming.version)
-                .addValues(note("design", "", REFUSED, "larger than 4 KB or $MAX_TOKENS tokens")).build())
+                .addValues(note(WHOLE, "", REFUSED, "larger than 4 KB or $MAX_TOKENS tokens")).build())
             return false
         }
         val res = runCatching { resolve(incoming) { Fonts.isAvailable(ctx, it) } }.getOrElse {
             Log.w(TAG, "design ${incoming.version} unreadable; refused", it)
             queueState(ctx, DesignState.newBuilder().setVersion(incoming.version)
-                .addValues(note("design", "", REFUSED, "could not be read")).build())
+                .addValues(note(WHOLE, "", REFUSED, "could not be read")).build())
             return false
         }
         val notes = res.notes.toMutableList()
@@ -396,6 +404,48 @@ object DesignSync {
         if (declared()) flushSoon(ctx)
     }
 
+    /** The catalogue tokens that draw [t]; what the phone sends when it posts a look of its own. */
+    internal fun tokensOf(t: RistTheme): Map<String, String> {
+        fun n(f: Float) = if (f == f.toInt().toFloat()) f.toInt().toString() else f.toString()
+        return mapOf(
+            "color.ground" to hex(t.ground), "color.ink" to hex(t.ink), "color.ink_muted" to hex(t.inkMuted),
+            "color.ink_faint" to hex(t.inkFaint ?: blend(t.ink, t.ground, 0.5f)),
+            "color.accent" to hex(t.accent), "color.tile_fill" to hex(t.tileFill),
+            "color.tile_border" to hex(t.tileBorder), "color.field_fill" to hex(t.fieldFill ?: t.ground),
+            "color.field_border" to hex(t.fieldBorder), "color.clock" to hex(t.clockColor),
+            "font.body" to Fonts.canonical(t.font), "font.display" to Fonts.canonical(t.displayFont),
+            "type.clock_size" to t.clockSize, "type.label_caps" to if (t.labelCaps) "on" else "off",
+            "type.date_style" to if (t.dateShort) "short" else "long",
+            "shape.tile_radius" to n(t.tileRadiusDp), "shape.field_radius" to n(t.fieldRadiusDp),
+            "shape.border_width" to n(t.borderWidthDp),
+            "style.knob" to t.knob, "style.hold_label" to if (t.holdOnAccent) "accent" else "ink",
+            "style.tile" to if (t.tile) "on" else "off", "style.press" to if (t.floodOnPress) "flood" else "none",
+            "effect.glow" to when { t.tileGlow -> "knob_and_tiles"; t.knobGlow -> "knob"; else -> "none" },
+            "effect.scanlines" to if (t.scan) "on" else "off",
+        )
+    }
+
+    /**
+     * The first run of a build with designs on, for a user who had picked Night on the phone: the
+     * backend cannot see that choice, so the phone keeps drawing Night (held unnumbered) and posts
+     * it, before any turn or wake declares designs, so the backend does not send Ledger instead.
+     * Runs once; a Ledger user needs nothing (Ledger is the backend's default).
+     */
+    fun migrateLegacyTheme(ctx: Context, redraw: Boolean = true) {
+        if (!declared() || Config.designMigrated(ctx)) return
+        Config.setDesignMigrated(ctx, true)
+        if (held(ctx) != null || Config.themeId(ctx) != "night") return
+        val night = DesignSpec.newBuilder().setVersion(0).setBaseTheme("night").setCatalogue(CATALOGUE)
+            .putAllTokens(tokensOf(Themes.byId("night"))).build()
+        synchronized(this) { store(ctx, night, null) }
+        Config.setDesignPost(ctx, encode(night))
+        Log.i(TAG, "kept the Night theme picked on the phone; posting it")
+        if (redraw) announce(ctx)
+    }
+
+    /** Whether a look made on the phone still waits to be posted. */
+    fun postPending(ctx: Context): Boolean = Config.designPost(ctx).isNotBlank()
+
     // ---- crash guard ----
 
     private const val GUARD_WINDOW_MS = 60_000L
@@ -426,7 +476,7 @@ object DesignSync {
             renderFailures.clear()
         }
         queueState(ctx, DesignState.newBuilder().setVersion(failed.version)
-            .addValues(note("design", "", REFUSED, "render failed")).build())
+            .addValues(note(WHOLE, "", REFUSED, "render failed")).build())
         Log.w(TAG, "design ${failed.version} failed to draw twice; previous look restored")
         announce(ctx)
         return true
@@ -529,6 +579,7 @@ object DesignSync {
         Config.setDesignState(ctx, "")
         Config.setDesignPost(ctx, "")
         Config.setSettingsVersion(ctx, 0L)
+        Config.setDesignMigrated(ctx, false)
     }
 
     /** Drops the in-memory copy, as a process restart would. */

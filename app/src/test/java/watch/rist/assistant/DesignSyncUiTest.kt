@@ -33,6 +33,7 @@ class DesignSyncUiTest {
     fun setUp() {
         DesignSync.resetForTest(app)
         Config.setThemeId(app, "ledger")
+        Config.setDesignMigrated(app, true)
         Config.setDeployDefaultsForTest("", "")
         Config.setBackendEndpoint(app, "http://127.0.0.1:9/v1/device")
     }
@@ -75,7 +76,7 @@ class DesignSyncUiTest {
         val a = home()
         assertEquals(Color.parseColor("#14284B"), groundOf(a))
         val clock = a.findViewById<TextView>(R.id.clockText)
-        assertEquals(40f, clock.textSize / a.resources.displayMetrics.scaledDensity, 0.01f)
+        assertEquals(45f, clock.textSize / a.resources.displayMetrics.scaledDensity, 0.01f)
     }
 
     @Test

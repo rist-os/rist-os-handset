@@ -57,6 +57,7 @@ object Config {
     private const val KEY_DESIGN_STATE = "design_state"
     private const val KEY_DESIGN_POST = "design_post"
     private const val KEY_SETTINGS_VERSION = "settings_version"
+    private const val KEY_DESIGN_MIGRATED = "design_migrated"
     private const val KEY_BOX_EDIT_QUEUE = "box_edit_queue"
     private const val KEY_CONTACTS_SYNC_OFF = "contacts_sync_off"
     private const val KEY_REMOVED_NOTICE_SHOWN = "removed_notice_shown"
@@ -319,6 +320,9 @@ object Config {
     /** The SettingsCommand.version last applied; 0 after a wipe. */
     fun settingsVersion(ctx: Context): Long = prefs(ctx).getLong(KEY_SETTINGS_VERSION, 0L)
     fun setSettingsVersion(ctx: Context, v: Long) { prefs(ctx).edit().putLong(KEY_SETTINGS_VERSION, v).apply() }
+    /** Whether the theme picked before designs came from the backend was handed over. */
+    fun designMigrated(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_DESIGN_MIGRATED, false)
+    fun setDesignMigrated(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_DESIGN_MIGRATED, v).apply() }
 
     /** Touch edits to the boxes not yet accepted by the backend, oldest first, as a JSON array. */
     fun boxEditQueue(ctx: Context): String = prefs(ctx).getString(KEY_BOX_EDIT_QUEUE, "") ?: ""

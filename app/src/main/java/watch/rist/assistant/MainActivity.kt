@@ -628,6 +628,7 @@ class MainActivity : AppCompatActivity() {
         lbm.registerReceiver(featuresReceiver, IntentFilter(Features.ACTION_CHANGED))
         lbm.registerReceiver(boxesReceiver, IntentFilter(HomeBoxes.ACTION_CHANGED))
         lbm.registerReceiver(designReceiver, IntentFilter(DesignSync.ACTION_CHANGED))
+        DesignSync.migrateLegacyTheme(this)
         runCatching {
             registerReceiver(timeTickReceiver, IntentFilter().apply {
                 addAction(Intent.ACTION_TIME_TICK)

@@ -53,7 +53,7 @@ data class RistTheme(
     val holdOnAccent: Boolean = false,
     val displayFont: String = font,
     val clock: Int? = null,
-    val clockSize: String = "lg",
+    val clockSize: String = "md",
     val labelCaps: Boolean = false,
     val dateShort: Boolean = false,
     val typeScale: Float = 1f,
@@ -64,7 +64,7 @@ data class RistTheme(
 ) {
     val lineIcons: Boolean get() = font != "pixel"
     val clockColor: Int get() = clock ?: ink
-    val clockSp: Float get() = when (clockSize) { "sm" -> 40f; "md" -> 45f; else -> 48f }
+    val clockSp: Float get() = when (clockSize) { "sm" -> 45f; "lg" -> 54f; else -> 48f }
 }
 
 class KnobDrawable(
@@ -226,7 +226,7 @@ object Themes {
         6f, 1.75f, c("#E3B23C"), c("#232B20"), 6f, false, true, font="mono", knob="ring",
         knobGlow=false, floodOnPress=false, tile=false, inkFaint=c("#4E5A49"),
         holdOnAccent=true, displayFont="pixel",
-        clock=c("#E9EFE4"), clockSize="md", labelCaps=true, dateShort=true)
+        clock=c("#E9EFE4"), clockSize="sm", labelCaps=true, dateShort=true)
 
     /**
      * The phone's one built-in look: drawn before the first design arrives, when a design cannot

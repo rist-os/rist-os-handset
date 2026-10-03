@@ -488,6 +488,12 @@ class Uploader(private val ctx: Context) {
         var req = requestProto
         if (req.utteranceId.isBlank()) req = req.toBuilder().setUtteranceId(newUtteranceId()).build()
         if (HomeBoxes.declared()) req = req.toBuilder().setBoxesVersion(HomeBoxes.version(ctx)).build()
+        if (DesignSync.declared()) {
+            DesignSync.migrateLegacyTheme(ctx)
+            // A look picked on the phone that the backend has never seen goes first, so this turn
+            // does not bring the default look back over it.
+            if (DesignSync.version(ctx) == 0L && DesignSync.postPending(ctx)) runCatching { DesignSync.flush(ctx) }
+        }
         val designState = if (DesignSync.declared()) DesignSync.pendingState(ctx) else null
         if (DesignSync.declared()) {
             req = req.toBuilder()

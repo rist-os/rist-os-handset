@@ -116,7 +116,10 @@ object WakeLoop {
         val acks = NotificationQueue.pendingAcks(ctx)
         // Box edits made offline go first, so the version asked about is the one they produced.
         if (HomeBoxes.declared()) runCatching { HomeBoxes.flush(ctx) }
-        if (DesignSync.declared()) runCatching { DesignSync.flush(ctx) }
+        if (DesignSync.declared()) {
+            DesignSync.migrateLegacyTheme(ctx)
+            runCatching { DesignSync.flush(ctx) }
+        }
         val url = wakeUrlFor(ctx, acks) ?: return Outcome.NotReady
         return exchange(http, url, bearer, Config.deviceId(ctx), acks)
     }

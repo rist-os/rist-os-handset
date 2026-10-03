@@ -106,9 +106,8 @@ message Capabilities {
   uint32 screen_h            = 3;
   uint32 color_depth         = 4;
   repeated string input      = 5;
-  // Proposed (design and settings): a phone that takes a DesignSpec lists "design_v1", and the
-  // font ids it can draw as "fonts:<id>,<id>,…" entries, each at most 128 characters; the
-  // backend reads the union of them.
+  // Proposed (design and settings): a phone that takes a DesignSpec lists "design_v1", and one
+  // "font:<id>" for each font a design may name.
   repeated string components = 6;
   uint32 max_image_bytes     = 7;
 
@@ -693,9 +692,10 @@ message BoxEditReply {
 message DesignSpec {
   // Assigned by the backend and only ever higher; 0 means "not yet numbered" (phone to backend).
   uint64 version            = 1;
-  // "ledger" is the phone's factory look; anything else falls back to it and is reported.
+  // A label: "ledger", "night" or "high_contrast". The phone draws from tokens alone, over its
+  // factory look; an unknown label is reported.
   string base_theme         = 2;
-  // The full set of overrides relative to base_theme, never a delta; empty = the base as built.
+  // The complete token set, every time, never a delta.
   map<string, string> tokens = 3;
   // The token catalogue version the backend wrote against (1).
   uint32 catalogue          = 4;
@@ -708,6 +708,7 @@ message DesignState {
   // The DesignSpec.version this answers.
   uint64 version = 1;
   // One per token not applied exactly as sent; key is the token name. Applied tokens are omitted.
+  // A spec refused whole is one REFUSED value on key "*".
   repeated SettingsValue values = 2;
   // The user chose "Reset to default" on the phone.
   bool reset_on_device = 3;

@@ -25,9 +25,9 @@ object SettingsApply {
     internal const val KEY_VOICE_LEVEL = "assistant.voice_level"
     internal const val KEY_HAPTICS = "device.haptics"
     internal const val KEY_AUTO_ZONE = "time.auto_zone"
-    internal const val KEY_CONTACTS_SYNC = "privacy.contacts_sync"
-    internal const val KEY_NETWORK_LOCATION = "privacy.network_location"
-    internal const val KEY_PLACE_TRIGGERS = "privacy.place_triggers"
+    internal const val KEY_CONTACTS_SYNC = "consent.contacts_sync"
+    internal const val KEY_NETWORK_LOCATION = "consent.network_location"
+    internal const val KEY_PLACE_TRIGGERS = "consent.place_triggers"
 
     internal val CONSENTS = setOf(KEY_CONTACTS_SYNC, KEY_NETWORK_LOCATION, KEY_PLACE_TRIGGERS)
 
@@ -71,8 +71,9 @@ object SettingsApply {
             else Result(key, v, OUTCOME_REPORTED, "")
         }
 
-        // Every write above was answered, so the phone now holds this version.
-        if (v2 && cmd.version > Config.settingsVersion(ctx)) Config.setSettingsVersion(ctx, cmd.version)
+        // Every write above was answered, so the phone now holds this version. Only a full
+        // command sets it: a single change does not mean the phone holds everything else.
+        if (v2 && cmd.full && cmd.version > Config.settingsVersion(ctx)) Config.setSettingsVersion(ctx, cmd.version)
         if (results.isEmpty()) return
         queue(ctx, cmd.commandId, results)
         Log.i(TAG, "command ${cmd.commandId}${if (cmd.full) " (full)" else ""}: " +

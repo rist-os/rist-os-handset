@@ -118,7 +118,9 @@ class DesignSyncTest {
 
     @Test
     fun `an unknown base or newer catalogue falls back to the factory look and is reported`() {
-        val r = DesignSync.resolve(spec(1).toBuilder().setBaseTheme("night").setCatalogue(2).build()) { true }
+        assertNull("night is a label the backend uses",
+            noteFor(DesignSync.resolve(spec(1).toBuilder().setBaseTheme("night").build()) { true }.notes, "base_theme"))
+        val r = DesignSync.resolve(spec(1).toBuilder().setBaseTheme("sepia").setCatalogue(2).build()) { true }
         assertEquals(Themes.FACTORY.ground, r.theme.ground)
         assertEquals(SettingsValue.Outcome.UNKNOWN_KEY, noteFor(r.notes, "base_theme")!!.outcome)
         assertEquals(SettingsValue.Outcome.UNKNOWN_KEY, noteFor(r.notes, "catalogue")!!.outcome)
@@ -210,8 +212,8 @@ class DesignSyncTest {
             assertTrue("licence for $id", "$id.txt" in licences)
         }
         val entries = Fonts.capsEntries(ctx)
-        assertTrue(entries.all { it.startsWith("fonts:") && it.length <= Fonts.CAPS_ENTRY_MAX })
-        val listed = entries.flatMap { it.removePrefix("fonts:").split(',') }
+        assertTrue(entries.all { it.startsWith("font:") })
+        val listed = entries.map { it.removePrefix("font:") }
         assertEquals(Fonts.available(ctx), listed)
         assertTrue("sans" in listed && "pixel" in listed && "atkinson" in listed)
     }
@@ -225,7 +227,7 @@ class DesignSyncTest {
         assertFalse(DesignSync.apply(ctx, spec(3, "color.ground" to "#14284B")))
         assertEquals("night", Themes.current(ctx).id)
         assertFalse(DeviceProfile.capabilities(ctx).componentsList.contains(DesignSync.COMPONENT))
-        assertTrue(DeviceProfile.capabilities(ctx).componentsList.none { it.startsWith("fonts:") })
+        assertTrue(DeviceProfile.capabilities(ctx).componentsList.none { it.startsWith("font:") })
         assertNull(WakeLoop.wakeUrlFor(ctx, emptyList())!!.toHttpUrl().queryParameter("design"))
         // Night keeps its look through the tokens it now sets.
         val night = Themes.byId("night")
@@ -238,12 +240,46 @@ class DesignSyncTest {
     @Test
     fun `once shipped the picked theme is ignored and the factory look is the floor`() {
         DesignSync.shippedForTest = true
+        Config.setDesignMigrated(ctx, true)
         Config.setThemeId(ctx, "night")
         assertEquals(Themes.FACTORY, Themes.current(ctx))
         val comps = DeviceProfile.capabilities(ctx).componentsList
         assertTrue(comps.contains(DesignSync.COMPONENT))
-        assertTrue(comps.any { it.startsWith("fonts:") })
-        assertTrue("well under the backend's 32", comps.size <= 32)
+        assertTrue(comps.contains("font:atkinson") && comps.contains("font:pixel"))
+        assertTrue("within the backend's 96", comps.size <= 96)
+    }
+
+    @Test
+    fun `a Night user keeps Night at upgrade, posted before the first turn declares designs`() {
+        val s = backend()
+        Config.setThemeId(ctx, "night")
+        DesignSync.shippedForTest = true
+        // The first frame is still Night.
+        val first = Themes.current(ctx)
+        assertEquals(Themes.byId("night").ground, first.ground)
+        assertEquals(Themes.byId("night").clockColor, first.clockColor)
+        assertTrue(first.labelCaps)
+        assertEquals(0L, DesignSync.version(ctx))
+        s.enqueue(protoBody(spec(1).toBuilder().setBaseTheme("night")
+            .putAllTokens(DesignSync.tokensOf(Themes.byId("night"))).build().toByteArray()))
+        s.enqueue(ok())
+        Uploader(ctx).sendText("hello")
+        val post = s.takeRequest(5, TimeUnit.SECONDS)!!
+        assertEquals("/v1/device/design", post.path)
+        val sent = DesignSpec.parseFrom(post.body.readByteArray())
+        assertEquals(0L, sent.version)
+        assertEquals("night", sent.baseTheme)
+        val turn = DeviceRequest.parseFrom(s.takeRequest(5, TimeUnit.SECONDS)!!.body.readByteArray())
+        assertEquals(1L, turn.designVersion)
+        assertEquals(Themes.byId("night").ground, Themes.current(ctx).ground)
+    }
+
+    @Test
+    fun `a Ledger user posts nothing at upgrade`() {
+        DesignSync.shippedForTest = true
+        assertEquals(Themes.FACTORY, Themes.current(ctx))
+        DesignSync.migrateLegacyTheme(ctx)
+        assertFalse(DesignSync.postPending(ctx))
     }
 
     // ---- storage ----
@@ -282,6 +318,7 @@ class DesignSyncTest {
         val st = DesignSync.pendingState(ctx)!!
         assertEquals(3L, st.version)
         assertEquals(SettingsValue.Outcome.REFUSED, st.valuesList.single().outcome)
+        assertEquals("refused whole", "*", st.valuesList.single().key)
     }
 
     @Test

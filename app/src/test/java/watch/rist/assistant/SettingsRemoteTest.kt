@@ -46,19 +46,21 @@ class SettingsRemoteTest {
         SettingsApply.handle(ctx, cmd("c1",
             "assistant.voice_playback" to "off", "alarms.volume" to "40",
             "assistant.message_history" to Retention.CHOICES.last().id,
-            "assistant.voice_level" to "7", "privacy.contacts_sync" to "on",
+            "assistant.voice_level" to "7", "consent.contacts_sync" to "on",
             version = 9, full = true))
         val a = answers()
         assertEquals(SettingsValue.Outcome.APPLIED, a.getValue("assistant.voice_playback").outcome)
         assertEquals(SettingsValue.Outcome.APPLIED, a.getValue("alarms.volume").outcome)
         assertEquals(SettingsValue.Outcome.APPLIED, a.getValue("assistant.voice_level").outcome)
-        assertEquals(SettingsValue.Outcome.REFUSED, a.getValue("privacy.contacts_sync").outcome)
+        assertEquals(SettingsValue.Outcome.REFUSED, a.getValue("consent.contacts_sync").outcome)
         assertFalse(Config.isReplyVoiceEnabled(ctx))
         assertEquals(40, Config.alarmVolumePercent(ctx))
         assertEquals(7, Config.voiceLevel(ctx))
         assertEquals(9L, Config.settingsVersion(ctx))
-        // An older version never moves it back.
-        SettingsApply.handle(ctx, cmd("c2", "alarms.volume" to "50", version = 3))
+        // An older version never moves it back, and only a full command sets it.
+        SettingsApply.handle(ctx, cmd("c2", "alarms.volume" to "50", version = 3, full = true))
+        assertEquals(9L, Config.settingsVersion(ctx))
+        SettingsApply.handle(ctx, cmd("c3", "alarms.volume" to "50", version = 12))
         assertEquals(9L, Config.settingsVersion(ctx))
         Config.setVoiceLevel(ctx, Config.VOICE_LEVEL_MAX)
         Config.setAlarmVolumePercent(ctx, 100)
@@ -67,20 +69,20 @@ class SettingsRemoteTest {
     @Test
     fun `a consent can be turned on and off when the user asks`() {
         DesignSync.shippedForTest = true
-        SettingsApply.handle(ctx, cmd("c1", "privacy.contacts_sync" to "off"))
+        SettingsApply.handle(ctx, cmd("c1", "consent.contacts_sync" to "off"))
         assertTrue(Config.contactsSyncOff(ctx))
-        assertEquals("off", answers().getValue("privacy.contacts_sync").value)
+        assertEquals("off", answers().getValue("consent.contacts_sync").value)
         SettingsApply.clear(ctx)
-        SettingsApply.handle(ctx, cmd("c2", "privacy.contacts_sync" to "on"))
+        SettingsApply.handle(ctx, cmd("c2", "consent.contacts_sync" to "on"))
         assertFalse(Config.contactsSyncOff(ctx))
-        val on = answers().getValue("privacy.contacts_sync")
+        val on = answers().getValue("consent.contacts_sync")
         assertEquals(SettingsValue.Outcome.APPLIED, on.outcome)
         assertEquals("on", on.value)
         SettingsApply.clear(ctx)
-        SettingsApply.handle(ctx, cmd("c3", "privacy.place_triggers" to "on", "privacy.network_location" to "maybe"))
+        SettingsApply.handle(ctx, cmd("c3", "consent.place_triggers" to "on", "consent.network_location" to "maybe"))
         // The answer is the phone's own: applied, or refused when Android would not take it.
-        assertNotEquals(SettingsValue.Outcome.UNKNOWN_KEY, answers().getValue("privacy.place_triggers").outcome)
-        assertEquals(SettingsValue.Outcome.INVALID_VALUE, answers().getValue("privacy.network_location").outcome)
+        assertNotEquals(SettingsValue.Outcome.UNKNOWN_KEY, answers().getValue("consent.place_triggers").outcome)
+        assertEquals(SettingsValue.Outcome.INVALID_VALUE, answers().getValue("consent.network_location").outcome)
     }
 
     @Test
@@ -102,8 +104,8 @@ class SettingsRemoteTest {
 
     @Test
     fun `before it ships the new keys are refused as before and no version is kept`() {
-        SettingsApply.handle(ctx, cmd("c1", "privacy.contacts_sync" to "off", version = 5, full = true))
-        val a = answers().getValue("privacy.contacts_sync")
+        SettingsApply.handle(ctx, cmd("c1", "consent.contacts_sync" to "off", version = 5, full = true))
+        val a = answers().getValue("consent.contacts_sync")
         assertEquals(SettingsValue.Outcome.REFUSED, a.outcome)
         assertEquals("not supported on this device", a.detail)
         assertFalse(Config.contactsSyncOff(ctx))

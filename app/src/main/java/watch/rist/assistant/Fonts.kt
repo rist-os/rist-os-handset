@@ -70,29 +70,12 @@ object Fonts {
 
     fun isAvailable(ctx: Context, id: String?): Boolean = canonical(id) in available(ctx)
 
-    /**
-     * The `caps.components` entries that list [available]: "fonts:<id>,<id>,…", each at most
-     * [CAPS_ENTRY_MAX] characters, because the backend trims a longer component.
-     */
+    /** The `caps.components` entries that list [available]: one "font:<id>" per font. */
     fun capsEntries(ctx: Context): List<String> = capsEntries(available(ctx))
 
-    internal const val CAPS_ENTRY_MAX = 128
-    internal const val CAPS_PREFIX = "fonts:"
+    internal const val CAPS_PREFIX = "font:"
 
-    internal fun capsEntries(ids: List<String>): List<String> {
-        val out = mutableListOf<String>()
-        var cur = StringBuilder()
-        for (id in ids) {
-            val extra = (if (cur.isEmpty()) CAPS_PREFIX.length else 1) + id.length
-            if (cur.isNotEmpty() && cur.length + extra > CAPS_ENTRY_MAX) {
-                out += cur.toString(); cur = StringBuilder()
-            }
-            if (cur.isEmpty()) cur.append(CAPS_PREFIX) else cur.append(',')
-            cur.append(id)
-        }
-        if (cur.isNotEmpty()) out += cur.toString()
-        return out
-    }
+    internal fun capsEntries(ids: List<String>): List<String> = ids.map { CAPS_PREFIX + it }
 
     private val cache = mutableMapOf<String, Typeface>()
 
