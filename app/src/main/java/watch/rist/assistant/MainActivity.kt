@@ -775,7 +775,7 @@ class MainActivity : AppCompatActivity() {
             setImageResource(if (t.lineIcons) R.drawable.ic_send_line else R.drawable.ic_send)
             setColorFilter(t.accent)
         }
-        findViewById<TextView>(R.id.boxUndo)?.apply { setTextColor(t.accent) }
+        findViewById<TextView>(R.id.boxUndo)?.apply { setTextColor(ThemePaint.accentTextOn(t, t.ground)) }
         renderBoxes()
         retintUnthemedSubtree(findViewById(R.id.nowPlayingCard), t, faint, tf)
         retintUnthemedSubtree(findViewById(R.id.navBox), t, faint, tf)
@@ -1081,7 +1081,25 @@ class MainActivity : AppCompatActivity() {
         }
 
         row.visibility = if (any) View.VISIBLE else View.GONE
+        syncAnswerGap()
     }
+
+    /**
+     * The answers sit under the box row, which is gone when there are no boxes. A gone view has
+     * no margins, so the gap the answers kept under the timer strip is carried here instead: with
+     * the row gone the layout is exactly the one before boxes existed.
+     */
+    internal fun syncAnswerGap() = runCatching {
+        val scroll = findViewById<View>(R.id.replyScroll) ?: return@runCatching
+        val lp = scroll.layoutParams as? androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+            ?: return@runCatching
+        val strip = findViewById<View>(R.id.commandStrip)
+        val want = if (strip?.visibility == View.VISIBLE) resources.getDimensionPixelSize(R.dimen.gap) else 0
+        if (lp.goneTopMargin != want) {
+            lp.goneTopMargin = want
+            scroll.layoutParams = lp
+        }
+    }.let { }
 
     private val cmdStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -1785,6 +1803,11 @@ class MainActivity : AppCompatActivity() {
         }
         boxesBack = cb
         onBackPressedDispatcher.addCallback(this, cb)
+        // The icon font (1.2 MB), its name list and any custom icons load off the main thread.
+        if (HomeBoxes.declared()) {
+            val app = applicationContext
+            Thread({ runCatching { BoxIcons.warm(app, HomeBoxes.boxes(app)) } }, "rist-box-icons").start()
+        }
         // The handle under the row: a tap, or a swipe up, opens every box as a grid.
         val handle = findViewById<View>(R.id.boxHandle)
         var downY = 0f

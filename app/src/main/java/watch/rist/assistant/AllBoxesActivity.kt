@@ -42,6 +42,11 @@ class AllBoxesActivity : AppCompatActivity(), BoxBoard.Host {
         override fun onReceive(context: Context, intent: Intent) = render()
     }
 
+    // A new look while open: draw this screen again in it.
+    private val designChanged = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) { if (!isFinishing && !isDestroyed) recreate() }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val muted = Themes.readableMuted(rt)
@@ -120,11 +125,13 @@ class AllBoxesActivity : AppCompatActivity(), BoxBoard.Host {
     override fun onStart() {
         super.onStart()
         LocalBroadcastManager.getInstance(this).registerReceiver(changed, android.content.IntentFilter(HomeBoxes.ACTION_CHANGED))
+        LocalBroadcastManager.getInstance(this).registerReceiver(designChanged, android.content.IntentFilter(DesignSync.ACTION_CHANGED))
         render()
     }
 
     override fun onStop() {
         LocalBroadcastManager.getInstance(this).unregisterReceiver(changed)
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(designChanged)
         super.onStop()
     }
 

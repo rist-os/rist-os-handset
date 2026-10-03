@@ -95,7 +95,7 @@ internal class BoxBoard(
         handle?.findViewWithTag<View>(HANDLE_BAR_TAG)?.background = GradientDrawable().apply {
             setColor(t.tileBorder); cornerRadius = px(2f).toFloat()
         }
-        undoBar?.apply { setTextColor(t.accent); typeface = pixelTf }
+        undoBar?.apply { setTextColor(ThemePaint.accentTextOn(t, t.ground)); typeface = pixelTf }
     }
 
     private fun theme(): RistTheme = Themes.current(activity)
@@ -300,7 +300,7 @@ internal class BoxBoard(
         val face = HomeBoxes.face(b, nowS, sending = HomeBoxes.isSending(b.id))
         val col = column()
         if (face.kind == HomeBoxes.Kind.COMMAND) {
-            val ink = if (face.sending) t.accent else onAccent(t)
+            val ink = if (face.sending) ThemePaint.accentTextOn(t, t.tileFill) else onAccent(t)
             frame.background = if (face.sending) tileBackground(t.tileFill, t.accent, 2.5f)
             else tileBackground(t.accent, t.accent, 1.5f)
             // The box's own icon top left; the arrow (or the sending arc) beside it, top right.
@@ -411,7 +411,7 @@ internal class BoxBoard(
             addView(glyph(R.drawable.ic_box_plus, t.accent, 26f))
             addView(TextView(activity).apply {
                 text = activity.getString(R.string.boxes_add)
-                setTextColor(t.accent)
+                setTextColor(ThemePaint.accentTextOn(t, t.ground))
                 typeface = Typeface.create(ThemePaint.typefaceOf(activity, t), Typeface.BOLD)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                 gravity = Gravity.CENTER
@@ -494,12 +494,7 @@ internal class BoxBoard(
         frame.setOnClickListener { openAddSheet() }
     }
 
-    /** Words on an accent fill: the theme's ground where it reads, else whichever of black or white does. */
-    private fun onAccent(t: RistTheme): Int = when {
-        contrast(t.ground, t.accent) >= 3.0 -> t.ground
-        contrast(Color.WHITE, t.accent) >= contrast(Color.BLACK, t.accent) -> Color.WHITE
-        else -> Color.BLACK
-    }
+    private fun onAccent(t: RistTheme): Int = ThemePaint.onAccent(t)
 
     // ---- dragging ----
 

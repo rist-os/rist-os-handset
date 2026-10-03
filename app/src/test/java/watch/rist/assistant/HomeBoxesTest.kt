@@ -299,6 +299,17 @@ class HomeBoxesTest {
     }
 
     @Test
+    fun `boxes switched off for the account keep the edit for later`() {
+        val s = backend()
+        HomeBoxes.apply(ctx, set(1, box("a"), box("b")))
+        HomeBoxes.edit(ctx, HomeBoxes.reorderEdit(ctx, listOf("b", "a")))
+        s.enqueue(MockResponse().setResponseCode(409).setHeader("X-Rist-Feature", "boxes-off"))
+        assertEquals(0, HomeBoxes.flush(ctx))
+        assertEquals(1, HomeBoxes.queued(ctx).size)
+        assertEquals("what the phone has is kept", listOf("b", "a"), ids())
+    }
+
+    @Test
     fun `the queue survives a restart`() {
         HomeBoxes.apply(ctx, set(1, box("a"), box("b")))
         HomeBoxes.edit(ctx, HomeBoxes.reorderEdit(ctx, listOf("b", "a")))
@@ -332,8 +343,9 @@ class HomeBoxesTest {
     }
 
     @Test
-    fun `a poll from this build as shipped does not mention boxes`() {
+    fun `a poll from a build without boxes does not mention boxes`() {
         backend()
+        HomeBoxes.shippedForTest = false
         HomeBoxes.apply(ctx, set(5, box("a")))
         assertNull(WakeLoop.wakeUrlFor(ctx, emptyList())!!.toHttpUrl().queryParameter("boxes"))
     }
@@ -348,7 +360,7 @@ class HomeBoxesTest {
 
     @Test
     fun `the component is declared only when boxes ship`() {
-        assertFalse(HomeBoxes.SHIPPED)
+        HomeBoxes.shippedForTest = false
         assertFalse(DeviceProfile.capabilities(1080, 2400).componentsList.contains(HomeBoxes.COMPONENT))
         val caps = DeviceProfile.capabilities(1080, 2400, homeBoxes = true)
         assertTrue(caps.componentsList.contains(HomeBoxes.COMPONENT))
@@ -376,6 +388,7 @@ class HomeBoxesTest {
     @Test
     fun `a typed turn carries the box id only when it came from a box`() {
         val s = backend()
+        HomeBoxes.shippedForTest = false
         repeat(2) {
             s.enqueue(protoBody(DeviceResponse.newBuilder().setIsFinal(true)
                 .setSpeech(Speech.newBuilder().setText("ok")).build().toByteArray()))
@@ -395,6 +408,7 @@ class HomeBoxesTest {
 
     @Test
     fun `the row shows only when shipped and the account has boxes`() {
+        HomeBoxes.shippedForTest = false
         assertFalse("not shipped", HomeBoxes.shown(ctx))
         HomeBoxes.shippedForTest = true
         assertTrue("no feature list yet: as today, on", HomeBoxes.shown(ctx))

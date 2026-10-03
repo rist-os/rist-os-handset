@@ -19,9 +19,10 @@ import rist.v1.HomeBox
  *
  * A box names an icon from Material Symbols, which is bundled (a static outlined instance, drawn
  * by codepoint from the name list shipped beside it). When no named icon fits, the backend may
- * send a small PNG instead; it is drawn as an alpha mask in the theme's colour, so it matches any
- * theme. A name this phone does not know falls back to the image; an image that is too large or
- * will not decode draws nothing. Nothing is ever fetched.
+ * send a small PNG instead; it is drawn in place of the name, as an alpha mask in the theme's
+ * colour, so it matches any theme. An image that is too large or will not decode falls back to
+ * the name; a name this phone does not know, with no usable image, draws nothing. Nothing is ever
+ * fetched.
  */
 object BoxIcons {
 
@@ -115,11 +116,21 @@ object BoxIcons {
         return decoded
     }
 
-    /** What to draw for [b]: its named icon, else its image, else nothing. */
+    /** What to draw for [b]: its custom image (which replaces the name), else its named icon, else nothing. */
     fun resolve(ctx: Context, b: HomeBox): Source {
-        codepoint(ctx, b.icon)?.let { return Source.Named(it) }
         if (!b.iconImage.isEmpty) mask(b.id, b.iconImage.toByteArray())?.let { return Source.Image(it) }
+        codepoint(ctx, b.icon)?.let { return Source.Named(it) }
         return Source.None
+    }
+
+    /**
+     * Loads the icon font and name list and decodes every custom icon in [boxes], so drawing them
+     * later is a cache hit. Blocking; call off the main thread.
+     */
+    fun warm(ctx: Context, boxes: List<HomeBox>) {
+        names(ctx)
+        typeface(ctx)
+        boxes.forEach { if (!it.iconImage.isEmpty) mask(it.id, it.iconImage.toByteArray()) }
     }
 
     /** The icon as a drawable in [colour], or null when the box has none. */

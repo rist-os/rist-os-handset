@@ -132,6 +132,38 @@ class HomeBoxesUiTest {
     }
 
     @Test
+    fun `with the row gone the answers keep the gap they had under the timer strip`() {
+        HomeBoxes.shippedForTest = false
+        val a = home()
+        val lp = { a.findViewById<View>(R.id.replyScroll).layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams }
+        assertEquals(0, lp().goneTopMargin)
+        a.findViewById<View>(R.id.commandStrip).visibility = View.VISIBLE
+        a.syncAnswerGap()
+        assertEquals(a.resources.getDimensionPixelSize(R.dimen.gap), lp().goneTopMargin)
+        a.findViewById<View>(R.id.commandStrip).visibility = View.GONE
+        a.syncAnswerGap()
+        assertEquals(0, lp().goneTopMargin)
+    }
+
+    @Test
+    fun `the sheets' fields are named by their visible labels`() {
+        val a = home()
+        a.boxBoard.openAddSheet()
+        settle()
+        val root = ShadowDialog.getLatestDialog().window!!.decorView
+        val words = root.findViewWithTag<EditText>(BoxSheet.TAG_WORDS)
+        assertNull("a description would hide what was typed from TalkBack", words.contentDescription)
+        val labels = mutableListOf<TextView>()
+        fun walk(v: View) {
+            if (v is TextView && v !is EditText && v.labelFor == words.id) labels += v
+            if (v is ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i))
+        }
+        walk(root)
+        assertEquals(1, labels.size)
+        assertTrue(labels.single().text.isNotBlank())
+    }
+
+    @Test
     fun `on but empty, the row is one Add a box tile`() {
         val a = home()
         assertEquals(View.VISIBLE, a.findViewById<View>(R.id.boxRow).visibility)

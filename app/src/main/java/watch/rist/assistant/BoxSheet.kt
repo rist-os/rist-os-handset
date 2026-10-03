@@ -52,12 +52,15 @@ object BoxSheet {
         fun px(v: Float) = (v * d).toInt()
 
         fun text(s: String, sp: Float, colour: Int, face: Typeface? = tf) = TextView(activity).apply {
-            text = s; setTextSize(TypedValue.COMPLEX_UNIT_SP, sp); setTextColor(colour); typeface = face
+            text = s; setTextSize(TypedValue.COMPLEX_UNIT_SP, ThemePaint.scaledSp(t, sp)); setTextColor(colour); typeface = face
         }
 
-        fun field(lines: Int) = EditText(activity).apply {
+        fun field(lines: Int, label: TextView) = EditText(activity).apply {
+            // Named by its label for TalkBack, which then still reads what is typed.
+            id = View.generateViewId()
+            label.labelFor = id
             setTextColor(t.ink); setHintTextColor(muted); typeface = tf
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ThemePaint.scaledSp(t, 16f))
             background = GradientDrawable().apply {
                 setColor(t.fieldFill ?: t.tileFill)
                 setStroke(px(1.5f), t.fieldBorder)
@@ -70,6 +73,7 @@ object BoxSheet {
                     InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
                 minHeight = px(84f)
                 maxLines = 5
+                filters = arrayOf(InputFilter.LengthFilter(HomeBoxes.COMMAND_MAX))
             } else {
                 inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
                 isSingleLine = true
@@ -83,7 +87,7 @@ object BoxSheet {
             tag = TAG_SUBMIT
             gravity = Gravity.CENTER
             typeface = Typeface.create(tf, Typeface.BOLD)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ThemePaint.scaledSp(t, 16f))
             minHeight = px(52f)
             isClickable = true; isFocusable = true
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -99,11 +103,7 @@ object BoxSheet {
             }
         }
 
-        fun onAccent(): Int = when {
-            contrast(t.ground, t.accent) >= 3.0 -> t.ground
-            contrast(Color.WHITE, t.accent) >= contrast(Color.BLACK, t.accent) -> Color.WHITE
-            else -> Color.BLACK
-        }
+        fun onAccent(): Int = ThemePaint.onAccent(t)
 
         fun gap(dp: Float) = View(activity).apply {
             layoutParams = LinearLayout.LayoutParams(1, px(dp))
@@ -158,7 +158,7 @@ object BoxSheet {
         var kind = HomeBoxes.Kind.DISPLAY
         val prompt = k.text("", 13f, k.muted).apply { typeface = Typeface.create(k.tf, Typeface.BOLD) }
         val hint = k.text(activity.getString(R.string.boxes_sheet_display_hint), 12f, k.muted)
-        val words = k.field(lines = 3).apply { tag = TAG_WORDS }
+        val words = k.field(lines = 3, label = prompt).apply { tag = TAG_WORDS }
         val choices = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
         fun choice(tag: String, name: Int, sub: Int) = LinearLayout(activity).apply {
             this.tag = tag
@@ -186,7 +186,6 @@ object BoxSheet {
             }
             val display = kind == HomeBoxes.Kind.DISPLAY
             prompt.text = activity.getString(if (display) R.string.boxes_sheet_display_prompt else R.string.boxes_sheet_command_prompt)
-            words.contentDescription = prompt.text
             hint.visibility = if (display) View.VISIBLE else View.GONE
         }
         display.setOnClickListener { kind = HomeBoxes.Kind.DISPLAY; paintChoices() }
@@ -234,11 +233,10 @@ object BoxSheet {
         val nameLabel = k.text(activity.getString(R.string.boxes_sheet_name), 13f, k.muted).apply {
             typeface = Typeface.create(k.tf, Typeface.BOLD)
         }
-        val name = k.field(lines = 1).apply {
+        val name = k.field(lines = 1, label = nameLabel).apply {
             tag = TAG_NAME
             filters = arrayOf(InputFilter.LengthFilter(HomeBoxes.TITLE_MAX))
             setText(box.title)
-            contentDescription = nameLabel.text
         }
         val command = HomeBoxes.kindOf(box) == HomeBoxes.Kind.COMMAND
         // The box's own defining words when the backend sent them; a command box falls back to
@@ -248,10 +246,9 @@ object BoxSheet {
             activity.getString(if (command) R.string.boxes_sheet_change_command else R.string.boxes_sheet_change_display),
             13f, k.muted,
         ).apply { typeface = Typeface.create(k.tf, Typeface.BOLD) }
-        val words = k.field(lines = 3).apply {
+        val words = k.field(lines = 3, label = prompt).apply {
             tag = TAG_WORDS
-            setText(before)
-            contentDescription = prompt.text
+            setText(before.take(HomeBoxes.COMMAND_MAX))
         }
         root.addView(nameLabel); root.addView(k.gap(6f)); root.addView(name)
         root.addView(k.gap(16f))

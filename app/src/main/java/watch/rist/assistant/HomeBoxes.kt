@@ -70,11 +70,11 @@ object HomeBoxes {
     fun stateOf(b: HomeBox): State =
         State.values().firstOrNull { it.wire == b.state.trim().lowercase() } ?: State.ERROR
 
-    /** Lets a test exercise the shipped behaviour while [SHIPPED] is false. */
-    @Volatile internal var shippedForTest = false
+    /** Lets a test exercise either behaviour, whatever [SHIPPED] is; null = as built. */
+    @Volatile internal var shippedForTest: Boolean? = null
 
     /** Whether this build declares boxes to the backend at all. */
-    fun declared(): Boolean = SHIPPED || shippedForTest
+    fun declared(): Boolean = shippedForTest ?: SHIPPED
 
     /** Whether the home screen shows the row: shipped, and the account has the feature. */
     fun shown(ctx: Context): Boolean = declared() && Features.isOn(ctx, Features.Id.BOXES)
@@ -174,6 +174,8 @@ object HomeBoxes {
             set
         }
         Log.i(TAG, "box list now v${next.version}: ${next.boxesCount} box(es)")
+        // Decoded here, off the main thread, so the first draw of a new icon does not decode it.
+        runCatching { BoxIcons.warm(ctx, next.boxesList) }
         announce(ctx)
         return true
     }
@@ -323,9 +325,10 @@ object HomeBoxes {
                 when {
                     resp.isSuccessful ->
                         Sent.Accepted(BoxEditReply.parseFrom(resp.body?.bytes() ?: ByteArray(0)))
-                    // Not this edit's fault: the credential, the subscription, a busy or broken
+                    // Not this edit's fault: the credential, the subscription, boxes switched off
+                    // for the account (409, "keep what you have, try later"), a busy or broken
                     // backend. Kept for the next try.
-                    resp.code in setOf(401, 402, 403, 408, 429) || resp.code >= 500 -> Sent.Later("HTTP ${resp.code}")
+                    resp.code in setOf(401, 402, 403, 408, 409, 429) || resp.code >= 500 -> Sent.Later("HTTP ${resp.code}")
                     else -> Sent.Refused(resp.code)
                 }
             }
@@ -463,7 +466,7 @@ object HomeBoxes {
     @Synchronized
     internal fun resetForTest(ctx: Context) {
         cache = null
-        shippedForTest = false
+        shippedForTest = null
         sending.clear()
         removed.clear()
         Config.setHomeBoxes(ctx, "")

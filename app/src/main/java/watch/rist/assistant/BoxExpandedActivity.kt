@@ -48,6 +48,11 @@ class BoxExpandedActivity : AppCompatActivity() {
         override fun onReceive(context: Context, intent: Intent) = fill()
     }
 
+    // A new look while open: draw this screen again in it.
+    private val designChanged = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) { if (!isFinishing && !isDestroyed) recreate() }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val muted = Themes.readableMuted(rt)
@@ -112,10 +117,12 @@ class BoxExpandedActivity : AppCompatActivity() {
         bodyView = TextView(this).apply {
             tag = TAG_BODY
             typeface = tf
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ThemePaint.scaledSp(rt, 16f))
             setTextColor(rt.ink)
             setLineSpacing(0f, 1.3f)
             setTextIsSelectable(true)
+            // Selectable, but nothing in it is ever offered as a link to open.
+            setTextClassifier(android.view.textclassifier.TextClassifier.NO_OP)
             setPadding(px(22f), px(18f), px(22f), px(28f))
         }
         root.addView(ScrollView(this).apply { addView(bodyView) },
@@ -126,11 +133,13 @@ class BoxExpandedActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         LocalBroadcastManager.getInstance(this).registerReceiver(changed, android.content.IntentFilter(HomeBoxes.ACTION_CHANGED))
+        LocalBroadcastManager.getInstance(this).registerReceiver(designChanged, android.content.IntentFilter(DesignSync.ACTION_CHANGED))
         fill()
     }
 
     override fun onStop() {
         LocalBroadcastManager.getInstance(this).unregisterReceiver(changed)
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(designChanged)
         super.onStop()
     }
 

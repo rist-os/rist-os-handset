@@ -70,9 +70,22 @@ class BoxIconsTest {
         for (n in listOf("newspaper", "monitoring", "event", "voicemail", "alarm")) {
             assertNotNull(n, BoxIcons.codepoint(ctx, n))
         }
-        val s = BoxIcons.resolve(ctx, box(icon = "Mail", image = png(24, 24)))
-        assertEquals("a known name wins over an image", BoxIcons.Source.Named(0xe159), s)
+        assertEquals(BoxIcons.Source.Named(0xe159), BoxIcons.resolve(ctx, box(icon = "Mail")))
         assertNotNull("the bundled font loads", BoxIcons.typeface(ctx))
+    }
+
+    @Test
+    fun `a custom image is drawn in place of the name, and a bad one falls back to the name`() {
+        val s = BoxIcons.resolve(ctx, box(icon = "mail", image = png(24, 24)))
+        assertTrue("icon_image replaces icon", s is BoxIcons.Source.Image)
+        assertEquals(BoxIcons.Source.Named(0xe159), BoxIcons.resolve(ctx, box(icon = "mail", image = png(200, 200))))
+    }
+
+    @Test
+    fun `warming decodes custom icons ahead of the first draw`() {
+        val b = box(icon = "", image = png(32, 32))
+        BoxIcons.warm(ctx, listOf(b))
+        assertTrue(BoxIcons.resolve(ctx, b) is BoxIcons.Source.Image)
     }
 
     @Test
