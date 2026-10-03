@@ -635,6 +635,9 @@ message HomeBox {
   // A custom icon when no named one fits: PNG, at most 16 KB and 96 x 96 px, drawn as an alpha
   // mask in the theme's colours. Anything larger or undecodable draws no icon.
   bytes  icon_image          = 14;
+  // The user's own words that define the box ("the temperature here, every 30 minutes"); the
+  // phone pre-fills the box's "Change this box" sheet with them.
+  string source_words        = 15;
 }
 
 // Proposed (home boxes): the whole list, in display order, every time it is sent.

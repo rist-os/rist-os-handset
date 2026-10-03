@@ -84,8 +84,9 @@ class HomeBoxesUiTest {
     private fun box(
         id: String, title: String = id, kind: String = "display", state: String = "ok",
         value: String = "", command: String = "", note: String = "", body: String = "",
+        words: String = "",
     ): HomeBox = HomeBox.newBuilder().setId(id).setTitle(title).setKind(kind).setState(state)
-        .setValue(value).setCommand(command).setNote(note).setBody(body)
+        .setValue(value).setCommand(command).setNote(note).setBody(body).setSourceWords(words)
         .setUpdatedAtEpochS(System.currentTimeMillis() / 1000 - 480).build()
 
     private fun hold(vararg boxes: HomeBox) =
@@ -258,6 +259,38 @@ class HomeBoxesUiTest {
         HomeBoxes.awaitFlushForTest()
         assertEquals("c", edits.first().renameId)
         assertEquals("Inbox", edits.first().renameTitle)
+    }
+
+    @Test
+    fun `the edit sheet starts with the box's own defining words, for display and command boxes`() {
+        hold(
+            box("d", title = "Weather", words = "the temperature here, every 30 minutes"),
+            box("c", title = "Email", kind = "command", command = "Check my email", words = "check my email please"),
+            box("e", title = "Old"),
+        )
+        val a = home()
+        fun wordsIn(id: String): String {
+            a.boxBoard.openEditSheet(HomeBoxes.find(app, id)!!)
+            settle()
+            val root = ShadowDialog.getLatestDialog().window!!.decorView
+            return root.findViewWithTag<EditText>(BoxSheet.TAG_WORDS).text.toString()
+        }
+        assertEquals("the temperature here, every 30 minutes", wordsIn("d"))
+        assertEquals("check my email please", wordsIn("c"))
+        assertEquals("", wordsIn("e"))
+    }
+
+    @Test
+    fun `unchanged defining words send no turn`() {
+        hold(box("d", title = "Weather", words = "the temperature here"))
+        val a = home()
+        a.boxBoard.openEditSheet(HomeBoxes.find(app, "d")!!)
+        settle()
+        val root = ShadowDialog.getLatestDialog().window!!.decorView
+        root.findViewWithTag<View>(BoxSheet.TAG_SUBMIT).performClick()
+        settle()
+        Thread.sleep(100); settle()
+        assertTrue(turns.isEmpty())
     }
 
     // ---- edits ----

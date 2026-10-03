@@ -113,6 +113,7 @@ object HomeBoxes {
             .setValue(clip(b.value.trim(), VALUE_MAX))
             .setDetail(clip(b.detail.trim(), DETAIL_MAX))
             .setCommand(clip(b.command.trim(), COMMAND_MAX))
+            .setSourceWords(clip(b.sourceWords.trim(), COMMAND_MAX))
             .setBody(clipUtf8(b.body, BODY_MAX_BYTES))
         // An oversized or malformed custom icon is not kept at all: the box simply has no icon.
         if (!b.iconImage.isEmpty && !BoxIcons.imageAcceptable(b.iconImage.toByteArray())) c.clearIconImage()

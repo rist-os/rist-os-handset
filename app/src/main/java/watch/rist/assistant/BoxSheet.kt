@@ -241,9 +241,9 @@ object BoxSheet {
             contentDescription = nameLabel.text
         }
         val command = HomeBoxes.kindOf(box) == HomeBoxes.Kind.COMMAND
-        // A command box's words are on the phone; what a display box was asked to show is not,
-        // so that field starts empty.
-        val before = if (command) box.command else ""
+        // The box's own defining words when the backend sent them; a command box falls back to
+        // its command, and a display box without them starts empty.
+        val before = box.sourceWords.ifBlank { if (command) box.command else "" }
         val prompt = k.text(
             activity.getString(if (command) R.string.boxes_sheet_change_command else R.string.boxes_sheet_change_display),
             13f, k.muted,
