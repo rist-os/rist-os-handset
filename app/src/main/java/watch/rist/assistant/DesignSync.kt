@@ -458,6 +458,8 @@ object DesignSync {
     fun migrateLegacyTheme(ctx: Context, redraw: Boolean = true) {
         if (!declared() || Config.designMigrated(ctx)) return
         Config.setDesignMigrated(ctx, true)
+        // The phone's settings go to the backend before it can number and restore them.
+        runCatching { SettingsApply.reportSnapshot(ctx) }
         if (held(ctx) != null || Config.themeId(ctx) != "night") return
         val night = DesignSpec.newBuilder().setVersion(0).setBaseTheme("night").setCatalogue(CATALOGUE)
             .putAllTokens(tokensOf(Themes.byId("night"))).build()

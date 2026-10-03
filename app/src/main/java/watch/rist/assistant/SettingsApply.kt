@@ -129,6 +129,23 @@ object SettingsApply {
         queue(ctx, "", listOf(Result(key, v, OUTCOME_REPORTED, "")))
     }
 
+    /** Every key this phone applies, in the order a snapshot reports them. */
+    internal val SNAPSHOT_KEYS = listOf(
+        KEY_VOICE, KEY_ALARM_VOLUME, KEY_MESSAGE_HISTORY, KEY_VOICE_LEVEL, KEY_HAPTICS, KEY_AUTO_ZONE,
+        KEY_CONTACTS_SYNC, KEY_NETWORK_LOCATION, KEY_PLACE_TRIGGERS,
+    )
+
+    /**
+     * Reports every value the phone holds, unsolicited. Sent once, on the first run of a build that
+     * takes settings versions: until then changes made on the phone were never reported, so the
+     * backend's copy may be older than the phone, and a later full restore would push it back.
+     */
+    fun reportSnapshot(ctx: Context) {
+        if (!DesignSync.declared()) return
+        val results = SNAPSHOT_KEYS.mapNotNull { k -> read(ctx, k)?.let { Result(k, it, OUTCOME_REPORTED, "") } }
+        if (results.isNotEmpty()) queue(ctx, "", results)
+    }
+
     private fun applyOne(ctx: Context, w: rist.v1.SettingsWrite): Result = when (w.key) {
         KEY_VOICE -> {
             val wanted = parseToggle(w.value)

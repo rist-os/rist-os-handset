@@ -116,6 +116,32 @@ class SettingsRemoteTest {
     }
 
     @Test
+    fun `the first run of a design build reports every setting the phone holds, once`() {
+        DesignSync.shippedForTest = true
+        Config.setReplyVoiceEnabled(ctx, false)
+        Config.setAlarmVolumePercent(ctx, 35)
+        DesignSync.migrateLegacyTheme(ctx)
+        val (cmdId, values) = SettingsApply.pending(ctx)
+        assertEquals("", cmdId)
+        val byKey = values.associateBy { it.key }
+        assertEquals(SettingsApply.SNAPSHOT_KEYS.toSet(), byKey.keys)
+        assertTrue(values.all { it.outcome == SettingsValue.Outcome.REPORTED })
+        assertEquals("off", byKey.getValue("assistant.voice_playback").value)
+        assertEquals("35", byKey.getValue("alarms.volume").value)
+        SettingsApply.clear(ctx, cmdId)
+        DesignSync.migrateLegacyTheme(ctx)
+        assertTrue(SettingsApply.pending(ctx).second.isEmpty())
+        Config.setAlarmVolumePercent(ctx, 100)
+    }
+
+    @Test
+    fun `before it ships no snapshot is reported`() {
+        DesignSync.shippedForTest = false
+        SettingsApply.reportSnapshot(ctx)
+        assertTrue(SettingsApply.pending(ctx).second.isEmpty())
+    }
+
+    @Test
     fun `a change made on the phone is reported unsolicited, apart from command answers`() {
         DesignSync.shippedForTest = true
         SettingsApply.handle(ctx, cmd("c1", "alarms.volume" to "60"))
