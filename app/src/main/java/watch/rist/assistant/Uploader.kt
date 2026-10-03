@@ -488,6 +488,14 @@ class Uploader(private val ctx: Context) {
         var req = requestProto
         if (req.utteranceId.isBlank()) req = req.toBuilder().setUtteranceId(newUtteranceId()).build()
         if (HomeBoxes.declared()) req = req.toBuilder().setBoxesVersion(HomeBoxes.version(ctx)).build()
+        val designState = if (DesignSync.declared()) DesignSync.pendingState(ctx) else null
+        if (DesignSync.declared()) {
+            req = req.toBuilder()
+                .setDesignVersion(DesignSync.version(ctx))
+                .setSettingsVersion(Config.settingsVersion(ctx))
+                .apply { if (designState != null) setDesignState(designState) }
+                .build()
+        }
         val smsRead = if (includeInboundSms) SmsInbox.read(ctx) else SmsRead.Held(emptyList())
         if (smsRead is SmsRead.Unreadable) {
             lastFailure = smsUnreadableFailure(smsRead.why)
@@ -724,6 +732,8 @@ class Uploader(private val ctx: Context) {
         runCatching { Enrolment.onReinstated(ctx) }
         if (resp.hasFeatures()) runCatching { Features.apply(ctx, resp.features) }
         if (resp.hasBoxes()) runCatching { HomeBoxes.apply(ctx, resp.boxes) }
+        if (designState != null) DesignSync.clearState(ctx, designState)
+        if (resp.hasDesign()) runCatching { DesignSync.apply(ctx, resp.design) }
         if (resp.smsAckCount > 0) Log.i(TAG, "backend acked ${resp.smsAckCount} SMS; nothing held to clear")
         // Ack before arm.
         if (resp.geofenceAckCount > 0) Geofences.ackCrossings(ctx, resp.geofenceAckList)
@@ -745,7 +755,7 @@ class Uploader(private val ctx: Context) {
         if (resp.commsResultsAckCount > 0) CommsResults.ack(ctx, resp.commsResultsAckList)
         // Order matters: mark acks before upserting what this response delivered.
         if (vmAcks.isNotEmpty()) Voicemails.markAcked(ctx, vmAcks)
-        if (settingsValues.isNotEmpty()) SettingsApply.clear(ctx)
+        if (settingsValues.isNotEmpty()) SettingsApply.clear(ctx, settingsCmdId)
         if (resp.hasSettings()) SettingsApply.handle(ctx, resp.settings)
         if (resp.voicemailsCount > 0) {
             Voicemails.upsert(

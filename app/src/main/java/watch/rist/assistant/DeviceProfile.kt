@@ -24,7 +24,8 @@ object DeviceProfile {
         val dm = ctx.resources.displayMetrics
         // A phone whose account has no video calls does not offer to open one.
         return capabilities(dm.widthPixels, dm.heightPixels,
-            videoCalls = VideoCalls.SHIPPED && Features.isOn(ctx, Features.Id.VIDEO_CALLS))
+            videoCalls = VideoCalls.SHIPPED && Features.isOn(ctx, Features.Id.VIDEO_CALLS),
+            fontIds = if (DesignSync.declared()) Fonts.available(ctx) else emptyList())
     }
 
     internal fun capabilities(
@@ -32,6 +33,8 @@ object DeviceProfile {
         screenH: Int,
         videoCalls: Boolean = VideoCalls.SHIPPED,
         homeBoxes: Boolean = HomeBoxes.declared(),
+        design: Boolean = DesignSync.declared(),
+        fontIds: List<String> = emptyList(),
     ): Capabilities =
         Capabilities.newBuilder()
             // v18 carries every field this build reads; the video_call component alone decides
@@ -49,6 +52,8 @@ object DeviceProfile {
             .addComponents("map_tiles_hd")
             // Whether this phone can draw home boxes; the backend sends no box list without it.
             .apply { if (homeBoxes) addComponents(HomeBoxes.COMPONENT) }
+            // Whether this phone takes a DesignSpec, and the fonts a design may name.
+            .apply { if (design) addComponents(DesignSync.COMPONENT).addAllComponents(Fonts.capsEntries(fontIds)) }
             .setMaxImageBytes(MAX_IMAGE_BYTES)
             // 0 or unset means "cannot do place triggers".
             .setMaxGeofences(Geofences.MAX_FENCES)

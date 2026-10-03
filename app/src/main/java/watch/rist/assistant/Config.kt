@@ -52,6 +52,11 @@ object Config {
     private const val KEY_BILLING_ACCOUNT_URL = "billing_account_url"
     private const val KEY_FEATURES = "features"
     private const val KEY_HOME_BOXES = "home_boxes"
+    private const val KEY_DESIGN_SPEC = "design_spec"
+    private const val KEY_DESIGN_PREVIOUS = "design_previous"
+    private const val KEY_DESIGN_STATE = "design_state"
+    private const val KEY_DESIGN_POST = "design_post"
+    private const val KEY_SETTINGS_VERSION = "settings_version"
     private const val KEY_BOX_EDIT_QUEUE = "box_edit_queue"
     private const val KEY_CONTACTS_SYNC_OFF = "contacts_sync_off"
     private const val KEY_REMOVED_NOTICE_SHOWN = "removed_notice_shown"
@@ -298,6 +303,22 @@ object Config {
     /** The last home box set, as base64 protobuf bytes; empty when none has ever arrived. */
     fun homeBoxes(ctx: Context): String = prefs(ctx).getString(KEY_HOME_BOXES, "") ?: ""
     fun setHomeBoxes(ctx: Context, b64: String) { prefs(ctx).edit().putString(KEY_HOME_BOXES, b64).apply() }
+
+    /** The applied DesignSpec, base64 protobuf; empty for the factory look. */
+    fun designSpec(ctx: Context): String = prefs(ctx).getString(KEY_DESIGN_SPEC, "") ?: ""
+    fun setDesignSpec(ctx: Context, b64: String) { prefs(ctx).edit().putString(KEY_DESIGN_SPEC, b64).apply() }
+    /** The spec before it, kept so a design that will not draw can be undone on the phone. */
+    fun designPrevious(ctx: Context): String = prefs(ctx).getString(KEY_DESIGN_PREVIOUS, "") ?: ""
+    fun setDesignPrevious(ctx: Context, b64: String) { prefs(ctx).edit().putString(KEY_DESIGN_PREVIOUS, b64).apply() }
+    /** The DesignState the next turn carries, base64 protobuf. */
+    fun designState(ctx: Context): String = prefs(ctx).getString(KEY_DESIGN_STATE, "") ?: ""
+    fun setDesignState(ctx: Context, b64: String) { prefs(ctx).edit().putString(KEY_DESIGN_STATE, b64).apply() }
+    /** A look changed on the phone and not yet accepted by the backend, base64 protobuf. */
+    fun designPost(ctx: Context): String = prefs(ctx).getString(KEY_DESIGN_POST, "") ?: ""
+    fun setDesignPost(ctx: Context, b64: String) { prefs(ctx).edit().putString(KEY_DESIGN_POST, b64).apply() }
+    /** The SettingsCommand.version last applied; 0 after a wipe. */
+    fun settingsVersion(ctx: Context): Long = prefs(ctx).getLong(KEY_SETTINGS_VERSION, 0L)
+    fun setSettingsVersion(ctx: Context, v: Long) { prefs(ctx).edit().putLong(KEY_SETTINGS_VERSION, v).apply() }
 
     /** Touch edits to the boxes not yet accepted by the backend, oldest first, as a JSON array. */
     fun boxEditQueue(ctx: Context): String = prefs(ctx).getString(KEY_BOX_EDIT_QUEUE, "") ?: ""

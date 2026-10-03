@@ -135,7 +135,7 @@ object CommsFeedView {
         }
         host.visibility = View.VISIBLE
 
-        val t = Themes.byId(Config.themeId(activity))
+        val t = Themes.current(activity)
         val tf = ThemePaint.typefaceOf(activity, t)
         val muted = Themes.readableMuted(t)
         val d = activity.resources.displayMetrics.density

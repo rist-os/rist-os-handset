@@ -19,7 +19,7 @@ class NetworkLocationPromptActivity : AppCompatActivity() {
 
     private var showMore = false
 
-    private val rt by lazy { Themes.byId(Config.themeId(this)) }
+    private val rt by lazy { Themes.current(this) }
     private val tf: Typeface? by lazy { ThemePaint.typefaceOf(this, rt) }
     private val pixelTf: Typeface? by lazy {
         runCatching { androidx.core.content.res.ResourcesCompat.getFont(this, R.font.pixel) }.getOrNull()
@@ -104,6 +104,7 @@ class NetworkLocationPromptActivity : AppCompatActivity() {
 
     private fun choose(enable: Boolean) {
         val outcome = NetworkLocationConsent.apply(this, enable)
+        SettingsApply.reportLocal(this, SettingsApply.KEY_NETWORK_LOCATION)
         if (enable && outcome == NetworkLocationConsent.Outcome.REFUSED) {
             showRefused()
             return

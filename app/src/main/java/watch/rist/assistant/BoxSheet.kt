@@ -42,7 +42,7 @@ object BoxSheet {
     const val TAG_SUBMIT = "box-sheet-submit"
 
     private class Kit(val activity: Activity) {
-        val t = Themes.byId(Config.themeId(activity))
+        val t = Themes.current(activity)
         val d = activity.resources.displayMetrics.density
         val tf: Typeface? = ThemePaint.typefaceOf(activity, t)
         val pixelTf: Typeface? = runCatching {

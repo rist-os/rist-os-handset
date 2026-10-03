@@ -18,7 +18,7 @@ object NetworkLocationSection {
         host.findViewWithTag<View>(TAG)?.let { host.removeView(it) }
         val idx = (anchor?.let { host.indexOfChild(it) } ?: -1).coerceAtLeast(0)
 
-        val t = Themes.byId(Config.themeId(a))
+        val t = Themes.current(a)
         val ink = t.ink
         val muted = Themes.readableMuted(t)
         val pixelTf: Typeface? =
@@ -118,6 +118,7 @@ object NetworkLocationSection {
 
     private fun set(a: Activity, host: LinearLayout?, anchor: View?, enable: Boolean) {
         val outcome = NetworkLocationConsent.apply(a, enable)
+        SettingsApply.reportLocal(a, SettingsApply.KEY_NETWORK_LOCATION)
         val msg = when {
             outcome == NetworkLocationConsent.Outcome.REFUSED && enable ->
                 "Rist couldn't change this — see below"

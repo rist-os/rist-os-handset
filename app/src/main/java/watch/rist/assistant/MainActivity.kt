@@ -310,6 +310,16 @@ class MainActivity : AppCompatActivity() {
         override fun onReceive(context: Context, intent: Intent) = renderBoxes()
     }
 
+    // A new look from the assistant, or a reset: redraw everything at once, no restart.
+    private val designReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            applyTheme()
+            runCatching { renderTranscript() }
+            runCatching { CommsFeedView.render(this@MainActivity) }
+            runCatching { renderCommandStrip() }
+        }
+    }
+
     private val mediaStatusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             status(intent.getStringExtra(PlaybackService.EXTRA_MEDIA_STATUS).orEmpty())
@@ -617,6 +627,7 @@ class MainActivity : AppCompatActivity() {
         lbm.registerReceiver(streamEndedReceiver, IntentFilter(StreamingStatus.ACTION_STREAM_ENDED))
         lbm.registerReceiver(featuresReceiver, IntentFilter(Features.ACTION_CHANGED))
         lbm.registerReceiver(boxesReceiver, IntentFilter(HomeBoxes.ACTION_CHANGED))
+        lbm.registerReceiver(designReceiver, IntentFilter(DesignSync.ACTION_CHANGED))
         runCatching {
             registerReceiver(timeTickReceiver, IntentFilter().apply {
                 addAction(Intent.ACTION_TIME_TICK)
@@ -708,19 +719,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun applyTheme() = runCatching {
-        val t = Themes.byId(Config.themeId(this))
-        val tf = when (t.font) {
-            "pixel" -> pixelTf
-            "mono"  -> android.graphics.Typeface.MONOSPACE
-            "serif" -> android.graphics.Typeface.SERIF
-            else    -> android.graphics.Typeface.SANS_SERIF
-        }
-        val displayTf = when (t.displayFont) {
-            "pixel" -> pixelTf
-            "mono" -> android.graphics.Typeface.MONOSPACE
-            "serif" -> android.graphics.Typeface.SERIF
-            else -> android.graphics.Typeface.SANS_SERIF
-        }
+        val t = Themes.current(this)
+        val tf = ThemePaint.typefaceOf(this, t)
+        val displayTf = ThemePaint.displayTypefaceOf(this, t)
         val faint = t.inkFaint ?: blend(t.ink, t.ground, 0.5f)
         val muted = Themes.readableMuted(t)
         findViewById<View>(R.id.root)?.setBackgroundColor(t.ground)
@@ -729,25 +730,31 @@ class MainActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.recordLabel)?.apply {
             setTextColor(if (t.holdOnAccent) t.accent else t.inkMuted)
             typeface = displayTf
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, if (t.holdOnAccent) 14f else 15f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ThemePaint.scaledSp(t, if (t.holdOnAccent) 14f else 15f))
         }
         findViewById<TextView>(R.id.clockText)?.apply {
-            setTextColor(if (t.id == "night") 0xFFE9EFE4.toInt() else t.ink)
+            setTextColor(t.clockColor)
             typeface = displayTf
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, if (t.id == "night") 45f else 48f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, t.clockSp)
         }
         findViewById<TextView>(R.id.dateText)?.apply {
             setTextColor(muted); typeface = tf
-            letterSpacing = if (t.id == "night") 0.14f else 0.05f
-            isAllCaps = (t.id == "night")
+            letterSpacing = if (t.labelCaps) 0.14f else 0.05f
+            isAllCaps = t.labelCaps
         }
         findViewById<TextView>(R.id.recordCancel)?.apply { setTextColor(muted); typeface = tf }
         findViewById<TextView>(R.id.clearButton)?.apply { setTextColor(muted); typeface = tf }
         findViewById<TextView>(R.id.commandText)?.apply { typeface = tf }
         updateGlance()
-        findViewById<ImageView>(R.id.settingsGear)?.setColorFilter(t.inkMuted)
+        // Protected: with a design from the assistant the gear is drawn in the text colour,
+        // which always reads on the background, so Settings (and Reset) can always be found.
+        findViewById<ImageView>(R.id.settingsGear)?.setColorFilter(
+            if (DesignSync.declared()) t.ink else t.inkMuted)
         (findViewById<View>(R.id.replyContainer) as? android.view.ViewGroup)?.let { rc ->
-            for (i in 0 until rc.childCount) (rc.getChildAt(i) as? TextView)?.apply { setTextColor(t.ink); typeface = tf }
+            for (i in 0 until rc.childCount) (rc.getChildAt(i) as? TextView)?.apply {
+                setTextColor(t.ink); typeface = tf
+                if (t.typeScale != 1f || getTag(R.id.tag_theme_base_size) != null) ThemePaint.scaleText(this, t)
+            }
         }
         findViewById<View>(R.id.talkButton)?.background = themedTile(t)
         findViewById<ImageView>(R.id.recordGlyph)?.apply {
@@ -783,6 +790,9 @@ class MainActivity : AppCompatActivity() {
             androidx.core.view.WindowInsetsControllerCompat(window, window.decorView)
                 .isAppearanceLightStatusBars = !t.dark
         }
+    }.onFailure {
+        Log.w(TAG, "drawing the look failed", it)
+        DesignSync.renderFailed(this)
     }
 
     private fun retintUnthemedSubtree(
@@ -880,6 +890,7 @@ class MainActivity : AppCompatActivity() {
         lbm.unregisterReceiver(streamEndedReceiver)
         lbm.unregisterReceiver(featuresReceiver)
         lbm.unregisterReceiver(boxesReceiver)
+        lbm.unregisterReceiver(designReceiver)
     }
 
     private fun renderAwaitingReply() = runCatching {
@@ -892,7 +903,7 @@ class MainActivity : AppCompatActivity() {
     }.let { }
 
     private fun updateGlance() = runCatching {
-        val t = Themes.byId(Config.themeId(this))
+        val t = Themes.current(this)
         val now = java.util.Date()
         val locale = java.util.Locale.getDefault()
         val timePart = java.text.SimpleDateFormat("h:mm", locale).format(now)
@@ -911,7 +922,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         findViewById<TextView>(R.id.dateText)?.text = java.text.SimpleDateFormat(
-            if (t.id == "night") "EEE d MMM" else "EEEE, d MMMM", java.util.Locale.getDefault()
+            if (t.dateShort) "EEE d MMM" else "EEEE, d MMMM", java.util.Locale.getDefault()
         ).format(now)
     }.let { }
 
@@ -973,11 +984,8 @@ class MainActivity : AppCompatActivity() {
         val row = findViewById<LinearLayout>(R.id.commandStrip) ?: return
         val label = findViewById<TextView>(R.id.commandText) ?: return
         val holder = findViewById<LinearLayout>(R.id.commandButtons) ?: return
-        val t = Themes.byId(Config.themeId(this))
-        val tf = when (t.font) {
-            "pixel" -> pixelTf; "mono" -> android.graphics.Typeface.MONOSPACE
-            "serif" -> android.graphics.Typeface.SERIF; else -> android.graphics.Typeface.SANS_SERIF
-        }
+        val t = Themes.current(this)
+        val tf = ThemePaint.typefaceOf(this, t)
         val d = resources.displayMetrics.density
         val timer = DeviceCommands.timerText()
         val sw = DeviceCommands.stopwatchText()
@@ -1292,7 +1300,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Camera or existing photos. Everything behind both was already built; only this was missing. */
     private fun openPhotoSource() {
-        val theme = Themes.byId(Config.themeId(this))
+        val theme = Themes.current(this)
         runCatching {
             RistDialog.choose(
                 activity = this,
@@ -1592,7 +1600,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateTorchUi() {
         val icon = findViewById<ImageView>(R.id.torchIcon) ?: return
-        val t = Themes.byId(Config.themeId(this))
+        val t = Themes.current(this)
         if (t.lineIcons) icon.setImageResource(
             if (torchOn) R.drawable.ic_flashlight_line_on else R.drawable.ic_flashlight_line
         )
@@ -1922,12 +1930,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderActions(actions: List<rist.v1.Action>) = runCatching {
-        val t = Themes.byId(Config.themeId(this))
+        val t = Themes.current(this)
         val d = resources.displayMetrics.density
-        val tf = when (t.font) {
-            "pixel" -> pixelTf; "mono" -> android.graphics.Typeface.MONOSPACE
-            "serif" -> android.graphics.Typeface.SERIF; else -> android.graphics.Typeface.SANS_SERIF
-        }
+        val tf = ThemePaint.typefaceOf(this, t)
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
@@ -2045,12 +2050,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderPendingConfirmation() = runCatching {
         if (pendingActionId.isBlank()) return@runCatching
-        val t = Themes.byId(Config.themeId(this))
+        val t = Themes.current(this)
         val d = resources.displayMetrics.density
-        val tf = when (t.font) {
-            "pixel" -> pixelTf; "mono" -> android.graphics.Typeface.MONOSPACE
-            "serif" -> android.graphics.Typeface.SERIF; else -> android.graphics.Typeface.SANS_SERIF
-        }
+        val tf = ThemePaint.typefaceOf(this, t)
         fun button(label: String, approved: Boolean) = TextView(this).apply {
             text = label
             setTextColor(if (approved) t.accent else t.inkMuted)
@@ -2142,11 +2144,8 @@ class MainActivity : AppCompatActivity() {
     private fun renderTranscript(): Unit {
       runCatching {
         replyContainer.removeAllViews()
-        val t = Themes.byId(Config.themeId(this))
-        val tf = when (t.font) {
-            "pixel" -> pixelTf; "mono" -> android.graphics.Typeface.MONOSPACE
-            "serif" -> android.graphics.Typeface.SERIF; else -> android.graphics.Typeface.SANS_SERIF
-        }
+        val t = Themes.current(this)
+        val tf = ThemePaint.typefaceOf(this, t)
         val d = resources.displayMetrics.density
         val muted = Themes.readableMuted(t)
         var attachmentsPainted = false

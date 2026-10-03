@@ -61,12 +61,17 @@ object WakeLoop {
     }
 
     /** `…/v1/device` becomes `…/v1/device/wake`, carrying the acks and the real card count. */
-    /** [boxesVersion]: the box list version held, sent only by a phone that declares boxes. */
+    /**
+     * [boxesVersion]: the box list version held, sent only by a phone that declares boxes.
+     * [designVersions]: the design and settings versions held, sent only by a phone that takes a
+     * design. Every declared component goes in one comma-separated `components`.
+     */
     internal fun wakeUrl(
         backendUrl: String,
         acks: List<String>,
         maxNotifications: Int,
         boxesVersion: Long? = null,
+        designVersions: Pair<Long, Long>? = null,
     ): String? {
         val base = backendUrl.trim().trimEnd('/')
         if (base.isEmpty()) return null
@@ -77,10 +82,17 @@ object WakeLoop {
             // Always explicit: absent, the wake endpoint picks 5, not the 8 this phone shows.
             .addQueryParameter("max_notifications", maxNotifications.toString())
             .apply {
+                val components = mutableListOf<String>()
                 if (boxesVersion != null) {
                     addQueryParameter("boxes", boxesVersion.toString())
-                    addQueryParameter("components", HomeBoxes.COMPONENT)
+                    components += HomeBoxes.COMPONENT
                 }
+                if (designVersions != null) {
+                    addQueryParameter("design", designVersions.first.toString())
+                    addQueryParameter("settings", designVersions.second.toString())
+                    components += DesignSync.COMPONENT
+                }
+                if (components.isNotEmpty()) addQueryParameter("components", components.joinToString(","))
             }
             .build().toString()
     }
@@ -104,6 +116,7 @@ object WakeLoop {
         val acks = NotificationQueue.pendingAcks(ctx)
         // Box edits made offline go first, so the version asked about is the one they produced.
         if (HomeBoxes.declared()) runCatching { HomeBoxes.flush(ctx) }
+        if (DesignSync.declared()) runCatching { DesignSync.flush(ctx) }
         val url = wakeUrlFor(ctx, acks) ?: return Outcome.NotReady
         return exchange(http, url, bearer, Config.deviceId(ctx), acks)
     }
@@ -111,7 +124,8 @@ object WakeLoop {
     /** This phone's wake address: its acks, its card count, and its box version if it has boxes. */
     internal fun wakeUrlFor(ctx: Context, acks: List<String>): String? =
         wakeUrl(Config.backendUrl(ctx), acks, CommsFeed.MAX_NOTIFICATIONS,
-            if (HomeBoxes.declared()) HomeBoxes.version(ctx) else null)
+            if (HomeBoxes.declared()) HomeBoxes.version(ctx) else null,
+            if (DesignSync.declared()) DesignSync.version(ctx) to Config.settingsVersion(ctx) else null)
 
     /** The HTTP half of [poll], apart from the stores so it can be tested on its own. */
     internal fun exchange(http: OkHttpClient, url: String, bearer: String, device: String, acks: List<String>): Outcome {
@@ -146,6 +160,8 @@ object WakeLoop {
         NotificationQueue.setMailUnread(ctx, signal.mailUnread)
         if (signal.hasFeatures()) runCatching { Features.apply(ctx, signal.features) }
         if (signal.hasBoxes()) runCatching { HomeBoxes.apply(ctx, signal.boxes) }
+        if (signal.hasDesign()) runCatching { DesignSync.apply(ctx, signal.design) }
+        if (signal.hasSettings() && DesignSync.declared()) runCatching { SettingsApply.handle(ctx, signal.settings) }
         if (Config.voicemailCount(ctx) != signal.voicemailUnheard) {
             Config.setVoicemailCount(ctx, signal.voicemailUnheard)
             NotificationQueue.countsChanged(ctx)

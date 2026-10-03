@@ -210,6 +210,7 @@ internal class VolumePanel(private val activity: Activity) {
     private fun set(channel: VolumeKeys.Channel, index: Int) {
         if (channel == VolumeKeys.Channel.VOICE && !VolumeKeys.voiceHasOwnVolume(activity)) {
             Config.setVoiceLevel(activity, index)
+            SettingsApply.reportLocal(activity, SettingsApply.KEY_VOICE_LEVEL)
             refresh()
             return
         }
@@ -240,7 +241,7 @@ internal class VolumePanel(private val activity: Activity) {
         }
     }
 
-    private val theme: RistTheme get() = Themes.byId(Config.themeId(activity))
+    private val theme: RistTheme get() = Themes.current(activity)
 
     private class Column(val slider: VolumeSlider, val label: TextView)
 

@@ -41,7 +41,7 @@ object AttachmentView {
         var at = if (insertAfter < 0) -1 else (insertAfter + 1).coerceIn(0, container.childCount)
 
         val ctx = container.context
-        val t = Themes.byId(Config.themeId(ctx))
+        val t = Themes.current(ctx)
         val tf = ThemePaint.typefaceOf(ctx, t)
         val d = ctx.resources.displayMetrics.density
         val muted = readableOn(t.inkMuted, t.ink, t.tileFill)

@@ -78,6 +78,13 @@ message DeviceRequest {
   string box_id = 23;
   // Proposed (home boxes): the BoxSet.version this phone holds.
   uint64 boxes_version = 24;
+
+  // Proposed (design and settings): the DesignSpec.version this phone holds, 0 for none.
+  uint64 design_version = 25;
+  // Proposed (design and settings): what the phone did with the last DesignSpec, on the next turn.
+  DesignState design_state = 26;
+  // Proposed (design and settings): the SettingsCommand.version this phone last applied, 0 for none.
+  uint64 settings_version = 27;
 }
 
 message Location { double lat = 1; double lon = 2; string label = 3; uint32 accuracy_m = 4;
@@ -99,6 +106,9 @@ message Capabilities {
   uint32 screen_h            = 3;
   uint32 color_depth         = 4;
   repeated string input      = 5;
+  // Proposed (design and settings): a phone that takes a DesignSpec lists "design_v1", and the
+  // font ids it can draw as "fonts:<id>,<id>,…" entries, each at most 128 characters; the
+  // backend reads the union of them.
   repeated string components = 6;
   uint32 max_image_bytes     = 7;
 
@@ -168,6 +178,9 @@ message DeviceResponse {
 
   // Proposed (home boxes): this account's boxes.
   BoxSet boxes = 33;
+
+  // Proposed (design and settings): this account's whole look.
+  DesignSpec design = 34;
 }
 
 message Notification {
@@ -207,6 +220,11 @@ message WakeSignal {
 
   // Proposed (home boxes): the same list as DeviceResponse.boxes.
   BoxSet boxes = 11;
+
+  // Proposed (design and settings): the same spec as DeviceResponse.design.
+  DesignSpec design = 12;
+  // Proposed (design and settings): a settings resend, as DeviceResponse.settings.
+  SettingsCommand settings = 13;
 }
 
 message PendingAction {
@@ -556,6 +574,11 @@ message SettingsCommand {
   repeated SettingsWrite writes = 2;
 
   repeated string read = 3;
+
+  // Proposed (design and settings): the account's settings version, only ever higher.
+  uint64 version = 4;
+  // Proposed (design and settings): writes holds every key the phone applies, as after a wipe.
+  bool full = 5;
 }
 
 message SettingsWrite {
@@ -594,6 +617,9 @@ message SettingsValue {
     UNKNOWN_KEY = 3;
 
     INVALID_VALUE = 4;
+
+    // Proposed (design and settings): applied, but changed for safety; value is what was used.
+    ADJUSTED = 5;
   }
 
   string detail = 4;
@@ -660,4 +686,29 @@ message BoxEdit {
 message BoxEditReply {
   uint32 status = 1;
   BoxSet boxes  = 2;
+}
+
+// Proposed (design and settings): the account's whole look, sent whole every time. Tokens only:
+// names and values from a fixed catalogue, never markup, addresses, images or code.
+message DesignSpec {
+  // Assigned by the backend and only ever higher; 0 means "not yet numbered" (phone to backend).
+  uint64 version            = 1;
+  // "ledger" is the phone's factory look; anything else falls back to it and is reported.
+  string base_theme         = 2;
+  // The full set of overrides relative to base_theme, never a delta; empty = the base as built.
+  map<string, string> tokens = 3;
+  // The token catalogue version the backend wrote against (1).
+  uint32 catalogue          = 4;
+  // Optional, at most 24 characters, plain text; shown in Settings.
+  string name               = 5;
+}
+
+// Proposed (design and settings): what the phone did with a DesignSpec. Rides the next turn.
+message DesignState {
+  // The DesignSpec.version this answers.
+  uint64 version = 1;
+  // One per token not applied exactly as sent; key is the token name. Applied tokens are omitted.
+  repeated SettingsValue values = 2;
+  // The user chose "Reset to default" on the phone.
+  bool reset_on_device = 3;
 }

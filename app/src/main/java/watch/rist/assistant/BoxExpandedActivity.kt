@@ -30,7 +30,7 @@ import java.util.Date
  */
 class BoxExpandedActivity : AppCompatActivity() {
 
-    private val rt by lazy { Themes.byId(Config.themeId(this)) }
+    private val rt by lazy { Themes.current(this) }
     private val tf: Typeface? by lazy { ThemePaint.typefaceOf(this, rt) }
     private val pixelTf: Typeface? by lazy {
         runCatching { androidx.core.content.res.ResourcesCompat.getFont(this, R.font.pixel) }.getOrNull()

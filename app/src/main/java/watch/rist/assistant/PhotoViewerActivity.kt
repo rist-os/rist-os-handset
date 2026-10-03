@@ -32,7 +32,7 @@ class PhotoViewerActivity : AppCompatActivity() {
 
         /** Offers "Save to Photos" and does it. Shared by the feed and the viewer. */
         fun offerSave(activity: AppCompatActivity, photo: File) {
-            val theme = Themes.byId(Config.themeId(activity))
+            val theme = Themes.current(activity)
             runCatching {
                 RistDialog.choose(
                     activity = activity,

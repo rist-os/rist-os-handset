@@ -304,4 +304,11 @@
         <item quantity="one">All boxes, %d box</item>
         <item quantity="other">All boxes, %d boxes</item>
     </plurals>
+    <string name="look_heading">LOOK</string>
+    <string name="look_factory">Factory look</string>
+    <string name="look_set_by_assistant">Set by your assistant</string>
+    <string name="look_set_by_assistant_named">Set by your assistant: %1$s</string>
+    <string name="look_hint">Ask your assistant to change colours, fonts or text size.</string>
+    <string name="look_reset">Reset to default</string>
+    <string name="look_reset_done">Back to the factory look</string>
 </resources>

@@ -3,4 +3,5 @@
     <item name="tag_theme_base_color" type="id" />
     <item name="tag_theme_hint_color" type="id" />
     <item name="feed_dismiss" type="id" />
+    <item name="tag_theme_base_size" type="id" />
 </resources>

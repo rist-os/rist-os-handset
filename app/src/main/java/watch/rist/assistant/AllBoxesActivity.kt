@@ -29,7 +29,7 @@ import androidx.recyclerview.widget.RecyclerView
  */
 class AllBoxesActivity : AppCompatActivity(), BoxBoard.Host {
 
-    private val rt by lazy { Themes.byId(Config.themeId(this)) }
+    private val rt by lazy { Themes.current(this) }
     private val pixelTf: Typeface? by lazy {
         runCatching { androidx.core.content.res.ResourcesCompat.getFont(this, R.font.pixel) }.getOrNull()
     }

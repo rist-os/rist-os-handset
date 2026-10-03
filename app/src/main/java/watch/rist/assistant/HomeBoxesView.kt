@@ -98,7 +98,7 @@ internal class BoxBoard(
         undoBar?.apply { setTextColor(t.accent); typeface = pixelTf }
     }
 
-    private fun theme(): RistTheme = Themes.byId(Config.themeId(activity))
+    private fun theme(): RistTheme = Themes.current(activity)
 
     // ---- what a touch does ----
 
