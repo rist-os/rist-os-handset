@@ -51,6 +51,8 @@ object Config {
     private const val KEY_BILLING_NO_PORTAL = "billing_no_portal"
     private const val KEY_BILLING_ACCOUNT_URL = "billing_account_url"
     private const val KEY_FEATURES = "features"
+    private const val KEY_HOME_BOXES = "home_boxes"
+    private const val KEY_BOX_EDIT_QUEUE = "box_edit_queue"
     private const val KEY_CONTACTS_SYNC_OFF = "contacts_sync_off"
     private const val KEY_REMOVED_NOTICE_SHOWN = "removed_notice_shown"
     private const val KEY_COMMS_RESULTS = "comms_results"
@@ -292,6 +294,14 @@ object Config {
     /** The last feature set the backend sent, as JSON; empty when none has ever arrived. */
     fun features(ctx: Context): String = prefs(ctx).getString(KEY_FEATURES, "") ?: ""
     fun setFeatures(ctx: Context, json: String) { prefs(ctx).edit().putString(KEY_FEATURES, json).apply() }
+
+    /** The last home box set, as base64 protobuf bytes; empty when none has ever arrived. */
+    fun homeBoxes(ctx: Context): String = prefs(ctx).getString(KEY_HOME_BOXES, "") ?: ""
+    fun setHomeBoxes(ctx: Context, b64: String) { prefs(ctx).edit().putString(KEY_HOME_BOXES, b64).apply() }
+
+    /** Touch edits to the boxes not yet accepted by the backend, oldest first, as a JSON array. */
+    fun boxEditQueue(ctx: Context): String = prefs(ctx).getString(KEY_BOX_EDIT_QUEUE, "") ?: ""
+    fun setBoxEditQueue(ctx: Context, json: String) { prefs(ctx).edit().putString(KEY_BOX_EDIT_QUEUE, json).apply() }
 
     fun contactsSyncOff(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_CONTACTS_SYNC_OFF, false)
     fun setContactsSyncOff(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_CONTACTS_SYNC_OFF, v).apply() }

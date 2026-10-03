@@ -27,7 +27,12 @@ object DeviceProfile {
             videoCalls = VideoCalls.SHIPPED && Features.isOn(ctx, Features.Id.VIDEO_CALLS))
     }
 
-    internal fun capabilities(screenW: Int, screenH: Int, videoCalls: Boolean = VideoCalls.SHIPPED): Capabilities =
+    internal fun capabilities(
+        screenW: Int,
+        screenH: Int,
+        videoCalls: Boolean = VideoCalls.SHIPPED,
+        homeBoxes: Boolean = HomeBoxes.declared(),
+    ): Capabilities =
         Capabilities.newBuilder()
             // v18 carries every field this build reads; the video_call component alone decides
             // whether the backend sends a call.
@@ -42,6 +47,8 @@ object DeviceProfile {
             // Asks for 512-px tiles. Safe to send only because the map places every tile by its
             // decoded width and fills gaps in a partial set from coarser tiles (TilePlan).
             .addComponents("map_tiles_hd")
+            // Whether this phone can draw home boxes; the backend sends no box list without it.
+            .apply { if (homeBoxes) addComponents(HomeBoxes.COMPONENT) }
             .setMaxImageBytes(MAX_IMAGE_BYTES)
             // 0 or unset means "cannot do place triggers".
             .setMaxGeofences(Geofences.MAX_FENCES)

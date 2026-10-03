@@ -125,6 +125,22 @@
             android:lockTaskMode="if_whitelisted"
             android:theme="@style/Theme.RistAssistant" />
 
+        <!-- Home boxes: every box as a grid, and one display box opened full screen. -->
+        <activity
+            android:name=".AllBoxesActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:lockTaskMode="if_whitelisted"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.RistAssistant" />
+
+        <activity
+            android:name=".BoxExpandedActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:lockTaskMode="if_whitelisted"
+            android:theme="@style/Theme.RistAssistant" />
+
         <activity
             android:name=".BackgroundLocationPromptActivity"
             android:exported="false"

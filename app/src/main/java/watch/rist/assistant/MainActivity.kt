@@ -298,11 +298,17 @@ class MainActivity : AppCompatActivity() {
     private fun applyFeatures(repaint: Boolean = false) = runCatching {
         if (!Features.isOn(this, Features.Id.MEDIA)) nowPlayingCard.visibility = View.GONE
         if (!Features.isOn(this, Features.Id.MAPS) && currentNav != null) closeNav()
+        renderBoxes()
         if (repaint) {
             CommsFeedView.render(this)
             refreshGearBadge()
         }
     }.onFailure { Log.w(TAG, "applying features failed", it) }.let { }
+
+    // The box list changed: a reply or the wake brought a new one, or an edit was made.
+    private val boxesReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) = renderBoxes()
+    }
 
     private val mediaStatusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -418,8 +424,11 @@ class MainActivity : AppCompatActivity() {
                 right = bars.right,
                 bottom = basePad + bottomInset
             )
-            talkTile.visibility =
-                if (insets.isVisible(WindowInsetsCompat.Type.ime())) View.GONE else View.VISIBLE
+            val imeUp = insets.isVisible(WindowInsetsCompat.Type.ime())
+            talkTile.visibility = if (imeUp) View.GONE else View.VISIBLE
+            // The row gives its height back to the answers while typing.
+            boxesHiddenForIme = imeUp
+            renderBoxes()
             insets
         }
 
@@ -442,6 +451,7 @@ class MainActivity : AppCompatActivity() {
         replyContainer = findViewById(R.id.replyContainer)
         clearButton = findViewById(R.id.clearButton)
         clearButton.setOnClickListener { clearReply() }
+        wireBoxes()
 
         nowPlayingCard = findViewById(R.id.nowPlayingCard)
         npTitle = findViewById(R.id.npTitle)
@@ -606,6 +616,7 @@ class MainActivity : AppCompatActivity() {
         lbm.registerReceiver(streamProgressReceiver, IntentFilter(StreamingStatus.ACTION_PROGRESS))
         lbm.registerReceiver(streamEndedReceiver, IntentFilter(StreamingStatus.ACTION_STREAM_ENDED))
         lbm.registerReceiver(featuresReceiver, IntentFilter(Features.ACTION_CHANGED))
+        lbm.registerReceiver(boxesReceiver, IntentFilter(HomeBoxes.ACTION_CHANGED))
         runCatching {
             registerReceiver(timeTickReceiver, IntentFilter().apply {
                 addAction(Intent.ACTION_TIME_TICK)
@@ -648,6 +659,7 @@ class MainActivity : AppCompatActivity() {
         renderTranscript()
         renderCommandStrip()
         CommsFeedView.render(this)
+        renderBoxes()
         cmdHandler.removeCallbacks(cmdTicker)
         if (DeviceCommands.anythingRunning()) cmdHandler.post(cmdTicker)
         enterKioskIfOwner()
@@ -755,6 +767,8 @@ class MainActivity : AppCompatActivity() {
             setImageResource(if (t.lineIcons) R.drawable.ic_send_line else R.drawable.ic_send)
             setColorFilter(t.accent)
         }
+        findViewById<TextView>(R.id.boxUndo)?.apply { setTextColor(t.accent) }
+        renderBoxes()
         retintUnthemedSubtree(findViewById(R.id.nowPlayingCard), t, faint, tf)
         retintUnthemedSubtree(findViewById(R.id.navBox), t, faint, tf)
         retintUnthemedSubtree(findViewById(R.id.navPill), t, faint, tf)
@@ -865,6 +879,7 @@ class MainActivity : AppCompatActivity() {
         lbm.unregisterReceiver(streamProgressReceiver)
         lbm.unregisterReceiver(streamEndedReceiver)
         lbm.unregisterReceiver(featuresReceiver)
+        lbm.unregisterReceiver(boxesReceiver)
     }
 
     private fun renderAwaitingReply() = runCatching {
@@ -904,6 +919,8 @@ class MainActivity : AppCompatActivity() {
         override fun onReceive(context: Context, intent: Intent) {
             updateGlance()
             CommsFeedView.render(this@MainActivity)
+            // Ages ("8m ago") and staleness move with the clock.
+            renderBoxes()
             // Midnight passed, or the clock or zone moved the day: the answers' times need
             // their "Yesterday" now, not on the next turn.
             if (CommsFeed.dayKey(System.currentTimeMillis()) != transcriptDrawnOn) renderTranscript()
@@ -1733,6 +1750,107 @@ class MainActivity : AppCompatActivity() {
                 )
             }
             handleReply(reply, subject = "message", clear = true)
+        }
+    }
+
+    // ---- home boxes ----
+
+    internal lateinit var boxBoard: BoxBoard
+    private var boxesHiddenForIme = false
+    private var boxesBack: androidx.activity.OnBackPressedCallback? = null
+
+    private val allBoxesLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) AllBoxesActivity.turnFrom(result.data)?.let { sendBoxTurn(it) }
+        }
+
+    private fun wireBoxes() = runCatching {
+        val list = findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.boxList)
+        boxBoard = BoxBoard(this, list, grid = false, host = object : BoxBoard.Host {
+            override fun onTurn(turn: HomeBoxes.Turn) = sendBoxTurn(turn)
+            override fun onAll() = openAllBoxes()
+            override fun onEditModeChanged(on: Boolean) { boxesBack?.isEnabled = on }
+        }, undoBar = findViewById(R.id.boxUndo), handle = findViewById(R.id.boxHandle))
+        val cb = object : androidx.activity.OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() { boxBoard.setEditMode(false) }
+        }
+        boxesBack = cb
+        onBackPressedDispatcher.addCallback(this, cb)
+        // The handle under the row: a tap, or a swipe up, opens every box as a grid.
+        val handle = findViewById<View>(R.id.boxHandle)
+        var downY = 0f
+        handle.setOnTouchListener { v, ev ->
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { downY = ev.rawY; true }
+                MotionEvent.ACTION_UP -> {
+                    val slop = ViewConfiguration.get(this).scaledTouchSlop
+                    if (downY - ev.rawY > slop || abs(downY - ev.rawY) <= slop) { v.performClick(); openAllBoxes() }
+                    true
+                }
+                else -> true
+            }
+        }
+        renderBoxes()
+    }.onFailure { Log.w(TAG, "home boxes wiring failed", it) }.let { }
+
+    internal fun openAllBoxes() {
+        if (::boxBoard.isInitialized) boxBoard.setEditMode(false)
+        allBoxesLauncher.launch(Intent(this, AllBoxesActivity::class.java))
+    }
+
+    /** Shows the row when this account has boxes and the keyboard is down; draws the held list. */
+    internal fun renderBoxes() = runCatching {
+        if (!::boxBoard.isInitialized) return@runCatching
+        val row = findViewById<View>(R.id.boxRow) ?: return@runCatching
+        val shown = HomeBoxes.shown(this) && !boxesHiddenForIme
+        row.visibility = if (shown) View.VISIBLE else View.GONE
+        if (!HomeBoxes.shown(this) && boxBoard.editMode) boxBoard.setEditMode(false)
+        if (shown) boxBoard.render()
+    }.onFailure { Log.w(TAG, "drawing the boxes failed", it) }.let { }
+
+    /**
+     * Sends a turn a box started. A command-box tap is typed text in every way that matters to
+     * the backend, with box_id beside it; the add and change sheets address the boxes tool. A
+     * second tap on a box whose turn is still in flight is ignored.
+     */
+    internal fun sendBoxTurn(turn: HomeBoxes.Turn) {
+        val fromCommand = turn.targetToolId.isBlank() && turn.boxId.isNotBlank()
+        if (fromCommand && !HomeBoxes.beginSend(turn.boxId)) {
+            Log.i(TAG, "box ${turn.boxId} is still sending; tap ignored")
+            return
+        }
+        cancelInFlightTurn()
+        hideKeyboard()
+        if (fromCommand) Haptics.ack(this)
+        status(getString(R.string.text_sending))
+        val entryId = runCatching { Transcript.begin(this, turn.prompt, EntryState.WAITING) }.getOrDefault(0L)
+        renderTranscript()
+        renderBoxes()
+        uiScope.launch {
+            val uploader = Uploader(applicationContext)
+            val reply = try {
+                withContext(Dispatchers.IO) {
+                    if (turn.targetToolId.isBlank()) {
+                        uploader.sendText(turn.text, onLocationInterim = { resp -> speakInterim(resp) }, boxId = turn.boxId)
+                    } else {
+                        uploader.sendToolCall(turn.targetToolId, turn.text, boxId = turn.boxId)
+                    }
+                }
+            } finally {
+                if (fromCommand) HomeBoxes.endSend(turn.boxId)
+            }
+            if (reply == null) announceFailure(uploader.lastFailure)
+            if (entryId != 0L) runCatching {
+                Transcript.update(
+                    this@MainActivity, entryId,
+                    state = if (reply != null) EntryState.ANSWERED else EntryState.FAILED,
+                    answer = reply?.speech?.text.orEmpty(),
+                    requestId = reply?.requestId.orEmpty(),
+                    error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
+                )
+            }
+            renderBoxes()
+            handleReply(reply, subject = "box", clear = true)
         }
     }
 

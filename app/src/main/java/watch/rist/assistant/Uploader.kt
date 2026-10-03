@@ -279,9 +279,11 @@ class Uploader(private val ctx: Context) {
     }
 
     // Blocking; call on IO.
+    // [boxId]: the command box this text came from, if any. It changes nothing about the turn.
     fun sendText(
         text: String,
-        onLocationInterim: ((DeviceResponse) -> Unit)? = null
+        onLocationInterim: ((DeviceResponse) -> Unit)? = null,
+        boxId: String = "",
     ): DeviceResponse? {
         if (text.isBlank()) {
             Log.w(TAG, "sendText: blank text, nothing to send")
@@ -294,12 +296,12 @@ class Uploader(private val ctx: Context) {
             authToken = Config.authToken(ctx),
             caps = DeviceProfile.capabilities(ctx),
             text = text
-        )
+        ).let { if (boxId.isBlank()) it else it.toBuilder().setBoxId(boxId).build() }
         return post(requestProto, onLocationInterim = onLocationInterim)
     }
 
     // Blocking; call on IO.
-    fun sendToolCall(toolId: String, text: String = ""): DeviceResponse? {
+    fun sendToolCall(toolId: String, text: String = "", boxId: String = ""): DeviceResponse? {
         if (toolId.isBlank()) {
             Log.w(TAG, "sendToolCall: no tool_id, nothing to address")
             return null
@@ -311,7 +313,7 @@ class Uploader(private val ctx: Context) {
             authToken = Config.authToken(ctx),
             caps = DeviceProfile.capabilities(ctx),
             text = text,
-        ).toBuilder().setTargetToolId(toolId).build()
+        ).toBuilder().setTargetToolId(toolId).apply { if (boxId.isNotBlank()) setBoxId(boxId) }.build()
         val releaseSms = releasesInboundSms(toolId)
         Log.i(TAG, "tool_call target_tool_id='$toolId' inbound_sms=$releaseSms")
         return post(req, includeInboundSms = releaseSms)
@@ -485,6 +487,7 @@ class Uploader(private val ctx: Context) {
         lastLapse = null
         var req = requestProto
         if (req.utteranceId.isBlank()) req = req.toBuilder().setUtteranceId(newUtteranceId()).build()
+        if (HomeBoxes.declared()) req = req.toBuilder().setBoxesVersion(HomeBoxes.version(ctx)).build()
         val smsRead = if (includeInboundSms) SmsInbox.read(ctx) else SmsRead.Held(emptyList())
         if (smsRead is SmsRead.Unreadable) {
             lastFailure = smsUnreadableFailure(smsRead.why)
@@ -720,6 +723,7 @@ class Uploader(private val ctx: Context) {
         runCatching { Billing.onServed(ctx, resp) }
         runCatching { Enrolment.onReinstated(ctx) }
         if (resp.hasFeatures()) runCatching { Features.apply(ctx, resp.features) }
+        if (resp.hasBoxes()) runCatching { HomeBoxes.apply(ctx, resp.boxes) }
         if (resp.smsAckCount > 0) Log.i(TAG, "backend acked ${resp.smsAckCount} SMS; nothing held to clear")
         // Ack before arm.
         if (resp.geofenceAckCount > 0) Geofences.ackCrossings(ctx, resp.geofenceAckList)

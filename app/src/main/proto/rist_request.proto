@@ -1,4 +1,5 @@
-// The device <-> backend contract, schema v18, with the proposed v19 features fields.
+// The device <-> backend contract, schema v18, with the proposed v19 features fields and the
+// proposed home boxes fields.
 // Copied from the backend's canonical file; change it there first.
 
 syntax = "proto3";
@@ -73,6 +74,10 @@ message DeviceRequest {
 
   string utterance_id = 22;
 
+  // Proposed (home boxes): the box a command-box tap or a box's edit sheet came from.
+  string box_id = 23;
+  // Proposed (home boxes): the BoxSet.version this phone holds.
+  uint64 boxes_version = 24;
 }
 
 message Location { double lat = 1; double lon = 2; string label = 3; uint32 accuracy_m = 4;
@@ -160,6 +165,9 @@ message DeviceResponse {
 
   // Proposed v19, not yet in the canonical contract: this account's features.
   FeatureSet features = 32;
+
+  // Proposed (home boxes): this account's boxes.
+  BoxSet boxes = 33;
 }
 
 message Notification {
@@ -196,6 +204,9 @@ message WakeSignal {
 
   // Proposed v19: the same list as DeviceResponse.features.
   FeatureSet features = 10;
+
+  // Proposed (home boxes): the same list as DeviceResponse.boxes.
+  BoxSet boxes = 11;
 }
 
 message PendingAction {
@@ -597,4 +608,53 @@ message FeatureSet {
 message FeatureState {
   string feature = 1;
   string state   = 2;
+}
+
+// Proposed (home boxes): one box on the home screen. Display text only: no colours, no
+// layout, no URLs.
+message HomeBox {
+  string id                  = 1;
+  string title               = 2;
+  string value               = 3;
+  string detail              = 4;
+  // Command boxes only: the words a tap sends, verbatim.
+  string command             = 5;
+  uint64 updated_at_epoch_s  = 6;
+  uint64 stale_after_epoch_s = 7;
+  // "ok", "pending", "error", "paused" or "off"; anything else is drawn as "error".
+  string state               = 8;
+  string note                = 9;
+  // A Material Symbols name ("mail", "partly_cloudy_day"); an unknown name falls back to
+  // icon_image, else no icon. Never a URL.
+  string icon                = 10;
+  string feature             = 11;
+  // "display" or "command"; anything else is a display box, which never sends.
+  string kind                = 12;
+  // Display boxes: markdown for the expanded view.
+  string body                = 13;
+  // A custom icon when no named one fits: PNG, at most 16 KB and 96 x 96 px, drawn as an alpha
+  // mask in the theme's colours. Anything larger or undecodable draws no icon.
+  bytes  icon_image          = 14;
+}
+
+// Proposed (home boxes): the whole list, in display order, every time it is sent.
+message BoxSet {
+  uint64 version          = 1;
+  repeated HomeBox boxes  = 2;
+}
+
+// Proposed (home boxes): the body of POST /v1/device/boxes, touch edits that need no judgement.
+message BoxEdit {
+  string edit_id              = 1;
+  uint64 base_version         = 2;
+  repeated string order       = 3;
+  repeated string delete_ids  = 4;
+  repeated string restore_ids = 5;
+  string rename_id            = 6;
+  string rename_title         = 7;
+}
+
+message BoxEditReply {
+  uint32 status = 1;
+  BoxSet boxes  = 2;
 }

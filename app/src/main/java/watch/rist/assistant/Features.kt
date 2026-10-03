@@ -32,6 +32,8 @@ object Features {
         VIDEO_CALLS("video_calls"),
         // Call screening and voicemail are one feature to the backend.
         CALLS("calls"),
+        // The row of boxes on the home screen (HomeBoxes).
+        BOXES("boxes"),
     }
 
     enum class State(val wire: String) { ON("on"), OFF("off"), UNAVAILABLE("unavailable") }

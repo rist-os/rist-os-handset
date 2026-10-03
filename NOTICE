@@ -7,6 +7,9 @@ This product includes software and assets from third parties:
   (app/src/main/res/font/silkscreen*.ttf)
 - Turn-arrow glyphs derived from Material Symbols by Google — Apache License 2.0
   (app/src/main/assets/glyphs/)
+- Material Symbols (Outlined) by Google — Apache License 2.0
+  (app/src/main/assets/icons/: a static instance of the variable font, FILL 0, wght 400,
+  GRAD 0, opsz 24, made with fontTools, and its name-to-codepoint list)
 - Volume panel icons from Material Icons by Google — Apache License 2.0
   (app/src/main/res/drawable/ic_vol_*.xml, ic_close.xml)
 - Time zone boundaries (app/src/main/assets/tz/zones.bin) derived from timezone-boundary-builder

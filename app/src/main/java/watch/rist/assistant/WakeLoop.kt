@@ -61,7 +61,13 @@ object WakeLoop {
     }
 
     /** `…/v1/device` becomes `…/v1/device/wake`, carrying the acks and the real card count. */
-    internal fun wakeUrl(backendUrl: String, acks: List<String>, maxNotifications: Int): String? {
+    /** [boxesVersion]: the box list version held, sent only by a phone that declares boxes. */
+    internal fun wakeUrl(
+        backendUrl: String,
+        acks: List<String>,
+        maxNotifications: Int,
+        boxesVersion: Long? = null,
+    ): String? {
         val base = backendUrl.trim().trimEnd('/')
         if (base.isEmpty()) return null
         val wake = if (base.endsWith("/v1/device")) "$base/wake" else "$base/v1/device/wake"
@@ -70,6 +76,12 @@ object WakeLoop {
             .apply { if (acks.isNotEmpty()) addQueryParameter("ack", acks.joinToString(",")) }
             // Always explicit: absent, the wake endpoint picks 5, not the 8 this phone shows.
             .addQueryParameter("max_notifications", maxNotifications.toString())
+            .apply {
+                if (boxesVersion != null) {
+                    addQueryParameter("boxes", boxesVersion.toString())
+                    addQueryParameter("components", HomeBoxes.COMPONENT)
+                }
+            }
             .build().toString()
     }
 
@@ -90,9 +102,16 @@ object WakeLoop {
     internal fun poll(ctx: Context, http: OkHttpClient = client): Outcome {
         val bearer = Uploader.bearer(ctx) ?: return Outcome.NotReady
         val acks = NotificationQueue.pendingAcks(ctx)
-        val url = wakeUrl(Config.backendUrl(ctx), acks, CommsFeed.MAX_NOTIFICATIONS) ?: return Outcome.NotReady
+        // Box edits made offline go first, so the version asked about is the one they produced.
+        if (HomeBoxes.declared()) runCatching { HomeBoxes.flush(ctx) }
+        val url = wakeUrlFor(ctx, acks) ?: return Outcome.NotReady
         return exchange(http, url, bearer, Config.deviceId(ctx), acks)
     }
+
+    /** This phone's wake address: its acks, its card count, and its box version if it has boxes. */
+    internal fun wakeUrlFor(ctx: Context, acks: List<String>): String? =
+        wakeUrl(Config.backendUrl(ctx), acks, CommsFeed.MAX_NOTIFICATIONS,
+            if (HomeBoxes.declared()) HomeBoxes.version(ctx) else null)
 
     /** The HTTP half of [poll], apart from the stores so it can be tested on its own. */
     internal fun exchange(http: OkHttpClient, url: String, bearer: String, device: String, acks: List<String>): Outcome {
@@ -126,6 +145,7 @@ object WakeLoop {
         if (signal.notificationsCount > 0) NotificationQueue.store(ctx, signal.notificationsList)
         NotificationQueue.setMailUnread(ctx, signal.mailUnread)
         if (signal.hasFeatures()) runCatching { Features.apply(ctx, signal.features) }
+        if (signal.hasBoxes()) runCatching { HomeBoxes.apply(ctx, signal.boxes) }
         if (Config.voicemailCount(ctx) != signal.voicemailUnheard) {
             Config.setVoicemailCount(ctx, signal.voicemailUnheard)
             NotificationQueue.countsChanged(ctx)
