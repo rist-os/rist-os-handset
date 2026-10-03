@@ -215,17 +215,15 @@ object CommsFeedView {
             mailText.layoutParams =
                 LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
 
-            val mailDismiss = dismissButton(activity, t, tf, d, "Dismiss the unread email notice") {
-                Config.setMailAcknowledged(activity, Config.mailUnread(activity))
-            }
-
             val mailRow = LinearLayout(activity)
             mailRow.orientation = LinearLayout.HORIZONTAL
             mailRow.layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
             )
             mailRow.addView(mailText)
-            mailRow.addView(mailDismiss)
+            swipeToDismiss(activity, mailRow, "the unread email notice") {
+                Config.setMailAcknowledged(activity, Config.mailUnread(activity))
+            }
             host.addView(mailRow)
             drawn++
         }
@@ -403,9 +401,9 @@ object CommsFeedView {
             minimumHeight = (72 * d).toInt()
             setPadding(0, (10 * d).toInt(), 0, (10 * d).toInt())
             addView(edge); addView(glyph); addView(col)
-            addView(dismissButton(
-                activity, t, tf, d,
-                "Dismiss this " + when (item.kind) {
+            swipeToDismiss(
+                activity, this,
+                "this " + when (item.kind) {
                     FeedKind.TEXT -> "message"
                     FeedKind.MISSED_CALL -> "missed call"
                     FeedKind.NOTIFICATION -> "notice"
@@ -413,7 +411,7 @@ object CommsFeedView {
             ) {
                 expanded.remove(item.id)
                 markSeen(activity, listOf(item.id))
-            })
+            }
             isClickable = true; isFocusable = true
             contentDescription = buildString {
                 append(CommsFeed.kindLine(item)).append(". ")
@@ -433,7 +431,6 @@ object CommsFeedView {
         }
     }
 
-    /** The × on every row. In ink, not muted: a control nobody can see is not a control. */
     internal const val BILLING_ROW_TAG = "billing-lapse"
     internal const val BILLING_BUTTON_TAG = "billing-update-payment"
     internal const val BILLING_ACCOUNT_TAG = "billing-account-page"
@@ -508,24 +505,101 @@ object CommsFeedView {
         }.start()
     }
 
-    private fun dismissButton(
-        activity: Activity, t: RistTheme, tf: android.graphics.Typeface?, d: Float,
-        spoken: String, onDismiss: () -> Unit,
-    ): View = TextView(activity).apply {
-        text = "\u00d7"
-        setTextColor(t.ink)
-        typeface = tf
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 28f)
-        gravity = Gravity.CENTER
-        minWidth = (48 * d).toInt()
-        minHeight = (48 * d).toInt()
-        contentDescription = spoken
-        isClickable = true; isFocusable = true
-        setOnClickListener {
+    /** Past this share of the row's width, a slow swipe dismisses; short of it, the row springs back. */
+    internal const val SWIPE_DISMISS_FRACTION = 0.35f
+
+    /** A flick this fast dismisses however short it was, in dp per second. */
+    private const val SWIPE_FLING_DP_S = 900f
+
+    private class Dismiss(val what: String, val act: () -> Unit)
+
+    /**
+     * Swipe the row sideways, either way, to dismiss it. A tap still opens it and an up-or-down
+     * drag still scrolls the feed: only a drag that is plainly sideways is taken. Screen readers
+     * get the same thing as a "Dismiss" action, since a swipe is not something they can do.
+     */
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private fun swipeToDismiss(activity: Activity, row: View, what: String, onDismiss: () -> Unit) {
+        val dismiss = Dismiss(what) {
             onDismiss()
             Haptics.ack(activity)
             render(activity)
         }
+        row.setTag(R.id.feed_dismiss, dismiss)
+        androidx.core.view.ViewCompat.addAccessibilityAction(row, "Dismiss $what") { _, _ ->
+            dismiss.act(); true
+        }
+        val slop = android.view.ViewConfiguration.get(activity).scaledTouchSlop
+        val flingPx = SWIPE_FLING_DP_S * activity.resources.displayMetrics.density
+        var downX = 0f
+        var downY = 0f
+        var dragging = false
+        var tracker: android.view.VelocityTracker? = null
+        row.setOnTouchListener { v, ev ->
+            when (ev.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    downX = ev.rawX; downY = ev.rawY; dragging = false
+                    tracker?.recycle()
+                    tracker = android.view.VelocityTracker.obtain().also { it.addMovement(ev) }
+                    false
+                }
+                android.view.MotionEvent.ACTION_MOVE -> {
+                    tracker?.addMovement(ev)
+                    val dx = ev.rawX - downX
+                    val dy = ev.rawY - downY
+                    if (!dragging && Math.abs(dx) > slop && Math.abs(dx) > 2 * Math.abs(dy)) {
+                        dragging = true
+                        v.parent?.requestDisallowInterceptTouchEvent(true)
+                        v.isPressed = false
+                        v.cancelLongPress()
+                    }
+                    if (dragging) {
+                        v.translationX = dx
+                        v.alpha = 1f - Math.min(1f, Math.abs(dx) / Math.max(1, v.width)) * 0.7f
+                    }
+                    dragging
+                }
+                android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                    val wasDragging = dragging
+                    dragging = false
+                    val t = tracker
+                    tracker = null
+                    if (!wasDragging) { t?.recycle(); return@setOnTouchListener false }
+                    t?.addMovement(ev)
+                    t?.computeCurrentVelocity(1000)
+                    val vx = t?.xVelocity ?: 0f
+                    t?.recycle()
+                    val dx = v.translationX
+                    val far = Math.abs(dx) > v.width * SWIPE_DISMISS_FRACTION
+                    val flung = Math.abs(vx) > flingPx && Math.signum(vx) == Math.signum(dx)
+                    if (ev.actionMasked == android.view.MotionEvent.ACTION_UP && (far || flung)) {
+                        val off = if (dx < 0) -v.width.toFloat() else v.width.toFloat()
+                        v.animate().translationX(off).alpha(0f).setDuration(160)
+                            .withEndAction { dismiss.act() }.start()
+                    } else {
+                        v.animate().translationX(0f).alpha(1f).setDuration(160).start()
+                    }
+                    true
+                }
+                else -> dragging
+            }
+        }
+    }
+
+    /** Dismisses a row as its swipe would. For tests; returns false for a row that cannot be. */
+    internal fun dismissRow(row: View): Boolean {
+        val d = row.getTag(R.id.feed_dismiss) as? Dismiss ?: return false
+        d.act()
+        return true
+    }
+
+    /** The swipeable row for [what] ("the unread email notice", "this message", ...), if shown. */
+    internal fun rowFor(host: View, what: String): View? {
+        if ((host.getTag(R.id.feed_dismiss) as? Dismiss)?.what == what) return host
+        if (host is android.view.ViewGroup) for (i in 0 until host.childCount) {
+            rowFor(host.getChildAt(i), what)?.let { return it }
+        }
+        return null
     }
 
     private fun voicemailRow(
@@ -604,10 +678,10 @@ object CommsFeedView {
             minimumHeight = (72 * d).toInt()
             setPadding(0, (10 * d).toInt(), 0, (10 * d).toInt())
             addView(edge); addView(glyph); addView(col)
-            addView(dismissButton(activity, t, tf, d, "Dismiss the voicemail notice") {
+            swipeToDismiss(activity, this, "the voicemail notice") {
                 expanded.remove(VOICEMAIL_KEY)
                 CarrierVoicemail.dismiss(activity)
-            })
+            }
             isClickable = true; isFocusable = true
             contentDescription = CommsFeed.voicemailKindLine() + ". " +
                 CommsFeed.voicemailSenderLine() + ". " +
