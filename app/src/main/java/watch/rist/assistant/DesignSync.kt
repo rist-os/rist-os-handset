@@ -43,7 +43,7 @@ object DesignSync {
      * and the theme picker exactly as before, declares nothing and ignores any spec; while true
      * the built-in themes are gone and the factory look is only the floor.
      */
-    const val SHIPPED = false
+    const val SHIPPED = true
 
     /** Lets a test exercise either behaviour, whatever [SHIPPED] is; null = as built. */
     @Volatile internal var shippedForTest: Boolean? = null

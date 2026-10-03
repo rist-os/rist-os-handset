@@ -37,7 +37,7 @@ object HomeBoxes {
      * Whether requests declare the `home_boxes` component and the home screen shows boxes. The
      * backend sends no box list to a phone that does not declare it.
      */
-    const val SHIPPED = false
+    const val SHIPPED = true
 
     const val COMPONENT = "home_boxes"
 
