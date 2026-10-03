@@ -104,6 +104,7 @@ class SettingsRemoteTest {
 
     @Test
     fun `before it ships the new keys are refused as before and no version is kept`() {
+        DesignSync.shippedForTest = false
         SettingsApply.handle(ctx, cmd("c1", "consent.contacts_sync" to "off", version = 5, full = true))
         val a = answers().getValue("consent.contacts_sync")
         assertEquals(SettingsValue.Outcome.REFUSED, a.outcome)

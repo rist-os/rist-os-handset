@@ -26,7 +26,9 @@ class DeviceProfileTest {
             listOf("card", "stack", "text", "stat", "list", "image", "chart", "button", "divider",
                    "map_tiles", "map_tiles_hd")
         ))
-        assertEquals(if (VideoCalls.SHIPPED) 12 else 11, caps.componentsCount)
+        // capabilities(w, h) lists no fonts; the device's own call adds one "font:<id>" per font.
+        val expected = 11 + listOf(VideoCalls.SHIPPED, HomeBoxes.SHIPPED, DesignSync.SHIPPED).count { it }
+        assertEquals(expected, caps.componentsCount)
     }
 
     @Test

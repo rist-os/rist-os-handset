@@ -222,6 +222,7 @@ class DesignSyncTest {
 
     @Test
     fun `before it ships the two themes work as before and no spec is taken`() {
+        DesignSync.shippedForTest = false
         Config.setThemeId(ctx, "night")
         assertEquals("night", Themes.current(ctx).id)
         assertFalse(DesignSync.apply(ctx, spec(3, "color.ground" to "#14284B")))

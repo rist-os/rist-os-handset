@@ -120,6 +120,7 @@ class DesignSyncUiTest {
 
     @Test
     fun `before it ships Settings keeps the theme picker and has no reset`() {
+        DesignSync.shippedForTest = false
         val s = Robolectric.buildActivity(SettingsActivity::class.java).setup().get()
         settle()
         val picker = s.findViewById<LinearLayout>(R.id.themePicker)

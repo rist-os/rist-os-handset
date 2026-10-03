@@ -35,7 +35,7 @@ class AttachmentViewTest {
 
     @Before
     fun clean() {
-        Config.setThemeId(ctx(), "ledger")
+        TestLooks.reset(ctx())
         // Font scale is shared state: two tests push it to 2x and nothing else resets it.
         setFontScale(1f)
     }
@@ -423,8 +423,8 @@ class AttachmentViewTest {
     fun `the expand control meets the touch target and text floor, and is themed, on every theme`() {
         val long = (1..400).joinToString(" ") { "line $it of a very long note" }
         for (t in Themes.ALL) {
-            Config.setThemeId(ctx(), t.id)
-            assertEquals("the theme did not stick", t.id, Config.themeId(ctx()))
+            TestLooks.use(ctx(), t)
+            assertEquals("the theme did not stick", t.ground, Themes.current(ctx()).ground)
             val (a, cards) = renderOnHome(attachment("text", title = "Long", text = long))
             val expand = tv(only(cards), R.id.attachmentExpand)
             val m = a.resources.displayMetrics
@@ -769,9 +769,9 @@ class AttachmentViewTest {
     @Test
     fun `every colour on the card comes from the active theme, on every theme`() {
         for (t in Themes.ALL) {
-            Config.setThemeId(ctx(), t.id)
+            TestLooks.use(ctx(), t)
             assertEquals(
-                "the theme did not stick, so this iteration proves nothing", t.id, Config.themeId(ctx())
+                "the theme did not stick, so this iteration proves nothing", t.ground, Themes.current(ctx()).ground
             )
             val (_, cards) = renderOnHome(
                 attachment("data", mime = "application/pdf", title = "Report", bytes = ByteArray(4096))
@@ -804,7 +804,7 @@ class AttachmentViewTest {
     @Test
     fun `the secondary text on a card is legible against the card, on every theme`() {
         for (t in Themes.ALL) {
-            Config.setThemeId(ctx(), t.id)
+            TestLooks.use(ctx(), t)
             val (_, cards) = renderOnHome(
                 attachment("data", mime = "application/pdf", bytes = ByteArray(1024))
             )
@@ -831,7 +831,7 @@ class AttachmentViewTest {
     @Test
     fun `the card is bounded by something a person can see, on every theme`() {
         for (t in Themes.ALL) {
-            Config.setThemeId(ctx(), t.id)
+            TestLooks.use(ctx(), t)
             val (_, cards) = renderOnHome(
                 attachment("data", mime = "application/pdf", bytes = ByteArray(1024))
             )

@@ -38,12 +38,14 @@ class HomeBoxesTest {
     @Before
     fun clean() {
         HomeBoxes.resetForTest(ctx)
+        DesignSync.resetForTest(ctx)
         Config.setFeatures(ctx, "")
     }
 
     @After
     fun tidy() {
         HomeBoxes.resetForTest(ctx)
+        DesignSync.resetForTest(ctx)
         Config.setFeatures(ctx, "")
         server?.shutdown()
     }
@@ -335,6 +337,7 @@ class HomeBoxesTest {
     fun `a poll from a phone that shows boxes carries its version`() {
         backend()
         HomeBoxes.shippedForTest = true
+        DesignSync.shippedForTest = false
         HomeBoxes.apply(ctx, set(5, box("a")))
         val url = WakeLoop.wakeUrlFor(ctx, emptyList())!!.toHttpUrl()
         assertEquals("/v1/device/wake", url.encodedPath)
