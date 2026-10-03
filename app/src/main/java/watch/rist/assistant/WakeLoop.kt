@@ -60,8 +60,8 @@ object WakeLoop {
         object NotReady : Outcome()
     }
 
-    /** `…/v1/device` becomes `…/v1/device/wake`, carrying the acks and the real card count. */
     /**
+     * `…/v1/device` becomes `…/v1/device/wake`, carrying the acks and the real card count.
      * [boxesVersion]: the box list version held, sent only by a phone that declares boxes.
      * [designVersions]: the design and settings versions held, sent only by a phone that takes a
      * design. Every declared component goes in one comma-separated `components`.

@@ -65,6 +65,24 @@ object ThemePaint {
     fun faintOf(t: RistTheme): Int =
         androidx.core.graphics.ColorUtils.blendARGB(t.ink, t.ground, 0.5f)
 
+    /** Ordinary-size text on a fill: WCAG AA, 4.5:1. */
+    const val TEXT_CONTRAST = 4.5
+
+    /**
+     * Words on an accent fill: the theme's ground where it reads at 4.5:1, else whichever of
+     * black or white reads better (one of them always reaches 4.5:1).
+     */
+    fun onAccent(t: RistTheme): Int = when {
+        contrast(t.ground, t.accent) >= TEXT_CONTRAST -> t.ground
+        contrast(android.graphics.Color.WHITE, t.accent) >= contrast(android.graphics.Color.BLACK, t.accent) ->
+            android.graphics.Color.WHITE
+        else -> android.graphics.Color.BLACK
+    }
+
+    /** The accent as a text colour on [fill] where it reads at 4.5:1, else the theme's text colour. */
+    fun accentTextOn(t: RistTheme, fill: Int): Int =
+        if (contrast(t.accent, fill) >= TEXT_CONTRAST) t.accent else t.ink
+
     /** The body typeface: the design's font, in bold when the design asks for bold body text. */
     fun typefaceOf(ctx: Context, t: RistTheme): Typeface? {
         val tf = Fonts.typeface(ctx, t.font)

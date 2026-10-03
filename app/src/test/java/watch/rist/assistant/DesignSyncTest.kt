@@ -275,6 +275,92 @@ class DesignSyncTest {
     }
 
     @Test
+    fun `a Night user keeps Night when the account cannot take designs yet, and it is posted later`() {
+        val s = backend()
+        Config.setThemeId(ctx, "night")
+        DesignSync.shippedForTest = true
+        val night = Themes.byId("night")
+        assertEquals(night.ground, Themes.current(ctx).ground)
+        // The design switch is off for this account: the post is answered 409, and the turn
+        // still brings the backend's default look (Ledger, version 1).
+        s.enqueue(MockResponse().setResponseCode(409).setHeader("X-Rist-Feature", "design-off"))
+        s.enqueue(protoBody(DeviceResponse.newBuilder().setIsFinal(true)
+            .setSpeech(Speech.newBuilder().setText("ok"))
+            .setDesign(spec(1).toBuilder().putAllTokens(DesignSync.tokensOf(Themes.FACTORY)).build())
+            .build().toByteArray()))
+        assertNotNull(Uploader(ctx).sendText("hello"))
+        assertEquals("/v1/device/design", s.takeRequest(5, TimeUnit.SECONDS)!!.path)
+        assertEquals(0L, DeviceRequest.parseFrom(s.takeRequest(5, TimeUnit.SECONDS)!!.body.readByteArray()).designVersion)
+        assertEquals("Night stays on screen", night.ground, Themes.current(ctx).ground)
+        assertEquals("the version is taken, so the phone is not behind on every wake", 1L, DesignSync.version(ctx))
+        assertTrue("Night still waits to be posted", DesignSync.postPending(ctx))
+        // A 409 is not retried at once.
+        val now = System.currentTimeMillis()
+        assertFalse(DesignSync.flush(ctx, nowMs = now + 60_000))
+        assertEquals(2, s.requestCount)
+        // Once the account can take it, Night is stored and the stored look replaces what is held.
+        s.enqueue(protoBody(spec(2).toBuilder().setBaseTheme("night")
+            .putAllTokens(DesignSync.tokensOf(night)).build().toByteArray()))
+        assertTrue(DesignSync.flush(ctx, nowMs = now + DesignSync.SWITCHED_OFF_RETRY_MS + 1))
+        assertEquals("/v1/device/design", s.takeRequest(5, TimeUnit.SECONDS)!!.path)
+        assertFalse(DesignSync.postPending(ctx))
+        assertEquals(2L, DesignSync.version(ctx))
+        assertEquals(night.ground, Themes.current(ctx).ground)
+    }
+
+    @Test
+    fun `a look the backend refuses outright is dropped and the account's look is asked for again`() {
+        val s = backend()
+        Config.setThemeId(ctx, "night")
+        DesignSync.shippedForTest = true
+        DesignSync.migrateLegacyTheme(ctx)
+        s.enqueue(MockResponse().setResponseCode(400))
+        assertTrue(DesignSync.flush(ctx))
+        assertFalse(DesignSync.postPending(ctx))
+        assertEquals(0L, DesignSync.version(ctx))
+        assertTrue(DesignSync.apply(ctx, spec(1)))
+        assertEquals(Themes.FACTORY.ground, Themes.current(ctx).ground)
+    }
+
+    @Test
+    fun `the stored look a post answers with replaces what is held, whatever its version`() {
+        val s = backend()
+        DesignSync.shippedForTest = true
+        DesignSync.apply(ctx, spec(5, "color.ground" to "#14284B", "color.ink" to "#F5F1E8"))
+        Config.setBackendEndpoint(ctx, "http://127.0.0.1:9/v1/device")
+        DesignSync.reset(ctx)
+        DesignSync.awaitFlushForTest()
+        // The backend would not store the reset and answers with the look it holds, version 5.
+        Config.setBackendEndpoint(ctx, s.url("/v1/device").toString())
+        s.enqueue(protoBody(spec(5, "color.ground" to "#14284B", "color.ink" to "#F5F1E8").toByteArray()))
+        assertTrue(DesignSync.flush(ctx))
+        assertEquals(Color.parseColor("#14284B"), Themes.current(ctx).ground)
+    }
+
+    @Test
+    fun `the talk label leaves the accent when the accent is too faint to read as text`() {
+        val r = resolve("color.ground" to "#000000", "color.ink" to "#FFFFFF", "color.accent" to "#7A5A00",
+            "style.hold_label" to "accent")
+        assertFalse(r.theme.holdOnAccent)
+        assertEquals(SettingsValue.Outcome.ADJUSTED, noteFor(r.notes, "style.hold_label")!!.outcome)
+        val ok = resolve("color.ground" to "#000000", "color.ink" to "#FFFFFF", "color.accent" to "#E3B23C",
+            "style.hold_label" to "accent")
+        assertTrue(ok.theme.holdOnAccent)
+        assertNull(noteFor(ok.notes, "style.hold_label"))
+    }
+
+    @Test
+    fun `words on an accent fill read at 4_5 to 1, and the factory looks keep their own colours`() {
+        assertEquals(Themes.FACTORY.ground, ThemePaint.onAccent(Themes.FACTORY))
+        assertEquals(Themes.byId("night").ground, ThemePaint.onAccent(Themes.byId("night")))
+        // Ground on this accent is about 3.4:1: enough for a shape, not for a 15 sp label.
+        val t = Themes.FACTORY.copy(ground = Color.parseColor("#FFFFFF"), accent = Color.parseColor("#D96C3A"))
+        val on = ThemePaint.onAccent(t)
+        assertEquals(Color.BLACK, on)
+        assertEquals(t.ink, ThemePaint.accentTextOn(t, t.ground))
+    }
+
+    @Test
     fun `a Ledger user posts nothing at upgrade`() {
         DesignSync.shippedForTest = true
         assertEquals(Themes.FACTORY, Themes.current(ctx))
@@ -420,6 +506,8 @@ class DesignSyncTest {
 
     @Test
     fun `before it ships a turn carries none of it`() {
+        DesignSync.shippedForTest = false
+        HomeBoxes.shippedForTest = false
         val s = backend()
         s.enqueue(ok())
         Uploader(ctx).sendText("hello")

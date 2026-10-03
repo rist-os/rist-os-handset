@@ -45,10 +45,10 @@ object DesignSync {
      */
     const val SHIPPED = false
 
-    /** Lets a test exercise the shipped behaviour while [SHIPPED] is false. */
-    @Volatile internal var shippedForTest = false
+    /** Lets a test exercise either behaviour, whatever [SHIPPED] is; null = as built. */
+    @Volatile internal var shippedForTest: Boolean? = null
 
-    fun declared(): Boolean = SHIPPED || shippedForTest
+    fun declared(): Boolean = shippedForTest ?: SHIPPED
 
     const val COMPONENT = "design_v1"
     const val CATALOGUE = 1
@@ -265,6 +265,13 @@ object DesignSync {
         adjusted("color.accent", t.accent, accent, "accent kept visible on the background")
         t = t.copy(accent = accent)
 
+        // The hold-to-talk label is ordinary-size text: in the accent colour only where the
+        // accent reads as text (4.5:1), otherwise in the text colour.
+        if (t.holdOnAccent && contrast(t.accent, t.ground) < TEXT_CONTRAST) {
+            notes += note("style.hold_label", "ink", ADJUSTED, "the accent is too faint for the talk label")
+            t = t.copy(holdOnAccent = false)
+        }
+
         // Secondary text is raised only when the design touched it or what it sits on; the
         // factory look's own muted colour is raised at draw time by Themes.readableMuted.
         if ("color.ink_muted" in sent || "color.ground" in sent) {
@@ -341,17 +348,35 @@ object DesignSync {
         return n
     }
 
+    private fun factorySpec(version: Long): DesignSpec =
+        DesignSpec.newBuilder().setVersion(version).setBaseTheme(FACTORY_BASE).setCatalogue(CATALOGUE).build()
+
     /**
      * Takes in a spec from a turn's reply or the wake. Returns true when the look changed.
      * A spec not newer than the one held is ignored; one too large or unreadable is refused
      * whole and the look stays as it was. Either way the outcome rides the next turn.
+     *
+     * While a look made on the phone waits to be posted (a reset, or a Night user's theme at
+     * upgrade), what arrives does not replace it: the phone keeps drawing its own look and only
+     * takes the version, so it is not "behind" on every turn and wake. The post, when it lands,
+     * is stored as the newer look and its reply replaces this. [force] is that reply: the
+     * account's stored look, taken whatever its version.
      */
-    fun apply(ctx: Context, incoming: DesignSpec): Boolean {
+    fun apply(ctx: Context, incoming: DesignSpec, force: Boolean = false): Boolean {
         if (!declared()) return false
         val held = held(ctx)
         val heldVersion = held?.version ?: 0L
         if (incoming.version == 0L) return false
-        if (heldVersion != 0L && incoming.version <= heldVersion) return false
+        if (!force && heldVersion != 0L && incoming.version <= heldVersion) return false
+        if (!force && postPending(ctx)) {
+            val local = (held ?: factorySpec(0)).toBuilder().setVersion(incoming.version).build()
+            synchronized(this) {
+                Config.setDesignSpec(ctx, encode(local))
+                cachedSpec = local
+            }
+            Log.i(TAG, "design ${incoming.version} arrived while a look made on the phone waits; kept the phone's")
+            return false
+        }
         if (incoming.serializedSize > MAX_SPEC_BYTES || incoming.tokensCount > MAX_TOKENS) {
             queueState(ctx, DesignState.newBuilder().setVersion(incoming.version)
                 .addValues(note(WHOLE, "", REFUSED, "larger than 4 KB or $MAX_TOKENS tokens")).build())
@@ -391,8 +416,7 @@ object DesignSync {
     fun reset(ctx: Context) {
         val held = held(ctx)
         val v = held?.version ?: 0L
-        val factory = DesignSpec.newBuilder().setVersion(v).setBaseTheme(FACTORY_BASE)
-            .setCatalogue(CATALOGUE).build()
+        val factory = factorySpec(v)
         synchronized(this) {
             store(ctx, if (v == 0L) null else factory, held)
             cachedTheme = Themes.FACTORY
@@ -468,8 +492,7 @@ object DesignSync {
         }
         if (!rollBack) return false
         val previous = decode(Config.designPrevious(ctx))
-        val back = (previous ?: DesignSpec.newBuilder().setBaseTheme(FACTORY_BASE).setCatalogue(CATALOGUE).build())
-            .toBuilder().setVersion(failed.version).build()
+        val back = (previous ?: factorySpec(0)).toBuilder().setVersion(failed.version).build()
         synchronized(this) {
             store(ctx, back, null)
             appliedAtMs = 0L
@@ -515,12 +538,27 @@ object DesignSync {
 
     private val PROTOBUF = "application/x-protobuf".toMediaType()
 
+    /** After a 409 (designs not on for this account yet), the next try waits this long. */
+    internal const val SWITCHED_OFF_RETRY_MS = 15 * 60_000L
+    @Volatile private var nextPostAtMs = 0L
+
     /**
      * Sends a look changed on the phone. Returns true when nothing is left to send. Blocking;
-     * call off the main thread. The stored spec the backend answers with is applied.
+     * call off the main thread. The stored spec the backend answers with replaces what is held.
+     *
+     * A 409 (the design feature is not on for this account) keeps the look and tries again later,
+     * so a Night user whose account cannot take it yet still keeps Night. A look the backend
+     * refuses outright is dropped, and the version held goes to 0 so the next turn brings the
+     * account's own look back.
      */
-    fun flush(ctx: Context, http: OkHttpClient = Uploader.sharedClient()): Boolean {
-        val pending = decode(Config.designPost(ctx)) ?: return true
+    fun flush(
+        ctx: Context,
+        http: OkHttpClient = Uploader.sharedClient(),
+        nowMs: Long = System.currentTimeMillis(),
+    ): Boolean {
+        val raw = Config.designPost(ctx)
+        val pending = decode(raw) ?: return true
+        if (nowMs < nextPostAtMs) return false
         val url = designUrl(Config.backendUrl(ctx)) ?: return false
         val bearer = Uploader.bearer(ctx)
         val request = Request.Builder().url(url)
@@ -534,15 +572,31 @@ object DesignSync {
             http.newCall(request).execute().use { resp ->
                 when {
                     resp.isSuccessful -> {
-                        Config.setDesignPost(ctx, "")
+                        nextPostAtMs = 0L
                         val body = resp.body?.bytes() ?: ByteArray(0)
-                        runCatching { DesignSpec.parseFrom(body) }.getOrNull()?.let { apply(ctx, it) }
+                        val stored = runCatching { DesignSpec.parseFrom(body) }.getOrNull()
+                        // Only the post this answers is cleared; a newer one made meanwhile waits.
+                        if (Config.designPost(ctx) == raw) Config.setDesignPost(ctx, "")
+                        if (stored != null && stored.version > 0L && !postPending(ctx)) apply(ctx, stored, force = true)
                         true
+                    }
+                    resp.code == 409 -> {
+                        Log.i(TAG, "designs are not on for this account yet; the phone's look waits")
+                        nextPostAtMs = nowMs + SWITCHED_OFF_RETRY_MS
+                        false
                     }
                     resp.code in setOf(401, 402, 403, 408, 429) || resp.code >= 500 -> false
                     else -> {
                         Log.w(TAG, "design change refused with HTTP ${resp.code}; dropped")
-                        Config.setDesignPost(ctx, "")
+                        if (Config.designPost(ctx) == raw) Config.setDesignPost(ctx, "")
+                        // Ask for the account's look on the next turn rather than keep one it refused.
+                        if (!postPending(ctx)) held(ctx)?.let { h ->
+                            val zero = h.toBuilder().setVersion(0).build()
+                            synchronized(this) {
+                                Config.setDesignSpec(ctx, encode(zero))
+                                cachedSpec = zero
+                            }
+                        }
                         true
                     }
                 }
@@ -567,7 +621,8 @@ object DesignSync {
     }
 
     internal fun resetForTest(ctx: Context) {
-        shippedForTest = false
+        shippedForTest = null
+        nextPostAtMs = 0L
         synchronized(this) {
             cachedSpec = null
             cachedTheme = null
