@@ -5,6 +5,19 @@ This product includes software and assets from third parties:
 
 - Silkscreen font by Jason Kottke — SIL Open Font License 1.1
   (app/src/main/res/font/silkscreen*.ttf)
+- Bundled typefaces in app/src/main/assets/fonts/ — each SIL Open Font License 1.1, with its own
+  copyright notice and licence text in app/src/main/assets/fonts/licenses/<id>.txt. Families:
+  Atkinson Hyperlegible, Lexend, OpenDyslexic, Source Sans 3, IBM Plex Sans, Inter, Work Sans,
+  Manrope, DM Sans, Figtree, Outfit, Nunito, Rubik, Poppins, Montserrat, Raleway, Quicksand,
+  Comfortaa, Fredoka, Source Serif 4, IBM Plex Serif, Merriweather, Lora, Literata,
+  Libre Baskerville, EB Garamond, Crimson Pro, Fraunces, Playfair Display, DM Serif Display,
+  IBM Plex Mono, JetBrains Mono, Fira Code, Source Code Pro, Space Mono, Oswald, Bebas Neue,
+  Anton, Archivo Black, Caveat, Patrick Hand, Kalam, Press Start 2P, VT323 and Pixelify Sans.
+  Taken from the google/fonts repository (OpenDyslexic from its author's repository), fixed at
+  weights 400 and 700 where a family is variable, and subset to Latin and Latin-1 with
+  fontTools. These are Modified Versions under the licence: each is renamed "Rist Bundled NN"
+  and carries none of the families' Reserved Font Names. The unmodified fonts are available
+  from their authors.
 - Turn-arrow glyphs derived from Material Symbols by Google — Apache License 2.0
   (app/src/main/assets/glyphs/)
 - Material Symbols (Outlined) by Google — Apache License 2.0
