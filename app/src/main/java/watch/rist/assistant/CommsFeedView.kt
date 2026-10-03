@@ -505,18 +505,11 @@ object CommsFeedView {
         }.start()
     }
 
-    /** Past this share of the row's width, a slow swipe dismisses; short of it, the row springs back. */
-    internal const val SWIPE_DISMISS_FRACTION = 0.35f
-
-    /** A flick this fast dismisses however short it was, in dp per second. */
-    private const val SWIPE_FLING_DP_S = 900f
-
     private class Dismiss(val what: String, val act: () -> Unit)
 
     /**
-     * Swipe the row sideways, either way, to dismiss it. A tap still opens it and an up-or-down
-     * drag still scrolls the feed: only a drag that is plainly sideways is taken. Screen readers
-     * get the same thing as a "Dismiss" action, since a swipe is not something they can do.
+     * Swipe the row sideways to dismiss it (SwipeDismiss). Screen readers get the same thing as
+     * a "Dismiss" action, since a swipe is not something they can do.
      */
     @android.annotation.SuppressLint("ClickableViewAccessibility")
     private fun swipeToDismiss(activity: Activity, row: View, what: String, onDismiss: () -> Unit) {
@@ -529,61 +522,8 @@ object CommsFeedView {
         androidx.core.view.ViewCompat.addAccessibilityAction(row, "Dismiss $what") { _, _ ->
             dismiss.act(); true
         }
-        val slop = android.view.ViewConfiguration.get(activity).scaledTouchSlop
-        val flingPx = SWIPE_FLING_DP_S * activity.resources.displayMetrics.density
-        var downX = 0f
-        var downY = 0f
-        var dragging = false
-        var tracker: android.view.VelocityTracker? = null
-        row.setOnTouchListener { v, ev ->
-            when (ev.actionMasked) {
-                android.view.MotionEvent.ACTION_DOWN -> {
-                    downX = ev.rawX; downY = ev.rawY; dragging = false
-                    tracker?.recycle()
-                    tracker = android.view.VelocityTracker.obtain().also { it.addMovement(ev) }
-                    false
-                }
-                android.view.MotionEvent.ACTION_MOVE -> {
-                    tracker?.addMovement(ev)
-                    val dx = ev.rawX - downX
-                    val dy = ev.rawY - downY
-                    if (!dragging && Math.abs(dx) > slop && Math.abs(dx) > 2 * Math.abs(dy)) {
-                        dragging = true
-                        v.parent?.requestDisallowInterceptTouchEvent(true)
-                        v.isPressed = false
-                        v.cancelLongPress()
-                    }
-                    if (dragging) {
-                        v.translationX = dx
-                        v.alpha = 1f - Math.min(1f, Math.abs(dx) / Math.max(1, v.width)) * 0.7f
-                    }
-                    dragging
-                }
-                android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
-                    val wasDragging = dragging
-                    dragging = false
-                    val t = tracker
-                    tracker = null
-                    if (!wasDragging) { t?.recycle(); return@setOnTouchListener false }
-                    t?.addMovement(ev)
-                    t?.computeCurrentVelocity(1000)
-                    val vx = t?.xVelocity ?: 0f
-                    t?.recycle()
-                    val dx = v.translationX
-                    val far = Math.abs(dx) > v.width * SWIPE_DISMISS_FRACTION
-                    val flung = Math.abs(vx) > flingPx && Math.signum(vx) == Math.signum(dx)
-                    if (ev.actionMasked == android.view.MotionEvent.ACTION_UP && (far || flung)) {
-                        val off = if (dx < 0) -v.width.toFloat() else v.width.toFloat()
-                        v.animate().translationX(off).alpha(0f).setDuration(160)
-                            .withEndAction { dismiss.act() }.start()
-                    } else {
-                        v.animate().translationX(0f).alpha(1f).setDuration(160).start()
-                    }
-                    true
-                }
-                else -> dragging
-            }
-        }
+        val swipe = SwipeDismiss(activity) { dismiss.act() }
+        row.setOnTouchListener { v, ev -> swipe.onTouch(v, ev) }
     }
 
     /** Dismisses a row as its swipe would. For tests; returns false for a row that cannot be. */

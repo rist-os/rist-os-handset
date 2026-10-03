@@ -2052,12 +2052,30 @@ class MainActivity : AppCompatActivity() {
         for ((idx, e) in shown.withIndex()) {
             // A double tap anywhere on the entry toggles the pin, prompt line and answer both.
             // A single tap did it before, and a tap meant only to stop a scroll or to wake the
-            // screen pinned things by accident. The ✕ sits outside this column with its own handler.
+            // screen pinned things by accident. A sideways swipe clears an unpinned answer.
             val togglePin = {
                 Log.i(TAG, "pin double-tapped id=${e.localId} wasPinned=${e.pinned}")
                 runCatching { Transcript.setPinned(this@MainActivity, e.localId, !e.pinned) }
                     .onFailure { Log.w(TAG, "pin toggle failed", it) }
                 renderTranscript()
+            }
+            val clear = {
+                runCatching { Transcript.discard(this@MainActivity, e.localId) }
+                Haptics.ack(this@MainActivity)
+                renderTranscript()
+            }
+            // A pinned answer is exempt from the age sweep and the count cap, so it cannot be
+            // swiped away either: "kept until I unpin it" has to mean a stray swipe loses nothing.
+            val swipe = if (e.pinned) null else SwipeDismiss(this@MainActivity) { clear() }
+            val entryRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = (10 * d).toInt(); bottomMargin = (8 * d).toInt() }
+                if (!e.pinned) {
+                    setTag(R.id.feed_dismiss, clear)
+                    ViewCompat.addAccessibilityAction(this, "Clear this answer") { _, _ -> clear(); true }
+                }
             }
             val col = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -2071,7 +2089,14 @@ class MainActivity : AppCompatActivity() {
                         override fun onDown(ev: MotionEvent) = true
                         override fun onDoubleTap(ev: MotionEvent): Boolean { togglePin(); return true }
                     })
-                setOnTouchListener { _, ev -> taps.onTouchEvent(ev) }
+                setOnTouchListener { _, ev ->
+                    // Once the swipe owns the gesture the tap detector hears a cancel, so the
+                    // end of a swipe is never taken for half of a double tap.
+                    if (swipe != null && swipe.onTouch(entryRow, ev)) {
+                        taps.onTouchEvent(MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL })
+                        true
+                    } else taps.onTouchEvent(ev)
+                }
                 // A screen reader's double tap arrives as a click action, not as two touches.
                 ViewCompat.replaceAccessibilityAction(
                     this,
@@ -2142,29 +2167,7 @@ class MainActivity : AppCompatActivity() {
                     if (cancelInFlightTurn()) status(getString(R.string.stop_turn_sent))
                 }
             })
-            // A pinned answer is exempt from the age sweep and the count cap, so the ✕ is
-            // withdrawn while it is pinned: "kept until I unpin it" has to mean it cannot be
-            // lost to a stray tap either.
-            val dismiss = TextView(this).apply {
-                text = "✕"
-                setTextColor(muted); typeface = tf
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                setPadding((10 * d).toInt(), (2 * d).toInt(), (2 * d).toInt(), (6 * d).toInt())
-                isClickable = true; isFocusable = true
-                visibility = if (e.pinned) View.GONE else View.VISIBLE
-                contentDescription = "Clear this answer"
-                setOnClickListener {
-                    runCatching { Transcript.discard(this@MainActivity, e.localId) }
-                    renderTranscript()
-                }
-            }
-            replyContainer.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = (10 * d).toInt(); bottomMargin = (8 * d).toInt() }
-                addView(col); addView(dismiss)
-            })
+            replyContainer.addView(entryRow.apply { addView(col) })
 
             if (idx == 0 && lastAttachments.isNotEmpty() && e.localId == lastAttachmentsEntryId) {
                 runCatching { AttachmentView.render(replyContainer, lastAttachments, insertAfter = idx) }
