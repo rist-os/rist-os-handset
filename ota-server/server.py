@@ -105,11 +105,13 @@ class RateLimiter:
 class Store:
 
     def __init__(self, root, reload_interval=DEFAULT_RELOAD_INTERVAL):
-        self.root = os.path.abspath(root)
+        # realpath: containment is judged on resolved paths, so the root must be resolved too.
+        self.root = os.path.realpath(root)
         self.reload_interval = reload_interval
         self.lock = threading.Lock()
         self.reload_lock = threading.Lock()
         self.by_key = {}
+        self.filenames = frozenset()
         self.signature = None
         self.checked_at = None
         self.reload()
@@ -135,6 +137,18 @@ class Store:
             sig.append((fn, st.st_mtime_ns, st.st_size, side))
         return tuple(sig)
 
+    def contained(self, name):
+        """True only for a plain file directly in the root: no separators, no symlink, and a
+        resolved path that is still inside the root. A symlink is refused even when it points
+        inside, because what it points at can change after this check."""
+        if not name or name != os.path.basename(name) or name in (".", ".."):
+            return False
+        path = os.path.join(self.root, name)
+        if os.path.islink(path):
+            return False
+        real = os.path.realpath(path)
+        return os.path.dirname(real) == self.root and os.path.isfile(real)
+
     def reload(self):
         signature = self._signature()
         found = {}
@@ -147,6 +161,11 @@ class Store:
             if not fn.endswith(".json"):
                 continue
             path = os.path.join(self.root, fn)
+            if not self.contained(fn) or (os.path.lexists(path + ".minisig")
+                                          and not self.contained(fn + ".minisig")):
+                print("skipping %s: it or its sidecar is a symlink or not a plain file in %s"
+                      % (fn, self.root), file=sys.stderr)
+                continue
             try:
                 with open(path, "rb") as fh:
                     raw = fh.read()
@@ -158,6 +177,11 @@ class Store:
                                    "payload_size", "payload_properties") if k not in m]
             if missing:
                 print("skipping %s: missing %s" % (fn, ", ".join(missing)), file=sys.stderr)
+                continue
+            if not isinstance(m["filename"], str) or not self.contained(m["filename"]):
+                print("skipping %s: package %r is not a plain file in %s (symlinks and paths are "
+                      "refused; copy or hard-link the package in)"
+                      % (fn, m["filename"], self.root), file=sys.stderr)
                 continue
             pkg = os.path.join(self.root, m["filename"])
             if not os.path.isfile(pkg):
@@ -188,6 +212,7 @@ class Store:
         with self.lock:
             changed = found != self.by_key
             self.by_key = found
+            self.filenames = frozenset(r.manifest["filename"] for r in found.values())
             self.signature = signature
         if changed:
             print("serving %d manifest(s): %s"
@@ -215,6 +240,13 @@ class Store:
     def latest(self, device, channel):
         with self.lock:
             return self.by_key.get((device, channel))
+
+    def servable(self, name):
+        """Only a package a loaded, signed manifest names is downloadable -- never any other file
+        that happens to sit in the root (a key, an .env, a target_files)."""
+        with self.lock:
+            named = name in self.filenames
+        return named and self.contained(name)
 
 
 def warn_url_mismatch(store, public_base):
@@ -372,9 +404,6 @@ class Handler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         self.do_GET()
 
-    def _safe(self, path):
-        root = self.server.store.root
-        return os.path.abspath(path).startswith(root + os.sep)
 
     def manifest(self, device, channel, query):
         self.server.store.maybe_reload()
@@ -421,11 +450,19 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def package(self, filename):
-        path = os.path.join(self.server.store.root, filename)
-        if not self._safe(path) or not os.path.isfile(path):
+        self.server.store.maybe_reload()
+        if not self.server.store.servable(filename):
             return self._json(404, {"error": "no such package"})
+        path = os.path.join(self.server.store.root, filename)
+        try:
+            # O_NOFOLLOW: a symlink swapped in after servable() is refused, not followed.
+            fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        except OSError:
+            return self._json(404, {"error": "no such package"})
+        with os.fdopen(fd, "rb") as fh:
+            return self._stream(fh, os.fstat(fh.fileno()).st_size)
 
-        size = os.path.getsize(path)
+    def _stream(self, fh, size):
         start, end = 0, size - 1
         status = 200
         rng = self.headers.get("Range")
@@ -460,19 +497,18 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self._pkg_headers(status, start, end, size)
             remaining = end - start + 1
-            with open(path, "rb") as fh:
-                fh.seek(start)
-                while remaining > 0:
-                    buf = fh.read(min(CHUNK, remaining))
-                    if not buf:
-                        break
-                    # Charge per chunk, before the write.
-                    self.server.limiter.charge(key, len(buf))
-                    try:
-                        self.wfile.write(buf)
-                    except (BrokenPipeError, ConnectionResetError):
-                        return
-                    remaining -= len(buf)
+            fh.seek(start)
+            while remaining > 0:
+                buf = fh.read(min(CHUNK, remaining))
+                if not buf:
+                    break
+                # Charge per chunk, before the write.
+                self.server.limiter.charge(key, len(buf))
+                try:
+                    self.wfile.write(buf)
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+                remaining -= len(buf)
         finally:
             self.server.stream_slots.release()
 
