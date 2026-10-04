@@ -32,6 +32,8 @@ object ReceivedPhotos {
      * as they arrived, before the feed's own decode, which lets the bytes go to save memory.
      */
     fun isKeepable(a: RistAttachment): Boolean {
+        // A picture loaded from a url is held in memory only: never written here, never saved.
+        if (a.remote) return false
         val bytes = a.bytes ?: return false
         if (a.kind != "image" || !a.error.isNullOrBlank() || bytes.isEmpty()) return false
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }

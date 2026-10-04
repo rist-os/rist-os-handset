@@ -256,15 +256,15 @@ Attachment {
   title   = short label for the UI
   text    = the body, when kind=text
   data    = inline bytes, when kind=image|data (base64 over the JSON transport)
-  uri     = an alternative to inline: the device fetches it
+  uri     = a picture to load instead of inline bytes: kind=image on imgs.search.brave.com only
   tool_id = provenance
 }
 ```
 
 Inline `data` wins over `uri` when both are set.
 
-**Limits the device enforces.** Over these, the attachment is dropped or shown as an error — never
-silently omitted:
+**Limits the device enforces.** Over these, the attachment is dropped or shown as an error (a
+picture loaded from `uri` shows nothing instead; see below):
 
 | Limit | Value |
 |---|---|
@@ -272,15 +272,21 @@ silently omitted:
 | Bytes per response | 24 MiB |
 | Attachments per response | 8 |
 
-**`uri` must be `https`.** Plain `http` works only on a debuggable build. `file:`, `content:` and
-`data:` are refused before a socket opens, and a redirect landing on a refused scheme is refused
-too. An `image` must genuinely decode as one: the bytes are checked against known image headers
-before any decoder sees them, so a mislabelled `mime` is caught rather than trusted.
+An `image` must genuinely decode as one: the bytes are checked against known image headers before
+any decoder sees them, so a mislabelled `mime` is caught rather than trusted.
 
-**The device sends its bearer token only to your configured backend host** — matched on scheme, host
-AND port — and sends no credential anywhere else, including after a redirect. So a `uri` pointing at
-a CDN or object store must be self-authenticating: a signed URL, a capability in the path, or public.
-A bare link that expects the device's token will 403 and the user will see an error card.
+**`uri` is loaded from one host only.** The device loads `uri` only on a `kind = "image"`
+attachment, only when it is `https` on exactly `imgs.search.brave.com` (no subdomain, no
+user-info, port 443), and only when `title` is set. Every other `uri`, on any attachment, is
+skipped silently: no request, nothing on screen. Put anything else in `data`.
+
+A loaded picture is fetched with a plain GET: no cookies, no bearer token or any other credential,
+no `Referer`. A redirect is followed only while it stays on that host. The body is capped at 8 MiB
+and the whole load at 10 seconds, and it must decode as JPEG, PNG, WebP or GIF. It is drawn with
+`title` under it as plain, non-tappable text (a credit such as "Photo: example.com", never a link);
+nothing on it can be opened, shared or saved, and it is held in memory only, never written to
+storage. A load that fails for any reason shows nothing at all, caption included, and is not
+retried. Pictures sent as inline `data` are unaffected by any of this.
 
 ## Place triggers (`Geofence`, schema v11)
 

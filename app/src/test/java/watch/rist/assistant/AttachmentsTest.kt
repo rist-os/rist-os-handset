@@ -1,9 +1,7 @@
 package watch.rist.assistant
 
-import android.content.pm.ApplicationInfo
-import androidx.test.core.app.ApplicationProvider
 import com.google.protobuf.ByteString
-import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -28,10 +26,11 @@ import java.util.concurrent.TimeUnit
 @RunWith(RobolectricTestRunner::class)
 class AttachmentsTest {
 
-    private lateinit var backend: MockWebServer
-    private lateinit var foreign: MockWebServer
+    /** Stands in for imgs.search.brave.com: every allowed url is dialled here instead. */
+    private lateinit var brave: MockWebServer
 
-    private fun ctx() = ApplicationProvider.getApplicationContext<android.content.Context>()
+    /** Any other host. Nothing may ever reach it. */
+    private lateinit var foreign: MockWebServer
 
     private val realPng: ByteArray = Base64.getDecoder().decode(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
@@ -49,42 +48,26 @@ class AttachmentsTest {
             chunk("IEND", ByteArray(0))
     }
 
-    private val token = "ristd_test.secret"
+    private val braveUrl = "https://imgs.search.brave.com/Zx9abc/rs:fit:500:0:0/g:ce/aHR0cHM6Ly9leGFtcGxl"
 
     @Before
     fun start() {
-        backend = MockWebServer().also { it.start() }
+        brave = MockWebServer().also { it.start() }
         foreign = MockWebServer().also { it.start() }
-        debuggable(true)
-        // Must come first: Config.resolveBackend drops a cleartext endpoint whenever a TLS default is compiled in.
-        Config.setDeployDefaultsForTest("", "")
-        Config.setBackendEndpoint(ctx(), backend.url("/v1/device").toString())
-        assertEquals(
-            "the fixture's endpoint did not take effect -- Config.resolveBackend discarded it, so " +
-                "these tests would be talking to the compiled-in host, not the MockWebServer",
-            backend.url("/v1/device").toString(),
-            Config.backendUrl(ctx())
-        )
-        Attachments.bearerSource = { token }
+        Attachments.dialForTest = { real: HttpUrl ->
+            brave.url("/").newBuilder()
+                .encodedPath(real.encodedPath)
+                .encodedQuery(real.encodedQuery)
+                .build()
+        }
     }
 
     @After
     fun stop() {
-        runCatching { backend.shutdown() }
+        runCatching { brave.shutdown() }
         runCatching { foreign.shutdown() }
-        // Process-wide cache: unpin it, or every later class in this JVM sees a blank endpoint.
-        Config.clearDeployDefaultsForTest()
-        Attachments.bearerSource = { Config.authToken(it) }
-        Attachments.connectTimeoutS = 10
-        Attachments.readTimeoutS = 15
-        Attachments.callTimeoutS = 30
-    }
-
-    private fun debuggable(on: Boolean) {
-        val ai = ctx().applicationInfo
-        ai.flags =
-            if (on) ai.flags or ApplicationInfo.FLAG_DEBUGGABLE
-            else ai.flags and ApplicationInfo.FLAG_DEBUGGABLE.inv()
+        Attachments.dialForTest = null
+        Attachments.loadTimeoutMs = Attachments.REMOTE_LOAD_TIMEOUT_MS
     }
 
     private fun att(
@@ -101,14 +84,358 @@ class AttachmentsTest {
         .setUri(uri).setToolId(toolId)
         .build()
 
-    private fun resolve(vararg a: rist.v1.Attachment) = Attachments.resolve(ctx(), a.toList())
+    /** A Brave picture exactly as the backend sends it. */
+    private fun bravePic(uri: String = braveUrl, title: String = "Photo: theguardian.com", kind: String = "image") =
+        att(kind = kind, mime = "image/jpeg", title = title, uri = uri, toolId = "image-search")
 
-    private fun url(s: String) = s.toHttpUrl()
+    private fun resolve(vararg a: rist.v1.Attachment) = Attachments.resolve(a.toList())
+
+    private fun pngResponse() = MockResponse().setHeader("Content-Type", "image/png").setBody(Buffer().write(realPng))
+
+    // ---- rule 1: the host allowlist -------------------------------------------------------
+
+    @Test
+    fun `the allowlist is https on exactly imgs dot search dot brave dot com, port 443, no user-info`() {
+        assertEquals("imgs.search.brave.com", Attachments.REMOTE_IMAGE_HOST)
+        val allowed = listOf(
+            braveUrl,
+            "https://imgs.search.brave.com/x.jpg",
+            "https://imgs.search.brave.com:443/x.jpg",
+            "HTTPS://IMGS.SEARCH.BRAVE.COM/x.jpg",
+            "  https://imgs.search.brave.com/x.jpg  ",
+            "https://imgs.search.brave.com/x.jpg?w=500",
+        )
+        allowed.forEach { assertTrue("refused an allowed url: $it", Attachments.isAllowedImageUrl(it)) }
+
+        val refused = listOf(
+            "http://imgs.search.brave.com/x.jpg",
+            "https://imgs.search.brave.com:8443/x.jpg",
+            "https://imgs.search.brave.com:80/x.jpg",
+            "https://a.imgs.search.brave.com/x.jpg",
+            "https://search.brave.com/x.jpg",
+            "https://brave.com/x.jpg",
+            "https://imgs.search.brave.com.evil.test/x.jpg",
+            "https://imgs.search.brave.com./x.jpg",
+            "https://evilimgs.search.brave.com/x.jpg",
+            "https://user@imgs.search.brave.com/x.jpg",
+            "https://user:pw@imgs.search.brave.com/x.jpg",
+            "https://imgs.search.brave.com@evil.test/x.jpg",
+            "https://evil.test\\@imgs.search.brave.com/x.jpg",
+            "https://evil.test/https://imgs.search.brave.com/x.jpg",
+            "https://evil.test/?u=https://imgs.search.brave.com/x.jpg",
+            "https://imgs%2esearch%2ebrave%2ecom/x.jpg",
+            "https://imgs.search.brave.com /x.jpg",
+            "//imgs.search.brave.com/x.jpg",
+            "/x.jpg",
+            "imgs.search.brave.com/x.jpg",
+            "file:///data/data/watch.rist.assistant/shared_prefs/rist.cfg.xml",
+            "content://media/external/images/1",
+            "data:image/png;base64,AAAA",
+            "javascript:alert(1)",
+            "ftp://imgs.search.brave.com/x.jpg",
+            "wss://imgs.search.brave.com/x.jpg",
+            "https://upload.wikimedia.org/x.jpg",
+            "https://127.0.0.1/x.jpg",
+            "",
+            "not a uri at all",
+        )
+        refused.forEach { assertFalse("allowed a refused url: $it", Attachments.isAllowedImageUrl(it)) }
+    }
+
+    @Test
+    fun `a picture on another host is skipped silently and never becomes a request`() {
+        foreign.enqueue(pngResponse())
+        Attachments.dialForTest = null
+        val out = resolve(
+            bravePic(uri = foreign.url("/pic.png").toString()),
+            bravePic(uri = "https://${foreign.hostName}:${foreign.port}/pic.png"),
+        )
+        out.forEach {
+            assertNotNull(it.error)
+            assertNull(it.bytes)
+            assertTrue("a refused url must render as nothing, not as an error card", it.remote)
+        }
+        assertEquals(0, foreign.requestCount)
+        assertEquals(0, brave.requestCount)
+    }
+
+    @Test
+    fun `a Brave url on anything but an image is refused without a request`() {
+        val out = resolve(
+            bravePic(kind = "data"),
+            bravePic(kind = "text"),
+            bravePic(kind = "video"),
+        )
+        out.forEach {
+            assertNotNull(it.error)
+            assertTrue(it.remote)
+            assertNull(it.bytes)
+            assertEquals("", it.text)
+        }
+        assertEquals(0, brave.requestCount)
+    }
+
+    @Test
+    fun `a Brave picture with no credit is not loaded, because it could not be shown`() {
+        val out = resolve(bravePic(title = "  "))
+        assertNotNull(out[0].error)
+        assertTrue(out[0].remote)
+        assertEquals(0, brave.requestCount)
+    }
+
+    @Test
+    fun `a Brave picture loads, held as bytes in memory and marked as loaded from a url`() {
+        brave.enqueue(pngResponse())
+        val out = resolve(bravePic())
+        assertNull(out[0].error)
+        assertTrue(out[0].remote)
+        assertTrue(realPng.contentEquals(out[0].bytes))
+        assertEquals("Photo: theguardian.com", out[0].title)
+        assertEquals("image-search", out[0].toolId)
+        val req = brave.takeRequest(5, TimeUnit.SECONDS)!!
+        assertEquals("/Zx9abc/rs:fit:500:0:0/g:ce/aHR0cHM6Ly9leGFtcGxl", req.path)
+    }
+
+    @Test
+    fun `isUrlOnly marks exactly the attachments whose content would come from the uri`() {
+        assertTrue(Attachments.isUrlOnly(bravePic()))
+        assertTrue(Attachments.isUrlOnly(bravePic(kind = "data")))
+        assertFalse(Attachments.isUrlOnly(att(kind = "image", data = realPng, uri = braveUrl)))
+        assertFalse(Attachments.isUrlOnly(att(kind = "text", text = "hello", uri = braveUrl)))
+        assertFalse(Attachments.isUrlOnly(att(kind = "image", data = realPng)))
+    }
+
+    // ---- rule 2: a plain GET ---------------------------------------------------------------
+
+    @Test
+    fun `the load is a plain GET with no Referer, no cookie and no credential`() {
+        brave.enqueue(pngResponse().addHeader("Set-Cookie", "tracker=1; Path=/"))
+        brave.enqueue(pngResponse())
+
+        assertNull(resolve(bravePic())[0].error)
+        assertNull(resolve(bravePic())[0].error)
+
+        listOf(brave.takeRequest(5, TimeUnit.SECONDS)!!, brave.takeRequest(5, TimeUnit.SECONDS)!!).forEach { r ->
+            assertEquals("GET", r.method)
+            assertNull("a Referer was sent", r.getHeader("Referer"))
+            assertNull("a cookie was sent", r.getHeader("Cookie"))
+            assertNull("a credential was sent", r.getHeader("Authorization"))
+            assertNull(r.getHeader("Proxy-Authorization"))
+            assertEquals("a GET carries no body", 0L, r.bodySize)
+        }
+    }
+
+    @Test
+    fun `a 401 challenge is not answered with a credential`() {
+        brave.enqueue(MockResponse().setResponseCode(401).setHeader("WWW-Authenticate", "Basic realm=x"))
+        brave.enqueue(pngResponse())
+        val out = resolve(bravePic())
+        assertNotNull(out[0].error)
+        assertTrue(out[0].remote)
+        assertEquals("no second attempt with credentials", 1, brave.requestCount)
+    }
+
+    @Test
+    fun `a redirect that stays on the host is followed, with no Referer on the next hop`() {
+        brave.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "https://imgs.search.brave.com/next.png"))
+        brave.enqueue(MockResponse().setResponseCode(301).setHeader("Location", "/last.png"))
+        brave.enqueue(pngResponse())
+
+        val out = resolve(bravePic())
+        assertNull(out[0].error)
+        assertTrue(realPng.contentEquals(out[0].bytes))
+
+        brave.takeRequest(5, TimeUnit.SECONDS)!!
+        val second = brave.takeRequest(5, TimeUnit.SECONDS)!!
+        val third = brave.takeRequest(5, TimeUnit.SECONDS)!!
+        assertEquals("/next.png", second.path)
+        assertEquals("/last.png", third.path)
+        listOf(second, third).forEach { assertNull(it.getHeader("Referer")) }
+    }
+
+    @Test
+    fun `a redirect off the host is refused, not followed, and the picture shows nothing`() {
+        val offHost = listOf(
+            foreign.url("/elsewhere.png").toString(),
+            "https://evil.test/x.png",
+            "http://imgs.search.brave.com/x.png",
+            "https://imgs.search.brave.com:8443/x.png",
+            "https://cdn.imgs.search.brave.com/x.png",
+            "https://u@imgs.search.brave.com/x.png",
+            "file:///etc/hosts",
+            "//evil.test/x.png",
+        )
+        offHost.forEach { loc ->
+            brave.enqueue(MockResponse().setResponseCode(302).setHeader("Location", loc))
+            val out = resolve(bravePic())
+            assertNotNull("followed a redirect to $loc", out[0].error)
+            assertNull(out[0].bytes)
+            assertTrue(out[0].remote)
+        }
+        assertEquals(0, foreign.requestCount)
+        assertEquals("only the first hop of each was made", offHost.size, brave.requestCount)
+    }
+
+    @Test(timeout = 30_000)
+    fun `a redirect loop on the host is abandoned after three hops`() {
+        brave.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse =
+                MockResponse().setResponseCode(302).setHeader("Location", "/round-again")
+        }
+        val out = resolve(bravePic())
+        assertNotNull(out[0].error)
+        assertEquals(4, brave.requestCount)
+    }
+
+    @Test
+    fun `the byte cap is eight mebibytes and the time cap is ten seconds`() {
+        assertEquals(8 * 1024 * 1024, Attachments.MAX_BYTES_PER_ATTACHMENT)
+        assertEquals(10_000L, Attachments.REMOTE_LOAD_TIMEOUT_MS)
+        assertEquals(Attachments.REMOTE_LOAD_TIMEOUT_MS, Attachments.loadTimeoutMs)
+    }
+
+    @Test
+    fun `a body over eight mebibytes is refused with no Content-Length to warn us`() {
+        val body = Buffer().apply { write(realPng); write(ByteArray(Attachments.MAX_BYTES_PER_ATTACHMENT)) }
+        brave.enqueue(MockResponse().setChunkedBody(body, 64 * 1024))
+        val out = resolve(bravePic())
+        assertNotNull(out[0].error)
+        assertNull(out[0].bytes)
+        assertTrue(out[0].remote)
+    }
+
+    @Test
+    fun `a Content-Length over eight mebibytes is refused before the body is read`() {
+        brave.enqueue(MockResponse().setHeader("Content-Length", "104857600"))
+        val out = resolve(bravePic())
+        assertNotNull(out[0].error)
+        assertTrue(out[0].error!!.startsWith("too large"))
+        assertTrue(out[0].remote)
+        assertEquals(1, brave.requestCount)
+    }
+
+    @Test(timeout = 30_000)
+    fun `a server that never answers fails inside the deadline`() {
+        Attachments.loadTimeoutMs = 1_000
+        brave.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+        val startedAt = System.nanoTime()
+        val out = resolve(bravePic())
+        val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
+        assertNotNull(out[0].error)
+        assertTrue(out[0].remote)
+        assertTrue("took ${elapsedMs}ms against a 1 s deadline", elapsedMs < 5_000)
+    }
+
+    @Test(timeout = 30_000)
+    fun `a body that dribbles past the deadline fails, the deadline covers the whole load`() {
+        Attachments.loadTimeoutMs = 1_000
+        val body = Buffer().apply { write(realPng); write(ByteArray(64 * 1024)) }
+        // Each chunk arrives inside any per-read timeout; only a whole-load deadline stops it.
+        brave.enqueue(pngResponse().setBody(body).throttleBody(1024, 200, TimeUnit.MILLISECONDS))
+        val startedAt = System.nanoTime()
+        val out = resolve(bravePic())
+        val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
+        assertNotNull(out[0].error)
+        assertTrue("took ${elapsedMs}ms against a 1 s deadline", elapsedMs < 5_000)
+    }
+
+    @Test(timeout = 30_000)
+    fun `redirect hops share one deadline rather than each getting a fresh one`() {
+        fun slowChain() {
+            brave.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                    "/final.png" -> pngResponse()
+                    "/mid" -> MockResponse().setResponseCode(302).setHeader("Location", "/final.png")
+                    else -> MockResponse().setResponseCode(302).setHeader("Location", "/mid")
+                }.setHeadersDelay(400, TimeUnit.MILLISECONDS)
+            }
+        }
+        // Control: the same three 400 ms hops load fine with time to spare.
+        Attachments.loadTimeoutMs = 5_000
+        slowChain()
+        assertNull("precondition: the chain loads when time allows", resolve(bravePic())[0].error)
+
+        // 1.2 s in all against a 1 s budget, although every hop alone is well under it.
+        Attachments.loadTimeoutMs = 1_000
+        val out = resolve(bravePic())
+        assertNotNull(out[0].error)
+        assertTrue(out[0].remote)
+    }
+
+    // ---- what counts as a picture ---------------------------------------------------------
+
+    @Test
+    fun `a body that is not jpeg, png, webp or gif is a failed load`() {
+        brave.enqueue(MockResponse().setBody("<html>not a picture</html>"))
+        assertNotNull(resolve(bravePic())[0].error)
+
+        // BMP is fine inline but not from a url: the rule names four formats.
+        val bmp = "BM".toByteArray() + ByteArray(64)
+        brave.enqueue(MockResponse().setBody(Buffer().write(bmp)))
+        val out = resolve(bravePic())
+        assertNotNull(out[0].error)
+        assertTrue(out[0].remote)
+        assertNull(out[0].bytes)
+    }
+
+    @Test
+    fun `looksLikeWebImage accepts jpeg, png, webp and gif only`() {
+        assertTrue(Attachments.looksLikeWebImage(realPng))
+        assertTrue(Attachments.looksLikeWebImage(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte()) + ByteArray(16)))
+        assertTrue(Attachments.looksLikeWebImage("GIF89a".toByteArray() + ByteArray(16)))
+        assertTrue(Attachments.looksLikeWebImage("RIFF".toByteArray() + ByteArray(4) + "WEBP".toByteArray() + ByteArray(8)))
+        assertFalse(Attachments.looksLikeWebImage("BM".toByteArray() + ByteArray(16)))
+        assertFalse(Attachments.looksLikeWebImage(ByteArray(4) + "ftypheic".toByteArray() + ByteArray(8)))
+        assertFalse(Attachments.looksLikeWebImage(ByteArray(64)))
+    }
+
+    @Test
+    fun `a 404 or 500 is a failed load and its body never becomes the picture`() {
+        brave.enqueue(MockResponse().setResponseCode(404).setBody(Buffer().write(realPng)))
+        brave.enqueue(MockResponse().setResponseCode(500).setBody(Buffer().write(realPng)))
+        brave.enqueue(MockResponse().setResponseCode(204))
+        repeat(3) {
+            val out = resolve(bravePic())
+            assertNotNull(out[0].error)
+            assertNull(out[0].bytes)
+            assertTrue(out[0].remote)
+        }
+    }
+
+    @Test
+    fun `a failed load is not retried`() {
+        brave.enqueue(MockResponse().setResponseCode(503))
+        brave.enqueue(pngResponse())
+        assertNotNull(resolve(bravePic())[0].error)
+        assertEquals(1, brave.requestCount)
+    }
+
+    @Test
+    fun `the log never carries the picture's path`() {
+        ShadowLog.clear()
+        brave.enqueue(MockResponse().setResponseCode(404))
+        resolve(bravePic())
+        val lines = ShadowLog.getLogsForTag("RistAttach").map { it.msg }
+        assertTrue("logged nothing", lines.isNotEmpty())
+        assertTrue("the status code is the useful half: $lines", lines.any { it.contains("404") })
+        assertTrue("the url leaked into the log: $lines", lines.none { it.contains("Zx9abc") || it.contains("aHR0c") })
+    }
+
+    @Test
+    fun `an inline Commons picture is unchanged, not marked as loaded, and makes no request`() {
+        val out = resolve(att(kind = "image", mime = "image/png", title = "Photo by Ana, CC BY 4.0", data = realPng, toolId = "image-search"))
+        assertNull(out[0].error)
+        assertFalse(out[0].remote)
+        assertTrue(realPng.contentEquals(out[0].bytes))
+        assertEquals(0, brave.requestCount)
+    }
+
+    // ---- unchanged: inline bytes and notes ----------------------------------------------
 
     @Test
     fun `empty list in, empty list out`() {
-        assertEquals(emptyList<RistAttachment>(), Attachments.resolve(ctx(), emptyList()))
-        assertEquals(0, backend.requestCount)
+        assertEquals(emptyList<RistAttachment>(), Attachments.resolve(emptyList()))
+        assertEquals(0, brave.requestCount)
         assertEquals(0, foreign.requestCount)
     }
 
@@ -123,14 +450,14 @@ class AttachmentsTest {
         assertEquals("raw", out[0].title)
         assertEquals("t1", out[0].toolId)
         assertTrue(blob.contentEquals(out[0].bytes))
-        assertEquals(0, backend.requestCount)
+        assertEquals(0, brave.requestCount)
         assertEquals(0, foreign.requestCount)
     }
 
     @Test
     fun `inline wins over uri when the backend sends both`() {
         val blob = ByteArray(32) { 7 }
-        val out = resolve(att(kind = "data", data = blob, uri = foreign.url("/blob").toString()))
+        val out = resolve(att(kind = "data", data = blob, uri = braveUrl))
         assertNull(out[0].error)
         assertTrue(blob.contentEquals(out[0].bytes))
         assertEquals(0, foreign.requestCount)
@@ -177,7 +504,6 @@ class AttachmentsTest {
     fun `the response budget is spent down, and an attachment past it is refused rather than served`() {
         val eightMiB = 8 * 1024 * 1024
         val out = Attachments.resolve(
-            ctx(),
             (1..4).map { att(kind = "data", title = "blob $it", data = ByteArray(eightMiB)) },
         )
 
@@ -199,7 +525,6 @@ class AttachmentsTest {
     fun `an attachment under the per-attachment ceiling is still refused when the response has no room`() {
         val sevenMiB = 7 * 1024 * 1024
         val out = Attachments.resolve(
-            ctx(),
             listOf(
                 att(kind = "data", title = "one", data = ByteArray(sevenMiB)),
                 att(kind = "data", title = "two", data = ByteArray(sevenMiB)),
@@ -254,19 +579,9 @@ class AttachmentsTest {
     }
 
     @Test
-    fun `an oversize fetched body is refused with no Content-Length to warn us`() {
-        val body = Buffer().apply { write(ByteArray(Attachments.MAX_BYTES_PER_ATTACHMENT + 1024)) }
-        backend.enqueue(MockResponse().setChunkedBody(body, 64 * 1024))
-
-        val out = resolve(att(kind = "data", uri = backend.url("/huge").toString()))
-        assertNotNull(out[0].error)
-        assertNull(out[0].bytes)
-    }
-
-    @Test
     fun `no more than eight attachments are rendered, and they are the first eight`() {
         val many = (1..12).map { att(kind = "text", title = "note $it", text = "body $it") }
-        val out = Attachments.resolve(ctx(), many)
+        val out = Attachments.resolve(many)
         assertEquals(8, out.size)
         assertEquals("note 1", out.first().title)
         assertEquals("note 8", out.last().title)
@@ -274,121 +589,6 @@ class AttachmentsTest {
             listOf("note 1", "note 2", "note 3", "note 4", "note 5", "note 6", "note 7", "note 8"),
             out.map { it.title },
         )
-    }
-
-    @Test
-    fun `schemeRefusal is a whitelist of https, plus http only in a debug build`() {
-        assertNull(Attachments.schemeRefusal("https://example.test/a.png", allowHttp = false))
-        assertNull(Attachments.schemeRefusal("HTTPS://example.test/a.png", allowHttp = false))
-        assertNotNull(Attachments.schemeRefusal("http://example.test/a.png", allowHttp = false))
-        assertNull(Attachments.schemeRefusal("http://example.test/a.png", allowHttp = true))
-        assertNotNull(Attachments.schemeRefusal("file:///data/data/watch.rist.assistant/shared_prefs/rist.cfg.xml", true))
-        assertNotNull(Attachments.schemeRefusal("content://sms/inbox", true))
-        assertNotNull(Attachments.schemeRefusal("data:image/png;base64,AAAA", true))
-        assertNotNull(Attachments.schemeRefusal("ftp://example.test/a.png", true))
-        assertNotNull(Attachments.schemeRefusal("javascript:alert(1)", true))
-        assertNotNull(Attachments.schemeRefusal("not a uri at all", true))
-    }
-
-    @Test
-    fun `a file uri is refused outright and never becomes a request`() {
-        val out = resolve(att(kind = "data", uri = "file:///data/data/watch.rist.assistant/shared_prefs/rist.cfg.xml"))
-        assertNotNull(out[0].error)
-        assertNull(out[0].bytes)
-        assertEquals(0, backend.requestCount)
-        assertEquals(0, foreign.requestCount)
-    }
-
-    @Test
-    fun `a data uri is refused rather than treated as inline bytes`() {
-        val out = resolve(att(kind = "image", mime = "image/png", uri = "data:image/png;base64," + Base64.getEncoder().encodeToString(realPng)))
-        assertNotNull(out[0].error)
-        assertNull(out[0].bytes)
-    }
-
-    @Test
-    fun `http is fetched in a debug build`() {
-        debuggable(true)
-        backend.enqueue(MockResponse().setBody("ok"))
-        val out = resolve(att(kind = "data", uri = backend.url("/a.bin").toString()))
-        assertNull(out[0].error)
-        assertEquals("ok", String(out[0].bytes!!))
-    }
-
-    @Test
-    fun `http is refused in a release build, before any connection is made`() {
-        val url = backend.url("/a.bin").toString()
-        debuggable(false)
-        val out = resolve(att(kind = "data", uri = url))
-        assertNotNull(out[0].error)
-        assertNull(out[0].bytes)
-        assertEquals(0, backend.requestCount)
-    }
-
-    @Test
-    fun `a redirect to a refused scheme is refused, not followed`() {
-        backend.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "file:///etc/hosts"))
-        val out = resolve(att(kind = "data", uri = backend.url("/start").toString()))
-        assertNotNull(out[0].error)
-        assertNull(out[0].bytes)
-    }
-
-    @Test(timeout = 30_000)
-    fun `a redirect loop is abandoned after three hops, not followed forever`() {
-        backend.dispatcher = object : Dispatcher() {
-            override fun dispatch(request: RecordedRequest): MockResponse =
-                MockResponse().setResponseCode(302).setHeader("Location", "/round-again")
-        }
-
-        val out = resolve(att(kind = "data", uri = backend.url("/start").toString()))
-        assertNotNull("an endless redirect loop resolved successfully", out[0].error)
-        assertNull(out[0].bytes)
-        assertEquals(
-            "the handset made ${backend.requestCount} requests chasing one attachment; the hop " +
-                "budget is not bounding the loop",
-            4, backend.requestCount,
-        )
-    }
-
-    @Test
-    fun `a 404 is an error and its body never becomes the attachment`() {
-        backend.enqueue(MockResponse().setResponseCode(404).setBody("<html>no such file</html>"))
-
-        val out = resolve(att(kind = "data", title = "Report", uri = backend.url("/gone.bin").toString()))
-        assertNotNull("a 404 resolved as a successful attachment", out[0].error)
-        assertNull("the error page became the attachment's bytes", out[0].bytes)
-        assertTrue("the status is not in \"${out[0].error}\"", out[0].error!!.contains("404"))
-        assertEquals("Report", out[0].title)
-    }
-
-    @Test
-    fun `a 500 is an error too, and so is anything else outside the 2xx range`() {
-        backend.enqueue(MockResponse().setResponseCode(500).setBody("internal error"))
-        assertNotNull(resolve(att(kind = "data", uri = backend.url("/boom").toString()))[0].error)
-
-        backend.enqueue(MockResponse().setResponseCode(401).setBody("who are you"))
-        val unauthorised = resolve(att(kind = "data", uri = backend.url("/private").toString()))
-        assertNotNull(unauthorised[0].error)
-        assertNull("an auth challenge body became the attachment", unauthorised[0].bytes)
-    }
-
-    @Test
-    fun `a Content-Length over the cap is refused on the declaration, before the body is read`() {
-        backend.enqueue(MockResponse().setHeader("Content-Length", "104857600"))
-
-        val out = resolve(att(kind = "data", uri = backend.url("/big.bin").toString()))
-        assertNotNull(out[0].error)
-        assertNull(out[0].bytes)
-        assertTrue(
-            "a 100 MiB declared body produced \"${out[0].error}\" — the declared length was not " +
-                "consulted, so the whole body is read before the size is known",
-            out[0].error!!.startsWith("too large"),
-        )
-        assertTrue(
-            "the refusal does not name the size it refused: \"${out[0].error}\"",
-            out[0].error!!.contains("102400 KiB"),
-        )
-        assertEquals(1, backend.requestCount)
     }
 
     @Test
@@ -441,61 +641,6 @@ class AttachmentsTest {
         assertEquals("chart", out[0].title)
     }
 
-    @Test(timeout = 30_000)
-    fun `a server that never answers produces an error, not a hang and not a crash`() {
-        Attachments.connectTimeoutS = 1
-        Attachments.readTimeoutS = 1
-        Attachments.callTimeoutS = 2
-        backend.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
-
-        val out = resolve(att(kind = "data", uri = backend.url("/slow.bin").toString()))
-        assertEquals(1, out.size)
-        assertNotNull(out[0].error)
-        assertNull(out[0].bytes)
-    }
-
-    @Test
-    fun `isBackendOrigin compares scheme, host and port, not host alone`() {
-        val b = url("https://api.example.test:8443/v1/device")
-        assertTrue(Attachments.isBackendOrigin(b, url("https://api.example.test:8443/files/1")))
-        assertTrue(Attachments.isBackendOrigin(b, url("https://API.EXAMPLE.TEST:8443/files/1")))
-        assertFalse(Attachments.isBackendOrigin(b, url("https://api.example.test:9999/files/1")))
-        assertFalse(Attachments.isBackendOrigin(b, url("https://evil.example.test:8443/files/1")))
-        assertFalse(Attachments.isBackendOrigin(null, url("https://api.example.test:8443/x")))
-    }
-
-    @Test
-    fun `the bearer goes to the backend and is withheld from a foreign host`() {
-        backend.enqueue(MockResponse().setBody("mine"))
-        foreign.enqueue(MockResponse().setBody("theirs"))
-
-        val out = resolve(
-            att(kind = "data", uri = backend.url("/mine.bin").toString()),
-            att(kind = "data", uri = foreign.url("/theirs.bin").toString()),
-        )
-        assertNull(out[0].error)
-        assertNull(out[1].error)
-
-        val mine = backend.takeRequest(5, TimeUnit.SECONDS)!!
-        val theirs = foreign.takeRequest(5, TimeUnit.SECONDS)!!
-        assertEquals("Bearer $token", mine.getHeader("Authorization"))
-        assertNull("the device token must never reach a host the backend named", theirs.getHeader("Authorization"))
-    }
-
-    @Test
-    fun `a redirect off the backend drops the bearer on the next hop`() {
-        backend.enqueue(MockResponse().setResponseCode(302).setHeader("Location", foreign.url("/elsewhere.bin").toString()))
-        foreign.enqueue(MockResponse().setBody("theirs"))
-
-        val out = resolve(att(kind = "data", uri = backend.url("/start.bin").toString()))
-        assertNull(out[0].error)
-
-        val first = backend.takeRequest(5, TimeUnit.SECONDS)!!
-        val second = foreign.takeRequest(5, TimeUnit.SECONDS)!!
-        assertEquals("Bearer $token", first.getHeader("Authorization"))
-        assertNull("a redirect must not carry the bearer off the backend", second.getHeader("Authorization"))
-    }
-
     @Test
     fun `refused bytes are charged to the response budget, not waved through`() {
         val overCeiling = ByteArray(8 * 1024 * 1024 + 1)
@@ -515,121 +660,6 @@ class AttachmentsTest {
                 "charged for the refused transfers -- four 8 MiB bodies crossed the wire and the " +
                 "accounting recorded none of them",
             outOfRoom > 0
-        )
-    }
-
-    @Test
-    fun `two attachments from one host share a connection instead of dialling twice`() {
-        backend.enqueue(MockResponse().setBody("one"))
-        backend.enqueue(MockResponse().setBody("two"))
-
-        val out = resolve(
-            att(kind = "data", uri = backend.url("/one.bin").toString()),
-            att(kind = "data", uri = backend.url("/two.bin").toString()),
-        )
-        assertNull(out[0].error)
-        assertNull(out[1].error)
-
-        backend.takeRequest(5, TimeUnit.SECONDS)!!
-        val second = backend.takeRequest(5, TimeUnit.SECONDS)!!
-        assertTrue(
-            "the second attachment opened a new connection to a host we were already connected " +
-                "to, so every attachment is still carrying its own pool and its own cleanup thread",
-            second.sequenceNumber > 0
-        )
-    }
-
-    @Test(timeout = 30_000)
-    fun `the shared client still takes its timeouts from the seam, after it has been used once`() {
-        backend.enqueue(MockResponse().setBody("warm"))
-        assertNull(resolve(att(kind = "data", uri = backend.url("/warm.bin").toString()))[0].error)
-
-        Attachments.connectTimeoutS = 1
-        Attachments.readTimeoutS = 1
-        Attachments.callTimeoutS = 1
-        backend.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
-
-        val startedAt = System.nanoTime()
-        val out = resolve(att(kind = "data", uri = backend.url("/slow.bin").toString()))
-        val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
-
-        assertNotNull(out[0].error)
-        assertTrue(
-            "the fetch took ${elapsedMs}ms against a one-second timeout, so the shared client is " +
-                "using timeouts fixed when it was built rather than the ones set for this call",
-            elapsedMs < 5_000
-        )
-    }
-
-    private fun logLines(): List<String> = ShadowLog.getLogsForTag("RistAttach").map { it.msg }
-
-    @Test
-    fun `originLabel names the host only in a debuggable build`() {
-        val b = url("https://api.example.test:8443/v1/device")
-
-        assertEquals("api.example.test:8443", Attachments.originLabel(url("https://api.example.test:8443/f/1"), b, true))
-        assertEquals("files.cdn.example:443", Attachments.originLabel(url("https://files.cdn.example/f/1"), b, true))
-
-        assertEquals("the backend", Attachments.originLabel(url("https://api.example.test:8443/f/1"), b, false))
-        assertEquals("a third-party host", Attachments.originLabel(url("https://files.cdn.example/f/1"), b, false))
-        assertEquals("a third-party host", Attachments.originLabel(url("https://files.cdn.example/f/1"), null, false))
-    }
-
-    @Test
-    fun `a debuggable build logs the host it fetched from`() {
-        debuggable(true)
-        ShadowLog.clear()
-        foreign.enqueue(MockResponse().setBody("bytes"))
-
-        resolve(att(kind = "data", uri = foreign.url("/pic.bin").toString()))
-
-        val target = "${foreign.url("/pic.bin").host}:${foreign.port}"
-        assertTrue(
-            "a debug build must still name the host, or there is no way to see where an " +
-                "attachment actually went. Logged: ${logLines()}",
-            logLines().any { it.contains(target) }
-        )
-    }
-
-    @Test(timeout = 30_000)
-    fun `a release build never writes the host to the log`() {
-        debuggable(false)
-        Attachments.connectTimeoutS = 1
-        Attachments.readTimeoutS = 1
-        Attachments.callTimeoutS = 2
-        ShadowLog.clear()
-
-        val target = foreign.url("/pic.bin")
-        val out = resolve(att(kind = "data", uri = "https://${target.host}:${target.port}/pic.bin"))
-        assertNotNull("precondition: the fetch must have been attempted and failed", out[0].error)
-
-        val lines = logLines()
-        assertTrue("precondition: the fetch logged nothing at all, so this proves nothing", lines.isNotEmpty())
-        assertTrue(
-            "a release build recorded which host the assistant made this phone contact. Over a " +
-                "session that list is a browsing history, and logcat leaves the device in every " +
-                "bug report. Logged: $lines",
-            lines.none { it.contains(target.host) || it.contains("${target.port}") }
-        )
-        assertTrue(
-            "the release line must still say which SIDE of the wire it was, or the operator is " +
-                "left with nothing at all. Logged: $lines",
-            lines.any { it.contains("a third-party host") }
-        )
-    }
-
-    @Test
-    fun `the status code stays in the log beside the origin label`() {
-        debuggable(true)
-        backend.enqueue(MockResponse().setResponseCode(404))
-        ShadowLog.clear()
-
-        resolve(att(kind = "data", uri = backend.url("/missing.bin").toString()))
-
-        assertTrue(
-            "the status code is the diagnostic half and must not be redacted with the host. " +
-                "Logged: ${logLines()}",
-            logLines().any { it.contains("404") }
         )
     }
 
