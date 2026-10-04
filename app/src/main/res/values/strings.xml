@@ -286,9 +286,9 @@
     <string name="boxes_kind_command">Command</string>
     <string name="boxes_kind_command_sub">Sends your words when tapped</string>
     <string name="boxes_sheet_add_title">Add a tile</string>
-    <string name="boxes_sheet_display_prompt">What should it show, and how often?</string>
+    <string name="boxes_sheet_display_prompt">What should it show?</string>
     <string name="boxes_sheet_command_prompt">What should it say?</string>
-    <string name="boxes_sheet_display_hint">Leave out how often and Rist picks a sensible schedule.</string>
+    <string name="boxes_sheet_display_hint">Rist keeps it up to date. Say how often only if you want to.</string>
     <string name="boxes_sheet_add_button">Add tile</string>
     <string name="boxes_sheet_footer">Or just say it anywhere: “add a tile that shows my next meeting”.</string>
     <string name="boxes_sheet_edit_title">Edit tile</string>
