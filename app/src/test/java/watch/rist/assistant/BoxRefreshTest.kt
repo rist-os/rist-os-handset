@@ -187,27 +187,42 @@ class BoxRefreshTest {
     }
 
     @Test
-    fun `no update in thirty seconds says it could not, and stops spinning`() {
+    fun `no answer in thirty seconds says still working and stays locked`() {
         HomeBoxes.apply(app, set(3, box("w")))
         val a = open("w")
         button(a)!!.performClick()
         sent()
         assertTrue(a.isSpinning)
-        val looper = shadowOf(Looper.getMainLooper())
-        val start = android.os.SystemClock.uptimeMillis()
-        // Short steps: a spinning icon's frames make one long idle overshoot.
-        while (android.os.SystemClock.uptimeMillis() - start < BoxRefresh.TIMEOUT_MS - 2_000) {
-            looper.idleFor(Duration.ofMillis(250))
-        }
+        advance(BoxRefresh.SLOW_MS - 2_000)
         assertTrue(a.isRefreshing)
-        assertEquals("asked at once and at 3, 6, 10 and 20 s", BoxRefresh.POLLS_MS.size, kicks.get())
-        while (a.isRefreshing && android.os.SystemClock.uptimeMillis() - start < BoxRefresh.TIMEOUT_MS + 2_000) {
-            looper.idleFor(Duration.ofMillis(250))
-        }
+        assertNull("nothing said before thirty seconds", status(a))
+        assertEquals("asked at once and at 3, 6, 10 and 20 s", 5, kicks.get())
+        advance(3_000)
+        assertTrue(a.isRefreshing)
+        assertTrue(a.isSpinning)
+        assertEquals("Still working…", status(a))
+        assertFalse("still locked", button(a)!!.isEnabled)
+        assertEquals("Refreshing", ViewCompat.getStateDescription(button(a)!!))
+        advance(BoxExpandedActivity.STATUS_MS + 1_000)
+        assertEquals("the word stays while it waits", "Still working…", status(a))
+    }
+
+    @Test
+    fun `no update by the cap says it could not, and unlocks`() {
+        BoxRefresh.motionForTest = false
+        HomeBoxes.apply(app, set(3, box("w")))
+        val a = open("w")
+        button(a)!!.performClick()
+        sent()
+        advance(BoxRefresh.CAP_MS - 2_000)
+        assertTrue(a.isRefreshing)
+        assertFalse(button(a)!!.isEnabled)
+        advance(3_000)
         assertFalse(a.isRefreshing)
         assertFalse(a.isSpinning)
         assertEquals("Couldn't update", status(a))
         assertTrue("a refresh that failed can be tried again", button(a)!!.isEnabled)
+        assertTrue(BoxRefresh.restingMs("w", System.currentTimeMillis()) == 0L)
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(BoxExpandedActivity.STATUS_MS + 100))
         assertNull(status(a))
     }
@@ -236,6 +251,8 @@ class BoxRefreshTest {
         assertTrue(HomeBoxes.queued(app).isEmpty())
         assertFalse(a.isRefreshing)
         assertEquals("Couldn't update", status(a))
+        assertTrue("a refused refresh unlocks at once", button(a)!!.isEnabled)
+        assertEquals(0, kicks.get())
     }
 
     @Test
@@ -259,11 +276,15 @@ class BoxRefreshTest {
         Robolectric.buildActivity(BoxExpandedActivity::class.java, BoxExpandedActivity.intent(app, id))
             .setup().also { settle() }
 
-    /** Steps the main looper in short steps: a spinning icon's frames make one long idle overshoot. */
+    /**
+     * Steps the main looper in short steps: a spinning icon's frames make one long idle overshoot.
+     * With motion off nothing spins, so the steps can be longer (and the long waits stay light).
+     */
     private fun advance(ms: Long) {
         val looper = shadowOf(Looper.getMainLooper())
+        val step = if (BoxRefresh.motion()) 100L else 1_000L
         val start = android.os.SystemClock.uptimeMillis()
-        while (android.os.SystemClock.uptimeMillis() - start < ms) looper.idleFor(Duration.ofMillis(100))
+        while (android.os.SystemClock.uptimeMillis() - start < ms) looper.idleFor(Duration.ofMillis(step))
     }
 
     @Test
@@ -294,14 +315,60 @@ class BoxRefreshTest {
     }
 
     @Test
-    fun `a timeout while the view is closed clears the wait quietly`() {
+    fun `closing the view past thirty seconds and reopening finds it still locked and still working`() {
         HomeBoxes.apply(app, set(3, box("w")))
         val first = openController("w")
         button(first.get())!!.performClick()
         sent()
         first.pause().stop().destroy()
         settle()
-        advance(BoxRefresh.TIMEOUT_MS + 1_000)
+        advance(BoxRefresh.SLOW_MS + 5_000)
+        assertTrue(BoxRefresh.isPending("w"))
+
+        val again = open("w")
+        assertTrue(again.isRefreshing)
+        assertTrue(again.isSpinning)
+        assertFalse(button(again)!!.isEnabled)
+        assertEquals("Still working…", status(again))
+        button(again)!!.performClick()
+        sent()
+        assertEquals("a tap on the reopened view sends nothing more", 1, edits.size)
+    }
+
+    @Test
+    fun `the box coming back at forty-five seconds updates the view in place`() {
+        BoxRefresh.motionForTest = false
+        HomeBoxes.apply(app, set(3, box("w")))
+        val a = open("w")
+        button(a)!!.performClick()
+        sent()
+        advance(45_000)
+        assertTrue(a.isRefreshing)
+        assertEquals("Still working…", status(a))
+        HomeBoxes.apply(app, set(4, box("w", updated = System.currentTimeMillis() / 1000).toBuilder()
+            .setBody("Late body").build()))
+        settle()
+        assertFalse(a.isRefreshing)
+        assertFalse(a.isSpinning)
+        assertNull("finishing late is not a failure", status(a))
+        val body = a.window.decorView.findViewWithTag<TextView>(BoxExpandedActivity.TAG_BODY).text.toString()
+        assertTrue(body, body.contains("Late body"))
+        assertFalse("resting after it worked", button(a)!!.isEnabled)
+        val kicked = kicks.get()
+        advance(60_000)
+        assertEquals("no more polls once it is done", kicked, kicks.get())
+    }
+
+    @Test
+    fun `a cap while the view is closed clears the wait quietly`() {
+        BoxRefresh.motionForTest = false
+        HomeBoxes.apply(app, set(3, box("w")))
+        val first = openController("w")
+        button(first.get())!!.performClick()
+        sent()
+        first.pause().stop().destroy()
+        settle()
+        advance(BoxRefresh.CAP_MS + 1_000)
         assertFalse(BoxRefresh.isPending("w"))
 
         val again = open("w")
@@ -357,7 +424,8 @@ class BoxRefreshTest {
     }
 
     @Test
-    fun `after the reply the wake is polled at once and at 3, 6, 10 and 20 seconds, then no more`() {
+    fun `after the reply the wake is polled at once, at 3, 6, 10 and 20 seconds, then every 30 until the cap`() {
+        BoxRefresh.motionForTest = false
         val at = CopyOnWriteArrayList<Long>()
         BoxRefresh.kickForTest = { at += android.os.SystemClock.uptimeMillis() }
         HomeBoxes.apply(app, set(3, box("w")))
@@ -365,14 +433,16 @@ class BoxRefreshTest {
         button(a)!!.performClick()
         sent()
         val base = at.first()
-        advance(BoxRefresh.TIMEOUT_MS + 5_000)
+        advance(BoxRefresh.CAP_MS + 5_000)
         assertFalse(a.isRefreshing)
+        assertEquals(listOf(0L, 3_000L, 6_000L, 10_000L, 20_000L, 50_000L, 80_000L, 110_000L, 140_000L, 170_000L),
+            BoxRefresh.POLLS_MS.toList())
         val offsets = at.map { it - base }
         assertEquals(offsets.toString(), BoxRefresh.POLLS_MS.size, offsets.size)
         BoxRefresh.POLLS_MS.forEachIndexed { i, ms ->
             assertTrue("poll $i at ${offsets[i]}, wanted $ms", kotlin.math.abs(offsets[i] - ms) <= 150)
         }
-        assertTrue(BoxRefresh.POLLS_MS.all { it < BoxRefresh.TIMEOUT_MS })
+        assertTrue(BoxRefresh.POLLS_MS.all { it < BoxRefresh.CAP_MS })
     }
 
     @Test
@@ -385,7 +455,7 @@ class BoxRefreshTest {
         assertEquals(2, kicks.get())
         HomeBoxes.apply(app, set(4, box("w", updated = System.currentTimeMillis() / 1000)))
         settle()
-        advance(BoxRefresh.TIMEOUT_MS)
+        advance(BoxRefresh.SLOW_MS + 30_000)
         assertEquals(2, kicks.get())
         assertNull("finishing is not a failure", status(a))
     }

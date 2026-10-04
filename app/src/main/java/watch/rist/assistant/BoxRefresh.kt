@@ -19,21 +19,29 @@ import java.util.concurrent.Executors
  * box's update time has risen above what it was at the tap; that is what ends the wait.
  *
  * The wait belongs to the app, not to the expanded view: closing the view and opening it again
- * finds the same wait still spinning (or the same rest after one), and the wait still times out
- * when no view is open.
+ * finds the same wait still spinning (or the same rest after one). Once the backend has taken the
+ * refresh the box stays locked until it comes back newer or [CAP_MS] passes; after [SLOW_MS] the
+ * view says it is still working, which is not a failure.
  */
 object BoxRefresh {
 
     private const val TAG = "RistBoxRefresh"
 
+    /** After this long with no answer the view says it is still working; the button stays locked. */
+    const val SLOW_MS = 30_000L
+
     /** How long to wait for the box's update time to move before saying it could not update. */
-    const val TIMEOUT_MS = 30_000L
+    const val CAP_MS = 180_000L
 
     /** After a refresh that worked, the button rests this long: the backend allows one a minute. */
     const val COOLDOWN_MS = 60_000L
 
-    /** When the wake is polled after the backend took the refresh, while the box has not come back. */
-    val POLLS_MS = longArrayOf(0L, 3_000L, 6_000L, 10_000L, 20_000L)
+    /**
+     * When the wake is polled after the backend took the refresh, while the box has not come back:
+     * at once, at 3, 6, 10 and 20 s, then every 30 s until the cap.
+     */
+    val POLLS_MS: LongArray = longArrayOf(0L, 3_000L, 6_000L, 10_000L, 20_000L) +
+        generateSequence(50_000L) { it + 30_000L }.takeWhile { it < CAP_MS }.toList()
 
     sealed class Outcome {
         /** Accepted: wait for the box's update time to move. */
@@ -85,11 +93,18 @@ object BoxRefresh {
 
     /** A refresh asked for [id] while its update time was [beforeS], with its timers keyed on itself. */
     class Pending internal constructor(val id: String, val beforeS: Long, val startedUptimeMs: Long) {
-        val deadlineUptimeMs: Long get() = startedUptimeMs + TIMEOUT_MS
+        val slowUptimeMs: Long get() = startedUptimeMs + SLOW_MS
+        val deadlineUptimeMs: Long get() = startedUptimeMs + CAP_MS
     }
 
-    /** Told on the main thread when a box's wait ends; [said] is a word to show, or null when it worked. */
-    fun interface Watcher { fun ended(id: String, said: Int?) }
+    /**
+     * Told on the main thread when a box's wait ends; [said] is a word to show, or null when it
+     * worked. [slowed] is told when a wait passes [SLOW_MS] and is still going.
+     */
+    fun interface Watcher {
+        fun ended(id: String, said: Int?)
+        fun slowed(id: String) {}
+    }
 
     private val pending = HashMap<String, Pending>()
     private val watchers = CopyOnWriteArraySet<Watcher>()
@@ -101,6 +116,10 @@ object BoxRefresh {
     @Synchronized fun pendingFor(id: String): Pending? = pending[id]
 
     fun isPending(id: String): Boolean = pendingFor(id) != null
+
+    /** A wait that has gone past [SLOW_MS] with no answer yet. */
+    fun isSlow(id: String): Boolean =
+        pendingFor(id)?.let { SystemClock.uptimeMillis() >= it.slowUptimeMs } ?: false
 
     /**
      * Starts a refresh of [b]: sends it, and waits for the box to come back newer. False when one
@@ -114,6 +133,7 @@ object BoxRefresh {
         }
         val app = ctx.applicationContext
         main.postAtTime({ end(p, R.string.boxes_refresh_failed) }, p, p.deadlineUptimeMs)
+        main.postAtTime({ if (pendingFor(id) === p) watchers.forEach { it.slowed(id) } }, p, p.slowUptimeMs)
         requestSoon(app, id) { out ->
             main.post {
                 when (out) {

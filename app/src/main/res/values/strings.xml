@@ -272,6 +272,7 @@
     <string name="boxes_refresh">Refresh</string>
     <string name="boxes_refreshing">Refreshing…</string>
     <string name="boxes_refreshing_state">Refreshing</string>
+    <string name="boxes_refresh_slow">Still working…</string>
     <string name="boxes_refresh_offline">Offline</string>
     <string name="boxes_refresh_failed">Couldn\'t update</string>
     <string name="boxes_edit">Edit</string>

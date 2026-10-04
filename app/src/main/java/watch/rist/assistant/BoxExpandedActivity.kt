@@ -56,10 +56,16 @@ class BoxExpandedActivity : AppCompatActivity() {
     private val main = Handler(Looper.getMainLooper())
 
     /** A wait for this box ending, wherever it ended: redraw, and say why when it did not work. */
-    private val ended = BoxRefresh.Watcher { id, said ->
-        if (id != boxId || isFinishing || isDestroyed) return@Watcher
-        drawRefresh()
-        if (said != null) say(said)
+    private val ended = object : BoxRefresh.Watcher {
+        override fun ended(id: String, said: Int?) {
+            if (id != boxId || isFinishing || isDestroyed) return
+            drawRefresh()
+            if (said != null) say(said)
+        }
+
+        override fun slowed(id: String) {
+            if (id == boxId && !isFinishing && !isDestroyed) drawRefresh()
+        }
     }
     private val clearStatus = Runnable { refreshStatus.text = ""; refreshStatus.visibility = View.GONE }
     private val rested = Runnable { drawRefresh() }
@@ -237,12 +243,15 @@ class BoxExpandedActivity : AppCompatActivity() {
             spin?.cancel(); spin = null
             refreshIcon.rotation = 0f
         }
-        // With motion reduced the icon stays still, so the wait is said in words instead.
-        if (busy && !BoxRefresh.motion()) {
+        // A long wait says it is still working; with motion reduced the icon stays still, so the
+        // wait is said in words from the start.
+        val slow = busy && BoxRefresh.isSlow(boxId)
+        if (slow || (busy && !BoxRefresh.motion())) {
             main.removeCallbacks(clearStatus)
-            refreshStatus.text = getString(R.string.boxes_refreshing)
+            refreshStatus.text = getString(if (slow) R.string.boxes_refresh_slow else R.string.boxes_refreshing)
             refreshStatus.visibility = View.VISIBLE
-        } else if (refreshStatus.text == getString(R.string.boxes_refreshing)) {
+        } else if (refreshStatus.text == getString(R.string.boxes_refreshing) ||
+            refreshStatus.text == getString(R.string.boxes_refresh_slow)) {
             clearStatus.run()
         }
     }
