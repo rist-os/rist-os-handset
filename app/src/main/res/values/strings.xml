@@ -261,13 +261,13 @@
     <string name="ota_downloading_stopped">Stopped. The update will be offered again the next time the phone checks.</string>
 
     <!-- Home boxes -->
-    <string name="boxes_add">Add a box</string>
+    <string name="boxes_add">Add a tile</string>
     <string name="boxes_empty_hint">Say or type what it should show or do: “the temperature”, “check my email”.</string>
     <string name="boxes_all_short">All</string>
-    <string name="boxes_all_title">All boxes</string>
-    <string name="boxes_handle_desc">All boxes</string>
+    <string name="boxes_all_title">All tiles</string>
+    <string name="boxes_handle_desc">All tiles</string>
     <string name="boxes_done">Done</string>
-    <string name="boxes_done_desc">Done editing boxes</string>
+    <string name="boxes_done_desc">Done editing tiles</string>
     <string name="boxes_close">Close</string>
     <string name="boxes_edit">Edit</string>
     <string name="boxes_delete">Delete</string>
@@ -275,8 +275,8 @@
     <string name="boxes_move_right">Move right</string>
     <string name="boxes_move_earlier">Move earlier</string>
     <string name="boxes_move_later">Move later</string>
-    <string name="boxes_removed_undo">Box removed · UNDO</string>
-    <string name="boxes_removed_undo_desc">Box removed. Double tap to undo.</string>
+    <string name="boxes_removed_undo">Tile removed · UNDO</string>
+    <string name="boxes_removed_undo_desc">Tile removed. Double tap to undo.</string>
     <string name="boxes_updated_at">Updated %1$s</string>
     <string name="boxes_stale">out of date</string>
     <string name="boxes_selected">Selected</string>
@@ -285,24 +285,24 @@
     <string name="boxes_kind_display_sub">Shows something on a schedule</string>
     <string name="boxes_kind_command">Command</string>
     <string name="boxes_kind_command_sub">Sends your words when tapped</string>
-    <string name="boxes_sheet_add_title">Add a box</string>
+    <string name="boxes_sheet_add_title">Add a tile</string>
     <string name="boxes_sheet_display_prompt">What should it show, and how often?</string>
     <string name="boxes_sheet_command_prompt">What should it say?</string>
     <string name="boxes_sheet_display_hint">Leave out how often and Rist picks a sensible schedule.</string>
-    <string name="boxes_sheet_add_button">Add box</string>
-    <string name="boxes_sheet_footer">Or just say it anywhere: “add a box that shows my next meeting”.</string>
-    <string name="boxes_sheet_edit_title">Edit box</string>
+    <string name="boxes_sheet_add_button">Add tile</string>
+    <string name="boxes_sheet_footer">Or just say it anywhere: “add a tile that shows my next meeting”.</string>
+    <string name="boxes_sheet_edit_title">Edit tile</string>
     <string name="boxes_sheet_name">Name</string>
-    <string name="boxes_sheet_change_command">Change what this box does</string>
-    <string name="boxes_sheet_change_display">Change what this box shows</string>
+    <string name="boxes_sheet_change_command">Change what this tile does</string>
+    <string name="boxes_sheet_change_display">Change what this tile shows</string>
     <string name="boxes_sheet_save">Save</string>
     <plurals name="boxes_count">
-        <item quantity="one">%d box · hold one to move, edit or delete</item>
-        <item quantity="other">%d boxes · hold one to move, edit or delete</item>
+        <item quantity="one">%d tile · hold one to move, edit or delete</item>
+        <item quantity="other">%d tiles · hold one to move, edit or delete</item>
     </plurals>
     <plurals name="boxes_all_desc">
-        <item quantity="one">All boxes, %d box</item>
-        <item quantity="other">All boxes, %d boxes</item>
+        <item quantity="one">All tiles, %d tile</item>
+        <item quantity="other">All tiles, %d tiles</item>
     </plurals>
     <string name="look_heading">LOOK</string>
     <string name="look_factory">Factory look</string>

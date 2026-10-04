@@ -350,7 +350,7 @@ class HomeBoxesUiTest {
         assertEquals(listOf("b", "a"), HomeBoxes.boxes(app).map { it.id })
         val undo = a.findViewById<TextView>(R.id.boxUndo)
         assertEquals(View.VISIBLE, undo.visibility)
-        assertEquals("Box removed · UNDO", undo.text.toString())
+        assertEquals("Tile removed · UNDO", undo.text.toString())
         undo.performClick()
         settle()
         assertEquals(listOf("b", "a", "c"), HomeBoxes.boxes(app).map { it.id })
@@ -401,7 +401,7 @@ class HomeBoxesUiTest {
         val g = Robolectric.buildActivity(AllBoxesActivity::class.java).setup().get()
         settle()
         val root = g.window.decorView
-        assertEquals("3 boxes · hold one to move, edit or delete",
+        assertEquals("3 tiles · hold one to move, edit or delete",
             root.findViewWithTag<TextView>(AllBoxesActivity.TAG_COUNT).text.toString())
         for (id in listOf("a", "b", "c")) assertNotNull(root.findViewWithTag<View>(BoxBoard.TILE_TAG_PREFIX + id))
         assertNotNull(root.findViewWithTag<View>(BoxBoard.ADD_TAG))

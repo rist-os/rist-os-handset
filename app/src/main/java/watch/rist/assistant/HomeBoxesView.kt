@@ -213,6 +213,7 @@ internal class BoxBoard(
                 when {
                     grid || wide -> ViewGroup.LayoutParams.MATCH_PARENT
                     item is Item.All -> px(ALL_W_DP)
+                    item is Item.Add -> px(TILE_H_DP)
                     else -> px(TILE_W_DP)
                 },
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -464,34 +465,13 @@ internal class BoxBoard(
     }
 
     private fun bindEmpty(frame: FrameLayout) {
-        val t = theme()
-        val tf = ThemePaint.typefaceOf(activity, t)
-        frame.tag = ADD_TAG
-        frame.background = tileBackground(Color.TRANSPARENT, t.accent, 1.5f, dashed = true)
-        val col = column().apply { setPadding(px(16f), px(12f), px(16f), px(12f)) }
-        val top = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+        val square = FrameLayout(activity).apply {
+            layoutParams = FrameLayout.LayoutParams(px(TILE_H_DP), px(TILE_H_DP), Gravity.END or Gravity.TOP)
         }
-        top.addView(TextView(activity).apply {
-            text = activity.getString(R.string.boxes_add)
-            typeface = Typeface.create(tf, Typeface.BOLD)
-            setTextColor(t.ink)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        })
-        top.addView(glyph(R.drawable.ic_box_plus, t.accent, 22f))
-        col.addView(top)
-        col.addView(small(activity.getString(R.string.boxes_empty_hint), Themes.readableMuted(t), tf).apply {
-            maxLines = 3
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            setPadding(0, px(4f), 0, 0)
-        })
-        frame.addView(col)
-        frame.contentDescription = activity.getString(R.string.boxes_add) + ". " +
+        frame.addView(square)
+        bindAdd(square)
+        square.contentDescription = activity.getString(R.string.boxes_add) + ". " +
             activity.getString(R.string.boxes_empty_hint)
-        frame.isClickable = true; frame.isFocusable = true
-        frame.setOnClickListener { openAddSheet() }
     }
 
     private fun onAccent(t: RistTheme): Int = ThemePaint.onAccent(t)
