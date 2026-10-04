@@ -187,7 +187,7 @@ class HomeBoxesTest {
         assertEquals("Text Sam I'm on my way", t.text)
         assertEquals("", t.targetToolId)
         assertEquals("c1", t.boxId)
-        assertEquals("Text Sam I'm on my way · from a box", t.prompt)
+        assertEquals("Text Sam I'm on my way · from a tile", t.prompt)
     }
 
     @Test
@@ -389,7 +389,7 @@ class HomeBoxesTest {
     }
 
     @Test
-    fun `a typed turn carries the box id only when it came from a box`() {
+    fun `a typed turn carries the box id only when it came from a tile`() {
         val s = backend()
         HomeBoxes.shippedForTest = false
         repeat(2) {

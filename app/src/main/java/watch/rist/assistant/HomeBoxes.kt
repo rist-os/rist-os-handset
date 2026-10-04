@@ -199,7 +199,7 @@ object HomeBoxes {
     /** Exactly the stored words, as typed text: no tool is addressed. Null for a display box. */
     fun commandTurn(b: HomeBox): Turn? {
         if (kindOf(b) != Kind.COMMAND || b.command.isBlank()) return null
-        return Turn(text = b.command, targetToolId = "", boxId = b.id, prompt = "${b.command} · from a box")
+        return Turn(text = b.command, targetToolId = "", boxId = b.id, prompt = "${b.command} · from a tile")
     }
 
     fun addTurn(kind: Kind, words: String): Turn {

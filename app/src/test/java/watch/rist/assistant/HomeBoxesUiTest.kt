@@ -234,7 +234,7 @@ class HomeBoxesUiTest {
         assertTrue(req.requestId.isNotBlank() && req.utteranceId.isNotBlank())
         assertEquals(3L, req.boxesVersion)
         val entry = Transcript.all(app).last()
-        assertEquals("Check my email · from a box", entry.prompt)
+        assertEquals("Check my email · from a tile", entry.prompt)
         assertEquals("the answer lands in the feed", "You have 2 new emails.", entry.answer)
         assertNull("and not in the box", text(tile(a, "c"), BoxBoard.DETAIL_TAG))
     }
@@ -408,6 +408,6 @@ class HomeBoxesUiTest {
         // A command tap goes home to be sent.
         root.findViewWithTag<View>(BoxBoard.TILE_TAG_PREFIX + "b").performClick()
         val result = shadowOf(g).resultIntent
-        assertEquals(HomeBoxes.Turn("go", "", "b", "go · from a box"), AllBoxesActivity.turnFrom(result))
+        assertEquals(HomeBoxes.Turn("go", "", "b", "go · from a tile"), AllBoxesActivity.turnFrom(result))
     }
 }
