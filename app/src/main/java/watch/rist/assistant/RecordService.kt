@@ -179,7 +179,7 @@ class RecordService : Service() {
             .onFailure { Log.w(TAG, "device command handling failed", it) }
 
         if (reply.actionsCount > 0) Log.i(TAG, "response carries ${reply.actionsCount} action(s)")
-        if (reply.hasConfirm()) Log.i(TAG, "response proposes action_id='${reply.confirm.actionId}': ${reply.confirm.prompt}")
+        if (reply.hasConfirm()) Log.i(TAG, "response proposes action_id='${reply.confirm.actionId}' (${reply.confirm.prompt.length}-char prompt)")
 
         val voiceOn = Config.isReplyVoiceEnabled(applicationContext)
         Log.i("RistReply", "speech: audio=${audio?.size() ?: 0}B codec='${speech.audioCodec.orEmpty()}' " +

@@ -43,7 +43,8 @@ object Config {
     private const val KEY_ENROL_SENT_AT = "enrol_sent_at"
     private const val KEY_ENROL_ATTEMPTS = "enrol_attempts"
     private const val KEY_RIST_NUMBER = "rist_number"
-    private const val KEY_ENROL_REVOKED = "enrol_revoked"
+    // Renamed when only an explicit signal could latch it: the old key was set by any 403.
+    private const val KEY_ENROL_REVOKED = "enrol_revoked_explicit"
     private const val KEY_CREDENTIAL_REJECTED = "credential_rejected"
     private const val KEY_COMMS_RESULTS = "comms_results"
     private const val KEY_VOICEMAILS = "voicemails"

@@ -779,6 +779,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun trackMaintenanceHold(ev: MotionEvent) {
+        // No credential stands behind this exit, so only a dev build offers it.
+        if (BuildVariant.isPublic()) return
         val hotspot = findViewById<View>(R.id.maintenanceHotspot) ?: return
         fun disarm() { maintenanceArmed?.let { maintenanceHoldHandler.removeCallbacks(it) }; maintenanceArmed = null }
         when (ev.actionMasked) {
@@ -2660,7 +2662,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun speakNav(text: String) {
-        Log.i(TAG, "nav cue: $text")
+        Log.i(TAG, "nav cue (${text.length} chars)")
     }
 
     private fun updateNavHere() {

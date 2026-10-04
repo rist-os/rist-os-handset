@@ -110,7 +110,7 @@ object DeviceCommands {
             }
             "cancel" -> {
                 val target = timers[key] ?: if (c.label.isBlank()) soonest() else null
-                if (target == null) Log.w(TAG, "timer cancel: no timer '${c.label}'")
+                if (target == null) Log.w(TAG, "timer cancel: no timer by that label")
                 else removeTimer(ctx, target.key)
             }
             "pause" -> resolve(c.label, key)?.let { t ->
@@ -147,7 +147,7 @@ object DeviceCommands {
             else -> Log.w(TAG, "unknown timer action '${c.action}'")
         }
         persist(ctx)
-        Log.i(TAG, "timer ${c.action} label='${c.label}' -> ${timers.size} running")
+        Log.i(TAG, "timer ${c.action} -> ${timers.size} running")
         notifyUi(ctx)
     }
 
@@ -216,10 +216,36 @@ object DeviceCommands {
         if (timers.isNotEmpty()) Log.i(TAG, "restored ${timers.size} timer(s)")
     }.let { }
 
-    private var lastDialAtMs = 0L
-    private val recentDials = ArrayDeque<Long>()
-    private var lastSendAtMs = 0L
-    private val recentSends = ArrayDeque<Long>()
+    /** Null when the phone may place it with no tap; otherwise why it is offered as a tap instead. */
+    private fun heldBack(ctx: Context, number: String): String? {
+        val v = DialPolicy.classify(number)
+        val known = v != DialPolicy.Verdict.OK && v != DialPolicy.Verdict.SERVICE &&
+            v != DialPolicy.Verdict.PREMIUM && DialPolicy.inContacts(ctx, number)
+        if (DialPolicy.autoAllowed(v, known)) return null
+        return when (v) {
+            DialPolicy.Verdict.PREMIUM -> "premium-rate number"
+            DialPolicy.Verdict.INTERNATIONAL -> "international number not in contacts"
+            DialPolicy.Verdict.SPECIAL -> "special-rate number not in contacts"
+            DialPolicy.Verdict.SHORT_CODE -> "short code not in contacts"
+            else -> "unrecognised number not in contacts"
+        }
+    }
+
+    private fun composeInstead(ctx: Context, c: rist.v1.CommsCommand, number: String, who: String, why: String) {
+        Log.w(TAG, "comms: send_sms to ${maskNumber(number)} held back ($why); opening the composer")
+        toast(ctx, "Not sent: $why\n$who $number\nPress send yourself if it is right")
+        val compose = Intent(Intent.ACTION_SENDTO, android.net.Uri.parse("smsto:$number"))
+            .putExtra("sms_body", c.body)
+        if (!VideoCalls.queueComposer(compose)) open(ctx, compose)
+        CommsResults.record(ctx, c.correlationId, "send_sms", false, "not sent automatically: $why; opened the composer")
+    }
+
+    private fun dialInstead(ctx: Context, c: rist.v1.CommsCommand, number: String, who: String, why: String) {
+        Log.w(TAG, "comms: call to ${maskNumber(number)} held back ($why); opening the dialer")
+        toast(ctx, "Not called: $why\n$who $number\nPress call yourself if it is right")
+        open(ctx, Intent(Intent.ACTION_DIAL, android.net.Uri.parse("tel:$number")))
+        CommsResults.record(ctx, c.correlationId, "call", false, "not placed automatically: $why; opened the dialer")
+    }
 
     private fun comms(ctx: Context, c: rist.v1.CommsCommand) {
         val raw = c.number.trim()
@@ -233,13 +259,19 @@ object DeviceCommands {
             "send_sms" -> {
                 if (c.body.isBlank()) { Log.w(TAG, "comms: send_sms with an empty body"); return }
                 if (isEmergency(ctx, number)) { Log.w(TAG, "comms: refusing to text an emergency number"); return }
-                val now = SystemClock.elapsedRealtime()
-                recentSends.removeAll { now - it > 60_000L }
-                if (now - lastSendAtMs < 10_000L || recentSends.size >= 3) {
-                    Log.w(TAG, "comms: send rate limited"); return
+                heldBack(ctx, number)?.let { composeInstead(ctx, c, number, who, it); return }
+                when (DialPolicy.take(ctx, "sms", DialPolicy.TEXTS_PER_DAY)) {
+                    DialPolicy.Quota.OK -> Unit
+                    DialPolicy.Quota.DAY -> {
+                        composeInstead(ctx, c, number, who, "daily limit of ${DialPolicy.TEXTS_PER_DAY} texts reached")
+                        return
+                    }
+                    else -> {
+                        Log.w(TAG, "comms: send rate limited")
+                        CommsResults.record(ctx, c.correlationId, "send_sms", false, "rate limited")
+                        return
+                    }
                 }
-                lastSendAtMs = now
-                recentSends.addLast(now)
                 SmsResultReceiver.register(ctx)
                 val queued = runCatching {
                     val sm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
@@ -268,7 +300,7 @@ object DeviceCommands {
 
                 if (queued) {
                     Log.i(TAG, "comms: queued to ${maskNumber(number)} (${c.body.length} chars); awaiting result")
-                    toast(ctx, "Sending to $who\n${c.body}")
+                    toast(ctx, "Sending to $who $number\n${c.body}")
                 } else {
                     toast(ctx, "Could not send to $who")
                     CommsResults.record(ctx, c.correlationId, "send_sms", false,
@@ -281,12 +313,12 @@ object DeviceCommands {
                 }
                 // Never over a live call: it waits behind a banner the person can tap.
                 if (VideoCalls.queueComposer(compose)) {
-                    Log.i(TAG, "comms: composer to $who held behind the call")
+                    Log.i(TAG, "comms: composer to ${maskNumber(number)} held behind the call")
                     CommsResults.record(ctx, c.correlationId, "sms", true, "")
                     return
                 }
                 val opened = open(ctx, compose)
-                Log.i(TAG, "comms: composing to $who")
+                Log.i(TAG, "comms: composing to ${maskNumber(number)}")
                 CommsResults.record(ctx, c.correlationId, "sms", opened,
                     if (opened) "" else "could not open the composer")
             }
@@ -299,15 +331,19 @@ object DeviceCommands {
                         "emergency number, opened the dialer instead")
                     return
                 }
-                val now = SystemClock.elapsedRealtime()
-                recentDials.removeAll { now - it > 60_000L }
-                if (now - lastDialAtMs < 10_000L || recentDials.size >= 3) {
-                    Log.w(TAG, "comms: rate limited (${recentDials.size} in the last minute)")
-                    CommsResults.record(ctx, c.correlationId, "call", false, "rate limited")
-                    return
+                heldBack(ctx, number)?.let { dialInstead(ctx, c, number, who, it); return }
+                when (DialPolicy.take(ctx, "call", DialPolicy.CALLS_PER_DAY)) {
+                    DialPolicy.Quota.OK -> Unit
+                    DialPolicy.Quota.DAY -> {
+                        dialInstead(ctx, c, number, who, "daily limit of ${DialPolicy.CALLS_PER_DAY} calls reached")
+                        return
+                    }
+                    else -> {
+                        Log.w(TAG, "comms: call rate limited")
+                        CommsResults.record(ctx, c.correlationId, "call", false, "rate limited")
+                        return
+                    }
                 }
-                lastDialAtMs = now
-                recentDials.addLast(now)
                 toast(ctx, "Calling $who\n$number")
                 Log.i(TAG, "comms: dialing ${maskNumber(number)}")
                 val placed = open(ctx, Intent(Intent.ACTION_CALL, android.net.Uri.parse("tel:$number")))
@@ -428,14 +464,14 @@ object DeviceCommands {
                         recurrence = c.recurrence,
                     ),
                 )
-                Log.i(TAG, "alarm armed id='${c.alarmId}' at=${c.fireAtEpochS} label='${c.label}'")
+                Log.i(TAG, "alarm armed id='${c.alarmId}' at=${c.fireAtEpochS}")
             }.onFailure { Log.w(TAG, "alarm arm failed", it) }
             "cancel" -> {
                 runCatching { am.cancel(pi) }
                 Alarms.forget(ctx, c.alarmId)
                 // If it is ringing this second, cancelling it has to silence it too. Before this
                 // the ring carried on after the record was gone.
-                AlarmService.dismiss(ctx, "backend cancel")
+                AlarmService.dismissIfRinging(ctx, c.alarmId, "backend cancel", blankMeansAll = true)
                 Log.i(TAG, "alarm cancelled id='${c.alarmId}'")
             }
             "snooze" -> runCatching {
@@ -455,7 +491,7 @@ object DeviceCommands {
                 // The store has to follow the snooze, or a reboot during those nine minutes
                 // would re-arm the original time, which has already passed, and drop it.
                 Alarms.remember(ctx, snoozed)
-                AlarmService.dismiss(ctx, "snoozed")
+                AlarmService.dismissIfRinging(ctx, c.alarmId, "snoozed", blankMeansAll = false)
                 Log.i(TAG, "alarm snoozed id='${c.alarmId}' 9m (schedule kept at ${snoozed.scheduledEpochS})")
             }.onFailure { Log.w(TAG, "alarm snooze failed", it) }
             else -> Log.w(TAG, "unknown alarm action '${c.action}'")

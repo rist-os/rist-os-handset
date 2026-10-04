@@ -152,7 +152,7 @@ class ProgressReporter(
             .setTitle(title)
             .build()
 
-        Log.d(TAG, "progress '$action' item='$itemId' section=$section @${positionS}s title='$title'")
+        Log.d(TAG, "progress '$action' section=$section @${positionS}s")
         io.launch { Uploader.sendProgress(appContext, report) }
     }
 }

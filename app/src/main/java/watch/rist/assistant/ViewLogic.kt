@@ -32,7 +32,8 @@ object ViewLogic {
                 return ImageSource.Inline(decoded)
             }
         }
-        firstNonBlank(props, URL_KEYS)?.let { return ImageSource.Url(it) }
+        firstNonBlank(props, URL_KEYS)?.takeIf { it.trim().startsWith("https://", ignoreCase = true) }
+            ?.let { return ImageSource.Url(it.trim()) }
         return ImageSource.None
     }
 

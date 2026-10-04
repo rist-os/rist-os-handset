@@ -536,10 +536,8 @@ class Uploader(private val ctx: Context) {
             Log.w(TAG, "backend endpoint is not a valid http(s) URL; refusing to send")
             return null
         }
-        Log.i("RistAuthDbg", "OUT tokenChars=${req.authToken.length} bearerSent=${bearer(ctx) != null} deviceId=${req.deviceId}")
         Log.i("RistNavDbg", "OUT isResend=$isResend hasLocation=${req.hasLocation()} " +
-            (if (req.hasLocation() && req.location.lat != 0.0) "fix acc=${req.location.accuracyM}m age=${req.location.ageS}s" else "NO-FIX") +
-            " tz=${req.location.timezone}")
+            (if (req.hasLocation() && req.location.lat != 0.0) "fix acc=${req.location.accuracyM}m age=${req.location.ageS}s" else "NO-FIX"))
         val body = req.toByteArray().toRequestBody(PROTOBUF_MEDIA_TYPE)
         val httpRequest = runCatching {
             Request.Builder()
@@ -578,15 +576,17 @@ class Uploader(private val ctx: Context) {
                         Log.w(TAG, "backend 413 with an unparseable body")
                         return null
                     }
-                    // 401 = credential dead (re-enrol); 403 = revoked (never enrol); 503 = retry.
+                    // 401 = credential dead (re-enrol); 403 + revoked header = revoked (never enrol); 503 = retry.
                     lastFailure = when (httpResp.code) {
                         401 -> {
                             Enrolment.onCredentialDead(ctx)
                             "this device is setting itself up again"
                         }
-                        403 -> {
+                        403 -> if (Enrolment.isExplicitRevocation(403, httpResp.header(Enrolment.REVOKED_HEADER))) {
                             Enrolment.onRevoked(ctx)
                             "this device's access has been turned off"
+                        } else {
+                            "the assistant refused this request"
                         }
                         503 -> "the assistant is briefly unavailable — trying again shortly"
                         404 -> "the assistant endpoint wasn't found"
@@ -690,7 +690,7 @@ class Uploader(private val ctx: Context) {
         if (resp.voicemailsCount > 0) {
             Voicemails.upsert(
                 ctx,
-                resp.voicemailsList.map {
+                resp.voicemailsList.filter { VoicemailAudio.safeId(it.id) }.map {
                     Voicemails.Voicemail(
                         id = it.id, fromNumber = it.fromNumber, displayName = it.displayName,
                         receivedAtMs = it.receivedAtMs, durationS = it.durationS,

@@ -221,6 +221,7 @@ object Enrolment {
                     } else {
                         clear(ctx)
                         Config.setCredentialRejected(ctx, false)
+                        Config.setEnrolRevoked(ctx, false)
                         // Never log the code or the token.
                         Log.i(TAG, "paired: stored a ${token.length}-char token")
                     }
@@ -271,6 +272,12 @@ object Enrolment {
             Config.setAuthToken(ctx, "")
         }
     }
+
+    /** Sent by the backend with the 403 for a revoked device; a bare 403 (proxy, WAF, unknown user) never latches. */
+    const val REVOKED_HEADER = "X-Rist-Device-Revoked"
+
+    internal fun isExplicitRevocation(code: Int, header: String?): Boolean =
+        code == 403 && header?.trim()?.lowercase() in setOf("1", "true")
 
     fun onRevoked(ctx: Context) {
         if (!Config.enrolRevoked(ctx)) Log.w(TAG, "this device has been revoked; enrolment disabled")

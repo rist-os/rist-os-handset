@@ -46,8 +46,10 @@ object WakeLoop {
         data class Signal(val signal: WakeSignal, val acked: List<String>) : Outcome()
         /** 401: the credential is dead. Enrolment clears it; the loop waits for a new one. */
         object Unauthorised : Outcome()
-        /** 403: revoked. Never poll again on this token. */
+        /** 403 with the revoked header: never poll again on this token. */
         object Revoked : Outcome()
+        /** 403 without it: refused for now, not revoked. Poll again much later. */
+        object Refused : Outcome()
         /** 503 or a transport failure: back off and try again. */
         data class Retry(val why: String) : Outcome()
         /** No token, or no backend address: nothing to poll with yet. */
@@ -101,7 +103,11 @@ object WakeLoop {
                 when (resp.code) {
                     200 -> Outcome.Signal(WakeSignal.parseFrom(resp.body?.bytes() ?: ByteArray(0)), acks)
                     401 -> Outcome.Unauthorised
-                    403 -> Outcome.Revoked
+                    403 -> if (Enrolment.isExplicitRevocation(403, resp.header(Enrolment.REVOKED_HEADER))) {
+                        Outcome.Revoked
+                    } else {
+                        Outcome.Refused
+                    }
                     else -> Outcome.Retry("HTTP ${resp.code}")
                 }
             }
@@ -191,6 +197,10 @@ object WakeLoop {
                     refusedToken = token
                     // A revoked phone with no token at all passes the refused-token check on
                     // every turn of the loop; this wait is what keeps that from spinning.
+                    waitOrKick(NO_TOKEN_RECHECK_MS)
+                }
+                Outcome.Refused -> {
+                    Log.w(TAG, "403 with no revocation signal; waiting before the next poll")
                     waitOrKick(NO_TOKEN_RECHECK_MS)
                 }
                 is Outcome.Retry -> {
