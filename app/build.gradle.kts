@@ -72,6 +72,10 @@ android {
     }
 }
 
+tasks.withType<Test>().configureEach {
+    maxHeapSize = "2g"
+}
+
 // OtaEngineCallback.kt subclasses @SystemApi UpdateEngineCallback, absent from the public android.jar; Soong-only.
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
     exclude("**/OtaEngineCallback.kt")
