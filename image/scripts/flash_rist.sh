@@ -316,19 +316,51 @@ else
   say "      That check is what catches a keep-set that would fail verified boot after re-lock."
 fi
 
+# The key is pinned here, not read from the release directory: whoever can swap an image can swap a
+# key file sitting beside it. A self-built image signed with your own minisign key can be flashed by
+# exporting RIST_RELEASE_PUBKEY=<your key> -- that is a choice made on this computer, not by the download.
+RISTOS_RELEASE_PUBKEY="RWThr8fGz/71qbSM4R8F9UvI7KYW++0i8dAQwyU+Fz24xqirceHqqHUX"
+PUBKEY="${RIST_RELEASE_PUBKEY:-$RISTOS_RELEASE_PUBKEY}"
+
 if command -v sha256sum >/dev/null 2>&1; then CHECK="sha256sum -c --ignore-missing"
 elif command -v shasum >/dev/null 2>&1; then CHECK="shasum -a 256 -c --ignore-missing"
-else CHECK=""; fi
+else die "REFUSING: neither sha256sum nor shasum is on this machine, so nothing about this release
+can be checked. Install coreutils (macOS ships shasum; Linux: coreutils) and run again."; fi
 
 sums_match() { ( cd "$DIR" && $CHECK "$1" >/dev/null 2>&1 ); }
 
-if [ -z "$CHECK" ]; then
-  say "NOTE: no sha256sum/shasum on this machine, so the checksum files were not checked here."
-  if [ -f "$DIR/punch-manifest.txt" ]; then
-    say "      This release is punched, and the check that would have caught an un-refilled one"
-    say "      is exactly the check that could not run. Install coreutils and re-run."
-  fi
-elif [ -f "$DIR/punch-manifest.txt" ]; then
+# listed <sums-file> <name>: the sums file has a line for exactly that file. --ignore-missing skips
+# entries for absent files, so without this a file that is present but unlisted is never checked.
+listed() {
+  awk -v want="$2" '{ f=$2; sub(/^\*/, "", f); sub(/^\.\//, "", f); if (f == want) found=1 } END { exit !found }' "$DIR/$1"
+}
+
+[ -f "$DIR/SHA256SUMS" ] || die "REFUSING: no SHA256SUMS in $DIR.
+
+Without it nothing here can be checked, and this script writes an AVB key that a later
+'fastboot flashing lock' binds the phone to. Do not flash an unverifiable release."
+[ -f "$DIR/SHA256SUMS.minisig" ] || die "REFUSING: no SHA256SUMS.minisig next to SHA256SUMS.
+
+A checksum file proves nothing on its own: whoever can replace an image can replace the
+checksum beside it. Every published release carries the signature. Download it into $DIR."
+command -v minisign >/dev/null 2>&1 || die "REFUSING: minisign is not installed, so the release signature cannot be checked.
+
+macOS: brew install minisign    Debian/Ubuntu: apt install minisign"
+if ! minisign -V -q -m "$DIR/SHA256SUMS" -x "$DIR/SHA256SUMS.minisig" -P "$PUBKEY" >/dev/null 2>&1; then
+  die "REFUSING: THE SIGNATURE ON SHA256SUMS DOES NOT VERIFY against the release key
+   $PUBKEY
+
+This is not a download problem to retry. Either the files were changed after they were signed,
+or they were never signed by that key. Delete this directory and do not flash it." 4
+fi
+if [ "$PUBKEY" = "$RISTOS_RELEASE_PUBKEY" ]; then
+  ok "SHA256SUMS is signed by the RistOS release key"
+else
+  ok "SHA256SUMS is signed by the key in RIST_RELEASE_PUBKEY"
+  say "NOTE: that is NOT the RistOS release key. You chose to trust it on this computer."
+fi
+
+if [ -f "$DIR/punch-manifest.txt" ]; then
   if [ ! -f "$DIR/SHA256SUMS.refilled" ]; then
     die "REFUSING: $DIR contains punch-manifest.txt, so this release was published with Google's
 file data removed -- but it carries no SHA256SUMS.refilled, which is the file that says what a
@@ -341,9 +373,26 @@ that is not recoverable without a wipe.
 Either the release was published incorrectly, or this directory is not the one you refilled into.
 Do not flash it."
   fi
+  # SHA256SUMS.refilled is only as trustworthy as whatever vouches for it: its own signature, or
+  # its line in the signed SHA256SUMS.
+  refilled_ok=0
+  if [ -f "$DIR/SHA256SUMS.refilled.minisig" ] \
+     && minisign -V -q -m "$DIR/SHA256SUMS.refilled" -x "$DIR/SHA256SUMS.refilled.minisig" -P "$PUBKEY" >/dev/null 2>&1; then
+    refilled_ok=1
+  elif listed SHA256SUMS SHA256SUMS.refilled; then
+    one="$(mktemp "${TMPDIR:-/tmp}/flash-rist-sums.XXXXXX")"
+    awk '{ f=$2; sub(/^\*/, "", f); sub(/^\.\//, "", f); if (f == "SHA256SUMS.refilled") print }' "$DIR/SHA256SUMS" > "$one"
+    ( cd "$DIR" && $CHECK "$one" >/dev/null 2>&1 ) && refilled_ok=1
+    rm -f "$one"
+  fi
+  [ "$refilled_ok" -eq 1 ] || die "REFUSING: SHA256SUMS.refilled is not vouched for by the release signature.
+
+It is neither signed itself nor listed (with a matching hash) in the signed SHA256SUMS, so it
+could have been written by anyone. Do not flash this directory."
+  SUMS_FILE=SHA256SUMS.refilled
   if sums_match SHA256SUMS.refilled; then
     ok "files match SHA256SUMS.refilled -- the refill is byte-for-byte the signed release"
-  elif [ -f "$DIR/SHA256SUMS" ] && sums_match SHA256SUMS; then
+  elif sums_match SHA256SUMS; then
     die "REFUSING: THIS RELEASE HAS NOT BEEN REFILLED YET.
 
 $DIR still matches SHA256SUMS -- the checksums of the artefact as downloaded, with Google's file
@@ -363,7 +412,8 @@ then run this script against the refilled directory." 3
 It is not the release we published and it is not a correct refill of it, so this script cannot
 tell you what it is. Run image/scripts/verify_download.sh for the per-file detail. Do not flash it."
   fi
-elif [ -f "$DIR/SHA256SUMS" ]; then
+else
+  SUMS_FILE=SHA256SUMS
   if sums_match SHA256SUMS; then
     ok "files match SHA256SUMS"
   else
@@ -371,9 +421,16 @@ elif [ -f "$DIR/SHA256SUMS" ]; then
 
 Run image/scripts/verify_download.sh for the details, and do not flash this download."
   fi
-else
-  say "NOTE: no SHA256SUMS in the release directory -- integrity was not checked."
 fi
+
+# Everything this script reads or writes to the phone must be covered, not merely present.
+for f in PARTITIONS.txt REQUIRED_STOCK.txt "$AVB_KEY" ${P_FILE[@]+"${P_FILE[@]}"}; do
+  listed "$SUMS_FILE" "$f" || die "REFUSING: '$f' is not listed in $SUMS_FILE.
+
+It would be used by this flash, but nothing signed says what its bytes should be. A release
+that leaves out a file it flashes is not a release this script can vouch for."
+done
+ok "every file this flash uses is covered by the signed checksums"
 
 if [ "$blob_warn" -eq 1 ]; then
   info ""

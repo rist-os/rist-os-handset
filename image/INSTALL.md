@@ -210,10 +210,12 @@ did not sign will be refused.
 
 ## Reference
 
-## Verifying the download (optional)
+## Verifying the download
 
-Skip it if you are only trying RistOS out. Do it if you are going to re-lock the bootloader in step
-4, which ties the phone to whatever you flashed.
+Do this before step 4. Re-locking the bootloader in step 5 ties the phone to the AVB key inside
+whatever you flashed, so an unverified download can bind the phone to someone else's key.
+`image/scripts/flash_rist.sh` refuses any release whose `SHA256SUMS.minisig` does not verify against
+the key below.
 
 Download `SHA256SUMS` and `SHA256SUMS.minisig` into the folder the zip is in, and run these there.
 The bucket serves files but does not list directories, so link the files themselves rather than the
