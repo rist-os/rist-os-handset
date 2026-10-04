@@ -416,7 +416,8 @@ class Handler(BaseHTTPRequestHandler):
         # the fleet past `expires`. The device compares the build itself, from the signed bytes.
 
         inc = latest.get("incremental_from")
-        if inc and current and inc != current:
+        # A device already on this build gets the signed manifest too, never an unsigned 404.
+        if inc and current and inc != current and current != str(latest.get("build")):
             return self._json(404, {"error": "no path from %s; full package required" % current})
 
         # Verbatim octets: the device verifies a signature over them; never re-serialise or rewrite url.
