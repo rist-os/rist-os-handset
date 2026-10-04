@@ -224,6 +224,7 @@ object DeviceCommands {
         if (DialPolicy.autoAllowed(v, known)) return null
         return when (v) {
             DialPolicy.Verdict.PREMIUM -> "premium-rate number"
+            DialPolicy.Verdict.EMERGENCY -> "emergency or crisis line, press it yourself"
             DialPolicy.Verdict.INTERNATIONAL -> "international number not in contacts"
             DialPolicy.Verdict.SPECIAL -> "special-rate number not in contacts"
             DialPolicy.Verdict.SHORT_CODE -> "short code not in contacts"

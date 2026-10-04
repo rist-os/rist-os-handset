@@ -117,4 +117,16 @@ class DialPolicyTest {
         DeviceCommands.handle(app, comms("call", "+12065550123"))
         assertEquals(Intent.ACTION_CALL, shadowOf(app).nextStartedActivity?.action)
     }
+
+    @Test
+    fun `the emergency dial tool and crisis lines always reach the dialer`() {
+        for (n in listOf("911", "988")) {
+            DeviceCommands.handle(app, comms("dial", n))
+            val dial = shadowOf(app).nextStartedActivity
+            assertEquals(Intent.ACTION_DIAL, dial?.action)
+            assertEquals("tel:$n", dial?.dataString)
+            DeviceCommands.handle(app, comms("call", n))
+            assertEquals(Intent.ACTION_DIAL, shadowOf(app).nextStartedActivity?.action)
+        }
+    }
 }

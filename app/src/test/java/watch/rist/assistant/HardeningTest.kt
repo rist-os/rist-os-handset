@@ -63,7 +63,9 @@ class HardeningTest {
     @Test
     fun `the feed resolver reads only what looks like a feed`() {
         assertTrue(RssResolver.mediaType("audio/mpeg"))
-        assertTrue(RssResolver.mediaType("application/octet-stream"))
+        assertFalse(RssResolver.mediaType("application/octet-stream"))
+        assertFalse(RssResolver.looksLikeFeed("application/octet-stream", "ID3\u0004\u0000"))
+        assertTrue(RssResolver.looksLikeFeed("application/octet-stream", "<?xml version=\"1.0\"?><rss>"))
         assertFalse(RssResolver.mediaType("application/rss+xml"))
         assertTrue(RssResolver.looksLikeFeed("text/xml; charset=utf-8", ""))
         assertTrue(RssResolver.looksLikeFeed(null, "﻿<?xml version=\"1.0\"?><rss>"))

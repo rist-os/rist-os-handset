@@ -35,7 +35,8 @@ object RssResolver {
 
     internal fun mediaType(contentType: String?): Boolean {
         val ct = contentType.orEmpty().lowercase()
-        return ct.startsWith("audio/") || ct.startsWith("video/") || ct.startsWith("application/octet-stream")
+        // octet-stream is left to the sniff: some static hosts serve real feeds that way.
+        return ct.startsWith("audio/") || ct.startsWith("video/")
     }
 
     internal fun looksLikeFeed(contentType: String?, head: String): Boolean {

@@ -171,7 +171,7 @@ transient fault, an unknown route — use the status that actually describes it.
 retry, so a service that answers `401` where it means `503` will unpair every handset at once.
 
 **Revoking a device takes a `403` with `X-Rist-Device-Revoked: 1`.** The device then stops polling
-and hides pairing until it is paired again. A `403` without that header is only a refusal: the
+and stops offering pairing, so only a reset of the phone brings it back. A `403` without that header is only a refusal: the
 device reports it and tries again later, so a proxy or a firewall rule cannot disable a phone.
 
 `SECURITY.md` documents the threat model and the residual risks this accepts.
