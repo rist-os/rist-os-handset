@@ -680,6 +680,9 @@ message BoxEdit {
   repeated string restore_ids = 5;
   string rename_id            = 6;
   string rename_title         = 7;
+  // Display boxes to bring up to date now. Never queued offline; the backend answers by sending a
+  // list in which each box's updated_at_epoch_s has moved on, even when its value is unchanged.
+  repeated string refresh_ids = 8;
 }
 
 message BoxEditReply {

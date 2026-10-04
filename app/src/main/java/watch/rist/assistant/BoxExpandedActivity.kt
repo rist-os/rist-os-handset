@@ -1,13 +1,18 @@
 package watch.rist.assistant
 
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.content.Context
 import android.content.Intent
 import android.graphics.Typeface
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -26,7 +31,8 @@ import java.util.Date
  * A display box opened full screen: its title, when it was last updated, and the full text the
  * backend sent with the glance value, as markdown. Nothing is sent to open it, so it opens at
  * once and works offline. It follows the box: a newer list redraws it, and a box that has gone
- * closes it.
+ * closes it. A running display box also has a refresh button, which asks the backend to bring it
+ * up to date now and spins until the box's update time rises above what it was at the tap.
  */
 class BoxExpandedActivity : AppCompatActivity() {
 
@@ -41,6 +47,19 @@ class BoxExpandedActivity : AppCompatActivity() {
     private lateinit var titleView: TextView
     private lateinit var updatedView: TextView
     private lateinit var bodyView: TextView
+    private lateinit var refreshButton: FrameLayout
+    private lateinit var refreshIcon: ImageView
+    private lateinit var refreshStatus: TextView
+    private var spin: ObjectAnimator? = null
+
+    private val main = Handler(Looper.getMainLooper())
+
+    /** The wait after a tap: the box's update time before it. */
+    private class Waiting(val beforeS: Long)
+    private var waiting: Waiting? = null
+    private val timedOut = Runnable { if (waiting != null) { stopWaiting(); say(R.string.boxes_refresh_failed) } }
+    private val clearStatus = Runnable { refreshStatus.text = ""; refreshStatus.visibility = View.GONE }
+    private val rested = Runnable { drawRefresh() }
 
     private val boxId: String get() = intent.getStringExtra(EXTRA_BOX_ID).orEmpty()
 
@@ -99,6 +118,32 @@ class BoxExpandedActivity : AppCompatActivity() {
         }
         heads.addView(titleRow); heads.addView(updatedView)
         header.addView(heads, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        refreshStatus = TextView(this).apply {
+            tag = TAG_REFRESH_STATUS
+            typeface = tf
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextColor(muted)
+            gravity = Gravity.CENTER_VERTICAL
+            minHeight = px(48f)
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            visibility = View.GONE
+        }
+        header.addView(refreshStatus, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        refreshIcon = ImageView(this).apply {
+            setImageDrawable(ContextCompat.getDrawable(this@BoxExpandedActivity, R.drawable.ic_box_refresh)?.mutate())
+            setColorFilter(rt.ink)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            layoutParams = FrameLayout.LayoutParams(px(24f), px(24f), Gravity.CENTER)
+        }
+        refreshButton = FrameLayout(this).apply {
+            tag = TAG_REFRESH
+            contentDescription = getString(R.string.boxes_refresh)
+            isClickable = true; isFocusable = true
+            setOnClickListener { refresh() }
+            addView(refreshIcon)
+            visibility = View.GONE
+        }
+        header.addView(refreshButton, LinearLayout.LayoutParams(px(48f), px(48f)))
         header.addView(FrameLayout(this).apply {
             tag = TAG_CLOSE
             contentDescription = getString(R.string.boxes_close)
@@ -143,6 +188,98 @@ class BoxExpandedActivity : AppCompatActivity() {
         super.onStop()
     }
 
+    override fun onDestroy() {
+        main.removeCallbacksAndMessages(null)
+        spin?.cancel()
+        super.onDestroy()
+    }
+
+    // ---- refresh ----
+
+    private fun refresh() {
+        if (waiting != null) return
+        val b = HomeBoxes.find(this, boxId) ?: return
+        if (!BoxRefresh.offered(b) || BoxRefresh.restingMs(boxId, System.currentTimeMillis()) > 0) return
+        val w = Waiting(b.updatedAtEpochS.toLong())
+        waiting = w
+        main.removeCallbacks(clearStatus)
+        drawRefresh()
+        main.postDelayed(timedOut, BoxRefresh.TIMEOUT_MS)
+        val id = boxId
+        BoxRefresh.requestSoon(this, id) { out ->
+            main.post {
+                if (waiting !== w) return@post
+                when (out) {
+                    is BoxRefresh.Outcome.Asked -> {
+                        checkDone()
+                        if (waiting === w) {
+                            BoxRefresh.pollWakeNow()
+                            // Once more partway, in case the first ask landed as a poll was ending.
+                            main.postDelayed({ if (waiting === w) BoxRefresh.pollWakeNow() }, BoxRefresh.REPOLL_MS)
+                        }
+                    }
+                    is BoxRefresh.Outcome.Offline -> { stopWaiting(); say(R.string.boxes_refresh_offline) }
+                    is BoxRefresh.Outcome.Failed -> { stopWaiting(); say(R.string.boxes_refresh_failed) }
+                }
+            }
+        }
+    }
+
+    /** Ends the wait once the box's update time has moved past the tap. */
+    private fun checkDone() {
+        val w = waiting ?: return
+        if (!BoxRefresh.done(HomeBoxes.find(this, boxId), w.beforeS)) return
+        BoxRefresh.markDone(boxId, System.currentTimeMillis())
+        stopWaiting()
+    }
+
+    private fun stopWaiting() {
+        waiting = null
+        main.removeCallbacks(timedOut)
+        drawRefresh()
+    }
+
+    /** A short word beside the button, gone again after a few seconds. */
+    private fun say(res: Int) {
+        refreshStatus.text = getString(res)
+        refreshStatus.visibility = View.VISIBLE
+        main.removeCallbacks(clearStatus)
+        main.postDelayed(clearStatus, STATUS_MS)
+    }
+
+    private fun drawRefresh() {
+        val b = HomeBoxes.find(this, boxId)
+        val offered = b != null && BoxRefresh.offered(b)
+        refreshButton.visibility = if (offered) View.VISIBLE else View.GONE
+        val busy = waiting != null && offered
+        val resting = BoxRefresh.restingMs(boxId, System.currentTimeMillis())
+        refreshButton.isEnabled = !busy && resting == 0L
+        refreshButton.alpha = if (busy || resting == 0L) 1f else 0.4f
+        ViewCompat.setStateDescription(refreshButton, if (busy) getString(R.string.boxes_refreshing_state) else null)
+        main.removeCallbacks(rested)
+        if (resting > 0) main.postDelayed(rested, resting)
+        if (busy && BoxRefresh.motion()) {
+            if (spin == null) spin = ObjectAnimator.ofFloat(refreshIcon, View.ROTATION, 0f, 360f).apply {
+                duration = 900; repeatCount = ValueAnimator.INFINITE; interpolator = LinearInterpolator()
+                start()
+            }
+        } else {
+            spin?.cancel(); spin = null
+            refreshIcon.rotation = 0f
+        }
+        // With motion reduced the icon stays still, so the wait is said in words instead.
+        if (busy && !BoxRefresh.motion()) {
+            main.removeCallbacks(clearStatus)
+            refreshStatus.text = getString(R.string.boxes_refreshing)
+            refreshStatus.visibility = View.VISIBLE
+        } else if (refreshStatus.text == getString(R.string.boxes_refreshing)) {
+            clearStatus.run()
+        }
+    }
+
+    internal val isSpinning: Boolean get() = spin != null
+    internal val isRefreshing: Boolean get() = waiting != null
+
     private fun fill() {
         val b = HomeBoxes.find(this, boxId)
         if (b == null) { finish(); return }
@@ -161,6 +298,8 @@ class BoxExpandedActivity : AppCompatActivity() {
         // A box that sent no full text shows what it has: the glance value and its line.
         val body = b.body.ifBlank { listOf(face.value, face.detail).filter { it.isNotBlank() }.joinToString("\n\n") }
         bodyView.text = Markdown.render(body)
+        checkDone()
+        drawRefresh()
     }
 
     companion object {
@@ -170,6 +309,9 @@ class BoxExpandedActivity : AppCompatActivity() {
         const val TAG_UPDATED = "box-expanded-updated"
         const val TAG_BODY = "box-expanded-body"
         const val TAG_CLOSE = "box-expanded-close"
+        const val TAG_REFRESH = "box-expanded-refresh"
+        const val TAG_REFRESH_STATUS = "box-expanded-refresh-status"
+        const val STATUS_MS = 3_000L
 
         /** The time alone when it was today; with the date when it was not, so days-old reads as such. */
         fun updatedWhen(thenS: Long, nowMs: Long): String {

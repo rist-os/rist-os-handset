@@ -269,6 +269,11 @@
     <string name="boxes_done">Done</string>
     <string name="boxes_done_desc">Done editing tiles</string>
     <string name="boxes_close">Close</string>
+    <string name="boxes_refresh">Refresh</string>
+    <string name="boxes_refreshing">Refreshing…</string>
+    <string name="boxes_refreshing_state">Refreshing</string>
+    <string name="boxes_refresh_offline">Offline</string>
+    <string name="boxes_refresh_failed">Couldn\'t update</string>
     <string name="boxes_edit">Edit</string>
     <string name="boxes_delete">Delete</string>
     <string name="boxes_move_left">Move left</string>
