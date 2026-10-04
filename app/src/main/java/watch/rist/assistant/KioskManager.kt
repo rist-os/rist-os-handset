@@ -170,17 +170,22 @@ object KioskManager {
     private fun applyUserRestrictions(context: Context) {
         val dpm = dpm(context)
         val admin = admin(context)
-        for (r in KIOSK_RESTRICTIONS) {
+        val wanted = kioskRestrictions(BuildVariant.isPublic())
+        for (r in wanted) {
             runCatching { dpm.addUserRestriction(admin, r) }
                 .onFailure { Log.w(TAG, "could not set $r", it) }
+        }
+        for (r in ALL_RESTRICTIONS.filter { it !in wanted }) {
+            runCatching { dpm.clearUserRestriction(admin, r) }
+                .onFailure { Log.w(TAG, "could not clear $r", it) }
         }
         val held = runCatching { dpm.getUserRestrictions(admin) }.getOrNull()
         if (held == null) {
             Log.w(TAG, "applied user restrictions but could not read them back to confirm")
             return
         }
-        val landed = KIOSK_RESTRICTIONS.filter { held.getBoolean(it, false) }
-        val missed = KIOSK_RESTRICTIONS.filter { !held.getBoolean(it, false) }
+        val landed = wanted.filter { held.getBoolean(it, false) }
+        val missed = wanted.filter { !held.getBoolean(it, false) }
         Log.i(TAG, "user restrictions in force: ${landed.joinToString()}")
         if (missed.isNotEmpty()) {
             Log.w(TAG, "user restrictions NOT in force (unsupported on this build?): ${missed.joinToString()}")
@@ -191,19 +196,25 @@ object KioskManager {
         if (!isDeviceOwner(context)) return
         val dpm = dpm(context)
         val admin = admin(context)
-        for (r in KIOSK_RESTRICTIONS) {
+        for (r in ALL_RESTRICTIONS) {
             runCatching { dpm.clearUserRestriction(admin, r) }
                 .onFailure { Log.w(TAG, "could not clear $r", it) }
         }
         Log.i(TAG, "cleared the kiosk user restrictions")
     }
 
-    private val KIOSK_RESTRICTIONS = arrayOf(
+    private val BASE_RESTRICTIONS = listOf(
         android.os.UserManager.DISALLOW_SAFE_BOOT,
         android.os.UserManager.DISALLOW_ADD_USER,
         android.os.UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES,
         android.os.UserManager.DISALLOW_UNINSTALL_APPS,
     )
+
+    private val ALL_RESTRICTIONS = BASE_RESTRICTIONS + android.os.UserManager.DISALLOW_DEBUGGING_FEATURES
+
+    /** Public builds also close adb and Developer options; dev builds keep them for push.sh. */
+    internal fun kioskRestrictions(publicBuild: Boolean): List<String> =
+        if (publicBuild) ALL_RESTRICTIONS else BASE_RESTRICTIONS
 
     fun ensureConfigured(context: Context) {
         if (!isDeviceOwner(context)) return
