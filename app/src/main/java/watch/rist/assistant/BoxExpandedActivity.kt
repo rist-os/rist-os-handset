@@ -154,7 +154,7 @@ class BoxExpandedActivity : AppCompatActivity() {
         val face = HomeBoxes.face(b, nowS)
         updatedView.text = when {
             b.updatedAtEpochS > 0 -> getString(R.string.boxes_updated_at,
-                DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(b.updatedAtEpochS * 1000))) +
+                updatedWhen(b.updatedAtEpochS.toLong(), System.currentTimeMillis())) +
                 (if (HomeBoxes.isStale(b, nowS)) " · " + getString(R.string.boxes_stale) else "")
             else -> face.detail
         }
@@ -170,6 +170,17 @@ class BoxExpandedActivity : AppCompatActivity() {
         const val TAG_UPDATED = "box-expanded-updated"
         const val TAG_BODY = "box-expanded-body"
         const val TAG_CLOSE = "box-expanded-close"
+
+        /** The time alone when it was today; with the date when it was not, so days-old reads as such. */
+        fun updatedWhen(thenS: Long, nowMs: Long): String {
+            val then = java.util.Calendar.getInstance().apply { timeInMillis = thenS * 1000 }
+            val now = java.util.Calendar.getInstance().apply { timeInMillis = nowMs }
+            val today = then.get(java.util.Calendar.YEAR) == now.get(java.util.Calendar.YEAR) &&
+                then.get(java.util.Calendar.DAY_OF_YEAR) == now.get(java.util.Calendar.DAY_OF_YEAR)
+            val fmt = if (today) DateFormat.getTimeInstance(DateFormat.SHORT)
+            else DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+            return fmt.format(Date(thenS * 1000))
+        }
 
         fun intent(ctx: Context, boxId: String): Intent =
             Intent(ctx, BoxExpandedActivity::class.java).putExtra(EXTRA_BOX_ID, boxId)

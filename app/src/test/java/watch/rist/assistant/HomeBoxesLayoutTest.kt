@@ -131,4 +131,15 @@ class HomeBoxesLayoutTest {
             .setStaleAfterEpochS(now - 60).build()
         assertTrue(HomeBoxes.face(b, now).detail.startsWith("3h ago · stale"))
     }
+
+    @Test
+    fun `the expanded view dates an update that was not today`() {
+        val now = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 12); set(java.util.Calendar.MINUTE, 0)
+        }.timeInMillis
+        val today = BoxExpandedActivity.updatedWhen(now / 1000 - 60, now)
+        val old = BoxExpandedActivity.updatedWhen(now / 1000 - 3 * 86_400, now)
+        assertEquals(java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(now - 60_000)), today)
+        assertTrue("three days ago must carry its date: $old", old.length > today.length)
+    }
 }
