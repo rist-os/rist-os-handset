@@ -355,11 +355,6 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, code, obj, extra=None):
         return self._raw(code, json.dumps(obj).encode(), "application/json", extra)
 
-    def _empty(self, code):
-        self.send_response(code)
-        self.send_header("Content-Length", "0")
-        self.end_headers()
-
     def _authorised(self):
         token = self.server.token
         if not token:
@@ -417,8 +412,8 @@ class Handler(BaseHTTPRequestHandler):
             if part.startswith("build="):
                 current = part[len("build="):]
 
-        if current and current == str(latest.get("build")):
-            return self._empty(204)
+        # No unsigned 204 "up to date": an unsigned reply would let whoever controls this host freeze
+        # the fleet past `expires`. The device compares the build itself, from the signed bytes.
 
         inc = latest.get("incremental_from")
         if inc and current and inc != current:

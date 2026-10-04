@@ -201,9 +201,10 @@ class OtaTest(unittest.TestCase):
         c.request("GET", "/v1/ota/stallion/stable")
         self.assertEqual(c.getresponse().status, 401)
 
-    def test_same_build_gets_204(self):
-        status, _, _ = self.req("/v1/ota/stallion/stable?build=%s" % self.manifest["build"])
-        self.assertEqual(status, 204)
+    def test_same_build_still_gets_the_signed_manifest(self):
+        status, _, body = self.req("/v1/ota/stallion/stable?build=%s" % self.manifest["build"])
+        self.assertEqual(status, 200)
+        self.assertEqual(body, self.manifest_bytes)
 
     def test_older_build_gets_the_manifest(self):
         status, _, body = self.req("/v1/ota/stallion/stable?build=2026010100")
