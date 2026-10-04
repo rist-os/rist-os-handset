@@ -181,7 +181,7 @@ class HomeBoxesUiTest {
         HomeBoxes.forgetCacheForTest()
         val a = home()
         assertEquals("54°", text(tile(a, "t"), BoxBoard.VALUE_TAG))
-        assertEquals("8m ago", text(tile(a, "t"), BoxBoard.DETAIL_TAG))
+        assertNull("a fresh value shows no age", text(tile(a, "t"), BoxBoard.DETAIL_TAG))
         assertNotNull("a named icon is drawn", tile(a, "t").findViewWithTag<View>(BoxBoard.ICON_TAG))
         assertNull("no icon named, none drawn", tile(a, "e").findViewWithTag<View>(BoxBoard.ICON_TAG))
         assertEquals("—", text(tile(a, "e"), BoxBoard.VALUE_TAG))

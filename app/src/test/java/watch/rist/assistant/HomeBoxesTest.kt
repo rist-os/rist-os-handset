@@ -143,9 +143,9 @@ class HomeBoxesTest {
         val now = 10_000L
         val ok = HomeBoxes.face(box("t", title = "Temperature", value = "54°", detail = "Seattle", updated = now - 480, staleAfter = now + 600), now)
         assertEquals("54°", ok.value)
-        assertEquals("Seattle · 8m ago", ok.detail)
+        assertEquals("Seattle", ok.detail)
         assertFalse(ok.dimmed)
-        assertEquals("Temperature, 54°, Seattle, updated 8 minutes ago. Double tap to open.", ok.description)
+        assertEquals("Temperature, 54°, Seattle. Double tap to open.", ok.description)
 
         val later = 100_000L
         val stale = HomeBoxes.face(box("t", title = "Tides", value = "5.1 ft", updated = later - 3 * 3600, staleAfter = later - 60), later)

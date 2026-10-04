@@ -439,11 +439,11 @@ object HomeBoxes {
         return when (state) {
             State.OK -> {
                 val stale = isStale(b, nowS)
-                val parts = listOf(b.detail, ago, if (stale) "stale" else "").filter { it.isNotBlank() }
+                val parts = (if (stale) listOf(b.detail, ago, "stale") else listOf(b.detail)).filter { it.isNotBlank() }
                 val spoken = buildList {
                     add(label); add(b.value)
                     if (b.detail.isNotBlank()) add(b.detail)
-                    if (b.updatedAtEpochS > 0) add("updated " + spokenAge(nowS, b.updatedAtEpochS.toLong()))
+                    if (stale && b.updatedAtEpochS > 0) add("updated " + spokenAge(nowS, b.updatedAtEpochS.toLong()))
                     if (stale) add("out of date")
                 }.filter { it.isNotBlank() }.joinToString(", ")
                 Face(kind, state, label, b.value, parts.joinToString(" · "), stale, false, "$spoken. Double tap to open.")
