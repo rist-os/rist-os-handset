@@ -288,6 +288,27 @@ internal class BoxBoard(
         layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
     }
 
+    /**
+     * The glance value: it takes whatever height the label and the detail leave, and fits it, so
+     * a long value or large system text never pushes the detail out of the square.
+     */
+    private fun value(text: String, maxSp: Float, colour: Int, tf: Typeface?, lines: Int, gravity: Int) =
+        FitText(activity, sp(maxSp), sp(MIN_VALUE_SP), lines).apply {
+            this.text = text
+            tag = VALUE_TAG
+            typeface = Typeface.create(tf, Typeface.BOLD)
+            setTextColor(colour)
+            ellipsize = TextUtils.TruncateAt.END
+            this.gravity = gravity
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+
+    private fun sp(v: Float): Float =
+        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, v, activity.resources.displayMetrics)
+
+    /** Two lines of detail fit under the value at ordinary text sizes; with large text, one. */
+    private fun detailLines(): Int = if (activity.resources.configuration.fontScale >= LARGE_TEXT) 1 else 2
+
     private fun bindBox(h: Holder, b: HomeBox) {
         val frame = h.frame
         h.boxId = b.id
@@ -310,17 +331,8 @@ internal class BoxBoard(
             boxIcon(b, ink)?.let { top.addView(it); top.addView(spacer()) }
             top.addView(glyph(if (face.sending) R.drawable.ic_box_sending else R.drawable.ic_box_arrow, ink, 18f))
             col.addView(top)
-            col.addView(spacer())
-            col.addView(TextView(activity).apply {
-                text = face.value
-                tag = VALUE_TAG
-                typeface = Typeface.create(tf, Typeface.BOLD)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, if (grid) 14f else 15f)
-                setTextColor(ink)
-                maxLines = 3
-                ellipsize = TextUtils.TruncateAt.END
-            })
-            if (face.detail.isNotBlank()) col.addView(small(face.detail, ink, tf).apply { tag = DETAIL_TAG })
+            col.addView(value(face.value, if (grid) 14f else 15f, ink, tf, 3, Gravity.BOTTOM or Gravity.START))
+            if (face.detail.isNotBlank()) col.addView(small(face.detail, ink, tf).apply { tag = DETAIL_TAG; maxLines = detailLines() })
         } else {
             frame.background = tileBackground(t.tileFill, t.tileBorder, 1.5f)
             val top = LinearLayout(activity).apply {
@@ -330,19 +342,8 @@ internal class BoxBoard(
             boxIcon(b, t.ink)?.let { top.addView(it) }
             top.addView(label(face.label, muted).apply { tag = LABEL_TAG })
             col.addView(top)
-            col.addView(spacer())
-            col.addView(TextView(activity).apply {
-                text = face.value
-                tag = VALUE_TAG
-                typeface = Typeface.create(tf, Typeface.BOLD)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, valueSp(face.value))
-                setTextColor(t.ink)
-                maxLines = 2
-                ellipsize = TextUtils.TruncateAt.END
-                includeFontPadding = false
-            })
-            col.addView(spacer())
-            if (face.detail.isNotBlank()) col.addView(small(face.detail, muted, tf).apply { tag = DETAIL_TAG })
+            col.addView(value(face.value, valueSp(face.value), t.ink, tf, 2, Gravity.CENTER_VERTICAL or Gravity.START))
+            if (face.detail.isNotBlank()) col.addView(small(face.detail, muted, tf).apply { tag = DETAIL_TAG; maxLines = detailLines() })
             // Dimmed as well as reworded, so the state never rests on colour alone.
             col.alpha = if (face.dimmed) DIM_ALPHA else 1f
         }
@@ -522,6 +523,8 @@ internal class BoxBoard(
         const val GRID_H_DP = 104f
         const val ALL_W_DP = 64f
         const val DIM_ALPHA = 0.62f
+        const val MIN_VALUE_SP = 12f
+        const val LARGE_TEXT = 1.3f
 
         const val TILE_TAG_PREFIX = "box:"
         const val LABEL_TAG = "box-label"
@@ -543,5 +546,53 @@ internal class BoxBoard(
             value.length <= 8 -> 22f
             else -> 18f
         }
+    }
+}
+
+/**
+ * Text that fits the height it is given. The largest size, from [maxPx] down to [minPx], at
+ * which all of it fits in the whole lines that height holds (never more than [cap]); at the
+ * smallest, as many lines as fit, ellipsized after the last.
+ */
+internal class FitText(
+    ctx: android.content.Context,
+    private val maxPx: Float,
+    private val minPx: Float,
+    private val cap: Int,
+) : TextView(ctx) {
+    init {
+        includeFontPadding = false
+        setTextSize(TypedValue.COMPLEX_UNIT_PX, maxPx)
+        maxLines = cap
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val room = View.MeasureSpec.getSize(heightMeasureSpec) - paddingTop - paddingBottom
+        val width = View.MeasureSpec.getSize(widthMeasureSpec) - paddingLeft - paddingRight
+        if (View.MeasureSpec.getMode(heightMeasureSpec) != View.MeasureSpec.UNSPECIFIED &&
+            View.MeasureSpec.getMode(widthMeasureSpec) != View.MeasureSpec.UNSPECIFIED &&
+            room > 0 && width > 0
+        ) {
+            var size = maxPx
+            var lines: Int
+            while (true) {
+                if (textSize != size) setTextSize(TypedValue.COMPLEX_UNIT_PX, size)
+                lines = (room / lineHeight).coerceIn(1, cap)
+                if (size <= minPx || lineHeight <= room && linesAt(width) <= lines) break
+                size = (size - 1f).coerceAtLeast(minPx)
+            }
+            if (maxLines != lines) maxLines = lines
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+
+    private fun linesAt(width: Int): Int {
+        val t = text ?: return 0
+        return android.text.StaticLayout.Builder.obtain(t, 0, t.length, paint, width)
+            .setIncludePad(includeFontPadding)
+            .setBreakStrategy(breakStrategy)
+            .setHyphenationFrequency(hyphenationFrequency)
+            .setLineSpacing(lineSpacingExtra, lineSpacingMultiplier)
+            .build().lineCount
     }
 }

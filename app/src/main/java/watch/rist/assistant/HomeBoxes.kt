@@ -439,7 +439,8 @@ object HomeBoxes {
         return when (state) {
             State.OK -> {
                 val stale = isStale(b, nowS)
-                val parts = (if (stale) listOf(b.detail, ago, "stale") else listOf(b.detail)).filter { it.isNotBlank() }
+                // Stale first: a long detail is cut at its end, and the age must not be what goes.
+                val parts = (if (stale) listOf(ago, "stale", b.detail) else listOf(b.detail)).filter { it.isNotBlank() }
                 val spoken = buildList {
                     add(label); add(b.value)
                     if (b.detail.isNotBlank()) add(b.detail)
