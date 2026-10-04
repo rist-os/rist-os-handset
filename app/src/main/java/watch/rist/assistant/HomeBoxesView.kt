@@ -213,15 +213,13 @@ internal class BoxBoard(
                 when {
                     grid || wide -> ViewGroup.LayoutParams.MATCH_PARENT
                     item is Item.All -> px(ALL_W_DP)
-                    item is Item.Add -> px(TILE_H_DP)
-                    else -> px(TILE_W_DP)
+                    else -> px(TILE_DP)
                 },
-                ViewGroup.LayoutParams.WRAP_CONTENT,
+                px(if (grid) GRID_H_DP else TILE_DP),
             ).apply {
                 if (grid) setMargins(px(5f), px(5f), px(5f), px(5f))
                 else marginEnd = px(10f)
             }
-            frame.minimumHeight = px(if (grid) GRID_H_DP else TILE_H_DP)
             when (item) {
                 is Item.Box -> bindBox(h, item.box)
                 Item.Add -> bindAdd(frame)
@@ -466,7 +464,7 @@ internal class BoxBoard(
 
     private fun bindEmpty(frame: FrameLayout) {
         val square = FrameLayout(activity).apply {
-            layoutParams = FrameLayout.LayoutParams(px(TILE_H_DP), px(TILE_H_DP), Gravity.END or Gravity.TOP)
+            layoutParams = FrameLayout.LayoutParams(px(TILE_DP), px(TILE_DP), Gravity.END or Gravity.TOP)
         }
         frame.addView(square)
         bindAdd(square)
@@ -520,8 +518,7 @@ internal class BoxBoard(
         const val COLUMNS = 3
         private const val TYPE_BOX = 1
         private const val TYPE_OTHER = 2
-        const val TILE_W_DP = 112f
-        const val TILE_H_DP = 92f
+        const val TILE_DP = 104f
         const val GRID_H_DP = 104f
         const val ALL_W_DP = 64f
         const val DIM_ALPHA = 0.62f
