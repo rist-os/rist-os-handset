@@ -425,6 +425,7 @@ fi
 
 # Everything this script reads or writes to the phone must be covered, not merely present.
 for f in PARTITIONS.txt REQUIRED_STOCK.txt "$AVB_KEY" ${P_FILE[@]+"${P_FILE[@]}"}; do
+  [ -n "$f" ] || continue   # avb-custom-key is optional
   listed "$SUMS_FILE" "$f" || die "REFUSING: '$f' is not listed in $SUMS_FILE.
 
 It would be used by this flash, but nothing signed says what its bytes should be. A release
