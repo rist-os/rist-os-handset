@@ -1,10 +1,14 @@
 package watch.rist.assistant
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import okhttp3.OkHttpClient
 import rist.v1.BoxEdit
 import rist.v1.HomeBox
+import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.Executors
 
 /**
@@ -13,6 +17,10 @@ import java.util.concurrent.Executors
  * Unlike the other touch edits a refresh is never queued: it means "now" or nothing, so offline it
  * is not sent at all. The backend answers the request at once and later sends a list in which the
  * box's update time has risen above what it was at the tap; that is what ends the wait.
+ *
+ * The wait belongs to the app, not to the expanded view: closing the view and opening it again
+ * finds the same wait still spinning (or the same rest after one), and the wait still times out
+ * when no view is open.
  */
 object BoxRefresh {
 
@@ -24,8 +32,8 @@ object BoxRefresh {
     /** After a refresh that worked, the button rests this long: the backend allows one a minute. */
     const val COOLDOWN_MS = 60_000L
 
-    /** When the wake is asked for a second time, if the box has not come back yet. */
-    const val REPOLL_MS = 10_000L
+    /** When the wake is polled after the backend took the refresh, while the box has not come back. */
+    val POLLS_MS = longArrayOf(0L, 3_000L, 6_000L, 10_000L, 20_000L)
 
     sealed class Outcome {
         /** Accepted: wait for the box's update time to move. */
@@ -72,6 +80,97 @@ object BoxRefresh {
 
     /** False when the user has turned animations off: then nothing spins. */
     fun motion(): Boolean = motionForTest ?: android.animation.ValueAnimator.areAnimatorsEnabled()
+
+    // ---- the waits, one per box, for the whole app ----
+
+    /** A refresh asked for [id] while its update time was [beforeS], with its timers keyed on itself. */
+    class Pending internal constructor(val id: String, val beforeS: Long, val startedUptimeMs: Long) {
+        val deadlineUptimeMs: Long get() = startedUptimeMs + TIMEOUT_MS
+    }
+
+    /** Told on the main thread when a box's wait ends; [said] is a word to show, or null when it worked. */
+    fun interface Watcher { fun ended(id: String, said: Int?) }
+
+    private val pending = HashMap<String, Pending>()
+    private val watchers = CopyOnWriteArraySet<Watcher>()
+    private val main by lazy { Handler(Looper.getMainLooper()) }
+
+    fun watch(w: Watcher) { watchers += w }
+    fun unwatch(w: Watcher) { watchers -= w }
+
+    @Synchronized fun pendingFor(id: String): Pending? = pending[id]
+
+    fun isPending(id: String): Boolean = pendingFor(id) != null
+
+    /**
+     * Starts a refresh of [b]: sends it, and waits for the box to come back newer. False when one
+     * is already waiting or the box is still resting after the last one.
+     */
+    fun start(ctx: Context, b: HomeBox): Boolean {
+        val id = b.id
+        val p = synchronized(this) {
+            if (!offered(b) || pending.containsKey(id) || restingMs(id, System.currentTimeMillis()) > 0) return false
+            Pending(id, b.updatedAtEpochS.toLong(), SystemClock.uptimeMillis()).also { pending[id] = it }
+        }
+        val app = ctx.applicationContext
+        main.postAtTime({ end(p, R.string.boxes_refresh_failed) }, p, p.deadlineUptimeMs)
+        requestSoon(app, id) { out ->
+            main.post {
+                when (out) {
+                    is Outcome.Asked -> {
+                        observe(HomeBoxes.boxes(app))
+                        if (pendingFor(id) === p) pollWhileWaiting(p)
+                    }
+                    is Outcome.Offline -> end(p, R.string.boxes_refresh_offline)
+                    is Outcome.Failed -> end(p, R.string.boxes_refresh_failed)
+                }
+            }
+        }
+        return true
+    }
+
+    /**
+     * Polls the wake now and again at each of [POLLS_MS] before the deadline, while [p] waits. Each
+     * one only kicks the one wake loop, which drops kicks that come during a poll, so these never
+     * open a second hold beside it.
+     */
+    private fun pollWhileWaiting(p: Pending) {
+        val base = SystemClock.uptimeMillis()
+        for (at in POLLS_MS) {
+            val whenMs = base + at
+            if (whenMs >= p.deadlineUptimeMs) break
+            val poll = Runnable { if (pendingFor(p.id) === p) pollWakeNow() }
+            if (at == 0L) poll.run() else main.postAtTime(poll, p, whenMs)
+        }
+    }
+
+    /**
+     * Ends each wait whose box came back newer than at its tap, or has gone. Called wherever a list
+     * is seen: when one is taken in, and when the home row or the expanded view draws.
+     */
+    fun observe(boxes: List<HomeBox>) {
+        val ended = synchronized(this) {
+            if (pending.isEmpty()) return
+            pending.values.filter { p ->
+                val b = boxes.firstOrNull { it.id == p.id }
+                b == null || done(b, p.beforeS)
+            }.onEach { p ->
+                if (boxes.any { it.id == p.id }) markDone(p.id, System.currentTimeMillis())
+            }
+        }
+        ended.forEach { end(it, null) }
+    }
+
+    /** Ends [p] if it is still the box's wait: its timers stop and any open view is told. */
+    private fun end(p: Pending, said: Int?) {
+        synchronized(this) {
+            if (pending[p.id] !== p) return
+            pending.remove(p.id)
+        }
+        main.removeCallbacksAndMessages(p)
+        val tell = Runnable { watchers.forEach { it.ended(p.id, said) } }
+        if (Looper.myLooper() == Looper.getMainLooper()) tell.run() else main.post(tell)
+    }
 
     // ---- the rest after a refresh that worked ----
 
@@ -124,6 +223,9 @@ object BoxRefresh {
     }
 
     @Synchronized internal fun resetForTest() {
+        pending.values.forEach { main.removeCallbacksAndMessages(it) }
+        pending.clear()
+        watchers.clear()
         lastDone.clear()
         onlineForTest = null
         motionForTest = null

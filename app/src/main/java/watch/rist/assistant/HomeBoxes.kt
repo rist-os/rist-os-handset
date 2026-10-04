@@ -174,6 +174,7 @@ object HomeBoxes {
             set
         }
         Log.i(TAG, "box list now v${next.version}: ${next.boxesCount} box(es)")
+        runCatching { BoxRefresh.observe(next.boxesList) }
         // Decoded here, off the main thread, so the first draw of a new icon does not decode it.
         runCatching { BoxIcons.warm(ctx, next.boxesList) }
         announce(ctx)

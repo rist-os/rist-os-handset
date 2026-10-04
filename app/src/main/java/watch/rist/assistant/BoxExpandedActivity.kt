@@ -32,7 +32,8 @@ import java.util.Date
  * backend sent with the glance value, as markdown. Nothing is sent to open it, so it opens at
  * once and works offline. It follows the box: a newer list redraws it, and a box that has gone
  * closes it. A running display box also has a refresh button, which asks the backend to bring it
- * up to date now and spins until the box's update time rises above what it was at the tap.
+ * up to date now and spins until the box's update time rises above what it was at the tap. The
+ * wait itself is held by [BoxRefresh], so closing the view and opening it again picks it up.
  */
 class BoxExpandedActivity : AppCompatActivity() {
 
@@ -54,10 +55,12 @@ class BoxExpandedActivity : AppCompatActivity() {
 
     private val main = Handler(Looper.getMainLooper())
 
-    /** The wait after a tap: the box's update time before it. */
-    private class Waiting(val beforeS: Long)
-    private var waiting: Waiting? = null
-    private val timedOut = Runnable { if (waiting != null) { stopWaiting(); say(R.string.boxes_refresh_failed) } }
+    /** A wait for this box ending, wherever it ended: redraw, and say why when it did not work. */
+    private val ended = BoxRefresh.Watcher { id, said ->
+        if (id != boxId || isFinishing || isDestroyed) return@Watcher
+        drawRefresh()
+        if (said != null) say(said)
+    }
     private val clearStatus = Runnable { refreshStatus.text = ""; refreshStatus.visibility = View.GONE }
     private val rested = Runnable { drawRefresh() }
 
@@ -179,10 +182,12 @@ class BoxExpandedActivity : AppCompatActivity() {
         super.onStart()
         LocalBroadcastManager.getInstance(this).registerReceiver(changed, android.content.IntentFilter(HomeBoxes.ACTION_CHANGED))
         LocalBroadcastManager.getInstance(this).registerReceiver(designChanged, android.content.IntentFilter(DesignSync.ACTION_CHANGED))
+        BoxRefresh.watch(ended)
         fill()
     }
 
     override fun onStop() {
+        BoxRefresh.unwatch(ended)
         LocalBroadcastManager.getInstance(this).unregisterReceiver(changed)
         LocalBroadcastManager.getInstance(this).unregisterReceiver(designChanged)
         super.onStop()
@@ -197,45 +202,10 @@ class BoxExpandedActivity : AppCompatActivity() {
     // ---- refresh ----
 
     private fun refresh() {
-        if (waiting != null) return
         val b = HomeBoxes.find(this, boxId) ?: return
-        if (!BoxRefresh.offered(b) || BoxRefresh.restingMs(boxId, System.currentTimeMillis()) > 0) return
-        val w = Waiting(b.updatedAtEpochS.toLong())
-        waiting = w
+        if (!BoxRefresh.start(this, b)) return
         main.removeCallbacks(clearStatus)
-        drawRefresh()
-        main.postDelayed(timedOut, BoxRefresh.TIMEOUT_MS)
-        val id = boxId
-        BoxRefresh.requestSoon(this, id) { out ->
-            main.post {
-                if (waiting !== w) return@post
-                when (out) {
-                    is BoxRefresh.Outcome.Asked -> {
-                        checkDone()
-                        if (waiting === w) {
-                            BoxRefresh.pollWakeNow()
-                            // Once more partway, in case the first ask landed as a poll was ending.
-                            main.postDelayed({ if (waiting === w) BoxRefresh.pollWakeNow() }, BoxRefresh.REPOLL_MS)
-                        }
-                    }
-                    is BoxRefresh.Outcome.Offline -> { stopWaiting(); say(R.string.boxes_refresh_offline) }
-                    is BoxRefresh.Outcome.Failed -> { stopWaiting(); say(R.string.boxes_refresh_failed) }
-                }
-            }
-        }
-    }
-
-    /** Ends the wait once the box's update time has moved past the tap. */
-    private fun checkDone() {
-        val w = waiting ?: return
-        if (!BoxRefresh.done(HomeBoxes.find(this, boxId), w.beforeS)) return
-        BoxRefresh.markDone(boxId, System.currentTimeMillis())
-        stopWaiting()
-    }
-
-    private fun stopWaiting() {
-        waiting = null
-        main.removeCallbacks(timedOut)
+        clearStatus.run()
         drawRefresh()
     }
 
@@ -251,7 +221,7 @@ class BoxExpandedActivity : AppCompatActivity() {
         val b = HomeBoxes.find(this, boxId)
         val offered = b != null && BoxRefresh.offered(b)
         refreshButton.visibility = if (offered) View.VISIBLE else View.GONE
-        val busy = waiting != null && offered
+        val busy = BoxRefresh.isPending(boxId) && offered
         val resting = BoxRefresh.restingMs(boxId, System.currentTimeMillis())
         refreshButton.isEnabled = !busy && resting == 0L
         refreshButton.alpha = if (busy || resting == 0L) 1f else 0.4f
@@ -278,7 +248,7 @@ class BoxExpandedActivity : AppCompatActivity() {
     }
 
     internal val isSpinning: Boolean get() = spin != null
-    internal val isRefreshing: Boolean get() = waiting != null
+    internal val isRefreshing: Boolean get() = BoxRefresh.isPending(boxId)
 
     private fun fill() {
         val b = HomeBoxes.find(this, boxId)
@@ -298,7 +268,7 @@ class BoxExpandedActivity : AppCompatActivity() {
         // A box that sent no full text shows what it has: the glance value and its line.
         val body = b.body.ifBlank { listOf(face.value, face.detail).filter { it.isNotBlank() }.joinToString("\n\n") }
         bodyView.text = Markdown.render(body)
-        checkDone()
+        BoxRefresh.observe(HomeBoxes.boxes(this))
         drawRefresh()
     }
 

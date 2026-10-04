@@ -81,6 +81,7 @@ internal class BoxBoard(
     @SuppressLint("NotifyDataSetChanged")
     fun render() {
         val boxes = HomeBoxes.boxes(activity)
+        BoxRefresh.observe(boxes)
         adapter.items = buildList {
             boxes.forEach { add(Item.Box(it)) }
             when {
