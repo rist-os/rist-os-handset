@@ -48,6 +48,8 @@ object BoxRefresh {
         object Asked : Outcome()
         object Offline : Outcome()
         data class Failed(val why: String) : Outcome()
+        /** 402: the subscription is not active; [line] is the backend's sentence. */
+        data class Lapsed(val line: String) : Outcome()
     }
 
     /** Only a display box that is running can be refreshed: not a command box, nor one off or paused. */
@@ -99,10 +101,12 @@ object BoxRefresh {
 
     /**
      * Told on the main thread when a box's wait ends; [said] is a word to show, or null when it
-     * worked. [slowed] is told when a wait passes [SLOW_MS] and is still going.
+     * worked. [lapsed] is told instead when the subscription is not active, with the backend's
+     * sentence. [slowed] is told when a wait passes [SLOW_MS] and is still going.
      */
     fun interface Watcher {
         fun ended(id: String, said: Int?)
+        fun lapsed(id: String, line: String) = ended(id, R.string.boxes_refresh_failed)
         fun slowed(id: String) {}
     }
 
@@ -143,6 +147,7 @@ object BoxRefresh {
                     }
                     is Outcome.Offline -> end(p, R.string.boxes_refresh_offline)
                     is Outcome.Failed -> end(p, R.string.boxes_refresh_failed)
+                    is Outcome.Lapsed -> end(p, null, out.line)
                 }
             }
         }
@@ -182,13 +187,15 @@ object BoxRefresh {
     }
 
     /** Ends [p] if it is still the box's wait: its timers stop and any open view is told. */
-    private fun end(p: Pending, said: Int?) {
+    private fun end(p: Pending, said: Int?, lapsedLine: String? = null) {
         synchronized(this) {
             if (pending[p.id] !== p) return
             pending.remove(p.id)
         }
         main.removeCallbacksAndMessages(p)
-        val tell = Runnable { watchers.forEach { it.ended(p.id, said) } }
+        val tell = Runnable {
+            watchers.forEach { if (lapsedLine != null) it.lapsed(p.id, lapsedLine) else it.ended(p.id, said) }
+        }
         if (Looper.myLooper() == Looper.getMainLooper()) tell.run() else main.post(tell)
     }
 
@@ -220,6 +227,11 @@ object BoxRefresh {
             is HomeBoxes.Sent.Later -> {
                 Log.i(TAG, "refresh of $id not sent (${out.why})")
                 if (out.why.startsWith("HTTP")) Outcome.Failed(out.why) else Outcome.Offline
+            }
+            is HomeBoxes.Sent.Lapsed -> {
+                Log.i(TAG, "refresh of $id not sent: subscription ${out.lapse.reason}")
+                runCatching { Billing.onLapsed(ctx, out.lapse) }
+                Outcome.Lapsed(Billing.lineFor(out.lapse))
             }
             is HomeBoxes.Sent.Refused -> {
                 Log.w(TAG, "refresh of $id refused with HTTP ${out.code}")

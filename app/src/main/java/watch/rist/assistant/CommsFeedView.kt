@@ -440,6 +440,7 @@ object CommsFeedView {
     internal const val BILLING_ROW_TAG = "billing-lapse"
     internal const val BILLING_BUTTON_TAG = "billing-update-payment"
     internal const val BILLING_ACCOUNT_TAG = "billing-account-page"
+    internal const val BILLING_LINE_TAG = "billing-line"
 
     /** The backend's renew line and one button; nothing here stands between the person and RECORD. */
     private fun billingRow(
@@ -450,11 +451,18 @@ object CommsFeedView {
         layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         )
+        val accountPage = Billing.offersAccountPage(activity)
         addView(TextView(activity).apply {
             text = line
+            tag = BILLING_LINE_TAG
             setTextColor(t.accent); typeface = tf
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             setPadding(0, (6 * d).toInt(), 0, (6 * d).toInt())
+            // The line itself opens the account page too, where there is one to open.
+            if (accountPage) {
+                isClickable = true; isFocusable = true
+                setOnClickListener { openAccountPage(activity) }
+            }
         })
         if (Billing.offersPayment(activity)) addView(TextView(activity).apply {
             text = activity.getString(R.string.billing_update_payment)
@@ -467,7 +475,7 @@ object CommsFeedView {
             isClickable = true; isFocusable = true
             setOnClickListener { openPortal(activity, this) }
         })
-        if (Billing.offersAccountPage(activity)) addView(TextView(activity).apply {
+        if (accountPage) addView(TextView(activity).apply {
             text = activity.getString(R.string.billing_open_account)
             tag = BILLING_ACCOUNT_TAG
             contentDescription = activity.getString(R.string.billing_open_account_desc)
@@ -476,11 +484,7 @@ object CommsFeedView {
             gravity = Gravity.CENTER_VERTICAL
             minHeight = (48 * d).toInt()
             isClickable = true; isFocusable = true
-            setOnClickListener {
-                val url = Billing.accountPage(activity) ?: return@setOnClickListener
-                runCatching { activity.startActivity(LockedBrowserActivity.intent(activity, url)) }
-                    .onFailure { Log.w(TAG, "could not open the account page", it) }
-            }
+            setOnClickListener { openAccountPage(activity) }
         })
         addView(View(activity).apply {
             layoutParams = LinearLayout.LayoutParams(
@@ -488,6 +492,13 @@ object CommsFeedView {
             )
             setBackgroundColor(t.fieldBorder)
         })
+    }
+
+    /** Only an https page on one of [Billing.ACCOUNT_HOSTS], in the locked browser. */
+    private fun openAccountPage(activity: Activity) {
+        val url = Billing.accountPage(activity) ?: return
+        runCatching { activity.startActivity(LockedBrowserActivity.intent(activity, url)) }
+            .onFailure { Log.w(TAG, "could not open the account page", it) }
     }
 
     private fun openPortal(activity: Activity, button: TextView) {

@@ -619,12 +619,13 @@ class Uploader(private val ctx: Context) {
                     }
                     // 402 = pay: the body is a spoken line like the 413's, and nothing is cleared.
                     if (httpResp.code == Billing.PAYMENT_REQUIRED) {
-                        val lapse = Billing.lapseFrom(httpResp)
-                        lastLapse = lapse
-                        Billing.onLapsed(ctx, lapse)
                         val parsed = httpResp.body?.bytes()?.takeIf { it.isNotEmpty() }
                             ?.let { runCatching { DeviceResponse.parseFrom(it) }.getOrNull() }
                             ?.takeIf { it.speech.text.isNotBlank() }
+                        // The feed's notice shows the backend's own sentence, not one of ours.
+                        val lapse = Billing.lapseFrom(httpResp, parsed?.speech?.text)
+                        lastLapse = lapse
+                        Billing.onLapsed(ctx, lapse)
                         if (parsed != null) {
                             Log.w(TAG, "backend 402 (${lapse.reason}) req_id=${parsed.requestId}")
                             return parsed

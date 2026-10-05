@@ -330,6 +330,8 @@ object HomeBoxes {
         data class Later(val why: String) : Sent()
         /** Refused for good (a malformed edit, an endpoint that does not exist): drop it. */
         data class Refused(val code: Int) : Sent()
+        /** 402: the subscription is not active. Kept, and sent once it is; not retried meanwhile. */
+        data class Lapsed(val lapse: Billing.Lapse) : Sent()
     }
 
     private val PROTOBUF = "application/x-protobuf".toMediaType()
@@ -348,10 +350,11 @@ object HomeBoxes {
                 when {
                     resp.isSuccessful ->
                         Sent.Accepted(BoxEditReply.parseFrom(resp.body?.bytes() ?: ByteArray(0)))
-                    // Not this edit's fault: the credential, the subscription, boxes switched off
-                    // for the account (409, "keep what you have, try later"), a busy or broken
-                    // backend. Kept for the next try.
-                    resp.code in setOf(401, 402, 403, 408, 409, 429) || resp.code >= 500 -> Sent.Later("HTTP ${resp.code}")
+                    resp.code == Billing.PAYMENT_REQUIRED -> Sent.Lapsed(Billing.lapseWithLine(resp))
+                    // Not this edit's fault: the credential, boxes switched off for the account
+                    // (409, "keep what you have, try later"), a busy or broken backend. Kept for
+                    // the next try.
+                    resp.code in setOf(401, 403, 408, 409, 429) || resp.code >= 500 -> Sent.Later("HTTP ${resp.code}")
                     else -> Sent.Refused(resp.code)
                 }
             }
@@ -377,6 +380,15 @@ object HomeBoxes {
                     Log.i(TAG, "edit ${edit.editId.take(8)} waits (${out.why})")
                     // Every tile still to add waits with it: its placeholder goes, with a word.
                     queued(ctx).filter { it.addCount > 0 }.forEach { BoxCreate.addWaits(it.editId) }
+                    return done
+                }
+                is Sent.Lapsed -> {
+                    Log.i(TAG, "edit ${edit.editId.take(8)} waits for the subscription (${out.lapse.reason})")
+                    runCatching { Billing.onLapsed(ctx, out.lapse) }
+                    // The queue is kept for when the account is served again; each tile still to
+                    // add takes its placeholder down with the backend's sentence.
+                    val line = Billing.lineFor(out.lapse)
+                    queued(ctx).filter { it.addCount > 0 }.forEach { BoxCreate.addLapsed(it.editId, line) }
                     return done
                 }
                 is Sent.Refused -> {

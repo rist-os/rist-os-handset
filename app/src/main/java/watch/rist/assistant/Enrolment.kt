@@ -195,15 +195,20 @@ object Enrolment {
         DEVICE_LIMIT,
     }
 
-    /** The server's own words for the last refused pairing, shown for a 409. */
-    @Volatile internal var lastPairDetail: String = ""
-
     // Backend floor: nonce min_length=8.
     internal const val MIN_CODE_LEN = 8
 
     internal fun isPlausibleCode(raw: String): Boolean = raw.trim().length >= MIN_CODE_LEN
 
-    internal fun classifyPair(code: Int, tokenBlank: Boolean, detail: String = ""): PairResult = when {
+    /** `X-Rist-Enrol` on a 409: which of the two it is. */
+    internal const val ENROL_REASON_HEADER = "X-Rist-Enrol"
+    internal const val HELD_DEVICE_LIMIT = "device-limit"
+    internal const val HELD_ELSEWHERE = "held-elsewhere"
+
+    /** Where a customer removes a phone; said on the device-limit 409. */
+    internal const val PHONES_PAGE = "ristassist.com/account/phones"
+
+    internal fun classifyPair(code: Int, tokenBlank: Boolean, detail: String = "", reason: String = ""): PairResult = when {
         code in 200..299 && tokenBlank -> PairResult.NOT_GRANTED
         code in 200..299 -> PairResult.OK
         code == 404 -> PairResult.NOT_RECOGNISED
@@ -211,7 +216,9 @@ object Enrolment {
         code == 400 || code == 422 -> PairResult.MALFORMED
         code == 429 -> PairResult.LOCKED_OUT
         // Two 409s: the account is at its device limit, or another account holds this phone.
-        // Either way the code is used up. Told apart by the server's detail.
+        // Either way the code is used up. Told apart by X-Rist-Enrol, else by the server's detail.
+        code == 409 && reason.trim().equals(HELD_DEVICE_LIMIT, ignoreCase = true) -> PairResult.DEVICE_LIMIT
+        code == 409 && reason.trim().equals(HELD_ELSEWHERE, ignoreCase = true) -> PairResult.HELD_ELSEWHERE
         code == 409 && detail.contains("maximum", ignoreCase = true) -> PairResult.DEVICE_LIMIT
         code == 409 -> PairResult.HELD_ELSEWHERE
         code == Billing.PAYMENT_REQUIRED -> PairResult.PAYMENT_REQUIRED
@@ -244,8 +251,7 @@ object Enrolment {
                 } else ""
                 val detail = if (resp.isSuccessful) "" else
                     runCatching { JSONObject(bodyText).optString("detail").trim() }.getOrDefault("")
-                lastPairDetail = detail
-                var verdict = classifyPair(resp.code, token.isBlank(), detail)
+                var verdict = classifyPair(resp.code, token.isBlank(), detail, resp.header(ENROL_REASON_HEADER).orEmpty())
                 if (verdict == PairResult.OK) {
                     Config.setAuthToken(ctx, token)
                     if (Config.authToken(ctx) != token) {
@@ -271,7 +277,7 @@ object Enrolment {
     }
 
     fun explainPair(r: PairResult): String = when (r) {
-        PairResult.OK -> "This device is now connected."
+        PairResult.OK -> "Connected to Rist Assist."
         PairResult.NOT_RECOGNISED ->
             "That code wasn't recognized. Check the characters and try again."
         PairResult.REFUSED ->
@@ -292,9 +298,8 @@ object Enrolment {
             "This phone is still listed on another Rist account. Remove it on that account's Phones page, " +
                 "then get a new code and try again. This code has been used."
         PairResult.DEVICE_LIMIT ->
-            lastPairDetail.takeIf { it.isNotBlank() }?.let { "$it This code has been used; get a new one after that." }
-                ?: ("This account already has as many phones as it can. Remove one on the Phones page, " +
-                    "then get a new code and try again. This code has been used.")
+            "This account already has two phones. Remove one on the Phones page at $PHONES_PAGE, " +
+                "then get a new code and try again. This code has been used."
         PairResult.STORE_FAILED ->
             "This device couldn't save the connection securely, so it isn't connected. " +
                 "Restart the phone and try a new code; if it keeps happening, report it."

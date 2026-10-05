@@ -18,11 +18,13 @@ object ContactsSection {
     internal fun status(a: Activity, nowMs: Long = System.currentTimeMillis()): String {
         val at = Config.contactsSyncedAt(a)
         val held = ContactIndex.size(a)
+        val lapsed = Billing.notice(a)
         return when {
             !Features.isOn(a, Features.Id.CONTACTS) || Config.contactsRefused(a) ->
                 "Contacts are not on for this account. The address book on this phone stays as it is."
             Config.contactsSyncOff(a) ->
                 "Off. The names already on this phone stay, so calls still show them."
+            lapsed != null -> lapsed
             at <= 0L -> "Not synced yet."
             else -> "Last synced " + DateUtils.getRelativeTimeSpanString(at, nowMs, DateUtils.MINUTE_IN_MILLIS) +
                 " · $held contact" + (if (held == 1) "" else "s")

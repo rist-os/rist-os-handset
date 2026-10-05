@@ -51,13 +51,14 @@ object ContactsSync {
     const val ACTION_DAILY = "watch.rist.assistant.CONTACTS_DAILY"
     const val ACTION_CHANGED = "watch.rist.assistant.CONTACTS_CHANGED"
 
-    enum class Refusal { FEATURE_OFF, CREDENTIAL_DEAD, REVOKED, RETRY }
+    enum class Refusal { FEATURE_OFF, CREDENTIAL_DEAD, REVOKED, LAPSED, RETRY }
 
     internal fun classify(code: Int): Refusal? = when {
         code in 200..299 -> null
         code == FEATURE_OFF_STATUS -> Refusal.FEATURE_OFF
         code == 401 -> Refusal.CREDENTIAL_DEAD
         code == 403 -> Refusal.REVOKED
+        code == Billing.PAYMENT_REQUIRED -> Refusal.LAPSED
         else -> Refusal.RETRY
     }
 
@@ -77,7 +78,8 @@ object ContactsSync {
             Refusal.FEATURE_OFF -> onFeatureOff(ctx)
             Refusal.CREDENTIAL_DEAD -> Enrolment.onCredentialDead(ctx)
             Refusal.REVOKED -> Enrolment.onRevoked(ctx)
-            Refusal.RETRY, null -> Unit
+            // The lapse itself is recorded where the 402 was read (it needs the headers).
+            Refusal.LAPSED, Refusal.RETRY, null -> Unit
         }
     }
 
@@ -170,7 +172,8 @@ object ContactsSync {
         val failed = when (out) {
             is Outcome.Applied -> !out.mirrored
             is Outcome.Failed -> true
-            is Outcome.Refused -> classify(out.code) == Refusal.RETRY
+            // A 402 backs off like a failure, so automatic pulls do not keep asking an unpaid account.
+            is Outcome.Refused -> classify(out.code).let { it == Refusal.RETRY || it == Refusal.LAPSED }
             else -> false
         }
         if (failed) { failures++; failedAtMs = SystemClock.elapsedRealtime() } else if (out is Outcome.Applied) failures = 0
@@ -210,6 +213,7 @@ object ContactsSync {
         bearer: String,
         device: String,
         since: String,
+        onLapse: (Billing.Lapse) -> Unit = {},
     ): Pair<Pulled?, Int> {
         val records = LinkedHashMap<String, ContactRecord>()
         val deleted = LinkedHashSet<String>()
@@ -226,6 +230,7 @@ object ContactsSync {
                 .build()
             val page = try {
                 http.newCall(request).execute().use { resp ->
+                    if (resp.code == Billing.PAYMENT_REQUIRED) runCatching { onLapse(Billing.lapseWithLine(resp)) }
                     if (resp.code != 200) return null to resp.code
                     ContactSync.parseFrom(resp.body?.bytes() ?: ByteArray(0))
                 }
@@ -273,7 +278,7 @@ object ContactsSync {
         val backend = Config.backendUrl(ctx).takeIf { it.isNotBlank() } ?: return Outcome.NotReady
         // Removing the account drops its rows, so a delta would leave the address book empty.
         val since = if (Config.contactsNeedsFull(ctx) || rebuildOwed(ctx)) "" else Config.contactsCursor(ctx)
-        val (pulled, code) = fetch(http, backend, bearer, Config.deviceId(ctx), since)
+        val (pulled, code) = fetch(http, backend, bearer, Config.deviceId(ctx), since) { Billing.onLapsed(ctx, it) }
         if (pulled == null) {
             if (code != 0) {
                 Log.i(TAG, "contact pull refused: HTTP $code")

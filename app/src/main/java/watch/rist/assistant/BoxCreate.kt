@@ -96,6 +96,9 @@ object BoxCreate {
     /** Lets a test see the word shown when a placeholder goes without its box. */
     @Volatile internal var saidForTest: ((Int) -> Unit)? = null
 
+    /** Lets a test see a sentence shown in place of a word (the 402's). */
+    @Volatile internal var toldForTest: ((String) -> Unit)? = null
+
     @Synchronized fun waiting(): List<Pending> = pending.toList()
 
     @Synchronized fun isWaiting(p: Pending): Boolean = pending.any { it === p }
@@ -138,6 +141,14 @@ object BoxCreate {
         if (!drop(p)) return
         announce()
         say(R.string.boxes_add_queued)
+    }
+
+    /** The add edit [editId] waits for the subscription: its placeholder goes, with the backend's [line]. */
+    fun addLapsed(editId: String, line: String) {
+        val p = forEdit(editId) ?: return
+        if (!drop(p)) return
+        announce()
+        sayText(line)
     }
 
     /** The add edit [editId] was answered with its new box ([made]), or refused for good. */
@@ -283,6 +294,15 @@ object BoxCreate {
         if (Looper.myLooper() == Looper.getMainLooper()) tell.run() else main.post(tell)
     }
 
+    private fun sayText(text: String) {
+        val tell = Runnable {
+            toldForTest?.invoke(text) ?: appCtx?.let {
+                runCatching { Toast.makeText(it, text, Toast.LENGTH_LONG).show() }
+            }
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) tell.run() else main.post(tell)
+    }
+
     private fun drop(p: Pending): Boolean {
         synchronized(this) { if (!pending.remove(p)) return false }
         dropCallbacks(p)
@@ -315,5 +335,6 @@ object BoxCreate {
         kickForTest = null
         capMsForTest = null
         saidForTest = null
+        toldForTest = null
     }
 }

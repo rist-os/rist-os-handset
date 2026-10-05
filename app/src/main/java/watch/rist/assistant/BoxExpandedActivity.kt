@@ -63,6 +63,12 @@ class BoxExpandedActivity : AppCompatActivity() {
             if (said != null) say(said)
         }
 
+        override fun lapsed(id: String, line: String) {
+            if (id != boxId || isFinishing || isDestroyed) return
+            drawRefresh()
+            sayText(line)
+        }
+
         override fun slowed(id: String) {
             if (id == boxId && !isFinishing && !isDestroyed) drawRefresh()
         }
@@ -216,8 +222,10 @@ class BoxExpandedActivity : AppCompatActivity() {
     }
 
     /** A short word beside the button, gone again after a few seconds. */
-    private fun say(res: Int) {
-        refreshStatus.text = getString(res)
+    private fun say(res: Int) = sayText(getString(res))
+
+    private fun sayText(text: String) {
+        refreshStatus.text = text
         refreshStatus.visibility = View.VISIBLE
         main.removeCallbacks(clearStatus)
         main.postDelayed(clearStatus, STATUS_MS)

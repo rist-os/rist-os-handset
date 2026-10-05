@@ -19,7 +19,7 @@ object Billing {
 
     const val PAYMENT_REQUIRED = 402
 
-    internal const val DEFAULT_RENEW_URL = "ristmobile.com"
+    internal const val DEFAULT_RENEW_URL = "ristassist.com"
     internal const val DEFAULT_PORTAL_PATH = "/v1/billing/portal"
     internal const val PORTAL_HOST = "billing.stripe.com"
 
@@ -30,8 +30,12 @@ object Billing {
      */
     const val REASON_NOT_ACTIVE = "not-active"
 
-    /** Hosts the account page may be opened on, over https only. */
-    internal val ACCOUNT_HOSTS = setOf("ristassistant.com", "www.ristassistant.com", "ristmobile.com", "www.ristmobile.com")
+    /** Hosts the account page may be opened on, over https only. Exact names: no subdomain is implied. */
+    internal val ACCOUNT_HOSTS = setOf(
+        "ristassist.com", "www.ristassist.com",
+        "ristassistant.com", "www.ristassistant.com",
+        "ristmobile.com", "www.ristmobile.com",
+    )
 
     data class Lapse(
         val reason: String,
@@ -39,23 +43,48 @@ object Billing {
         val portalPath: String,
         /** PENDING header `X-Rist-Account-Url`; empty when the backend did not send one. */
         val accountUrl: String = "",
+        /** The backend's own sentence from the 402's body; empty when it sent none. */
+        val line: String = "",
     ) {
         val notActiveYet: Boolean get() = reason == REASON_NOT_ACTIVE
     }
 
-    internal fun lapseFrom(reason: String?, renewUrl: String?, portalPath: String?, accountUrl: String? = null): Lapse = Lapse(
+    internal fun lapseFrom(
+        reason: String?, renewUrl: String?, portalPath: String?, accountUrl: String? = null, line: String? = null,
+    ): Lapse = Lapse(
         reason = reason?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: "lapsed",
         renewUrl = renewUrl?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_RENEW_URL,
         portalPath = portalPath?.trim()?.takeIf { it.startsWith("/") } ?: DEFAULT_PORTAL_PATH,
         accountUrl = accountUrl?.trim().orEmpty(),
+        line = line?.trim()?.takeIf { it.length <= MAX_LINE_CHARS }.orEmpty(),
     )
 
-    internal fun lapseFrom(resp: okhttp3.Response): Lapse = lapseFrom(
+    /** Headers only; the body is left for the caller. */
+    internal fun lapseFrom(resp: okhttp3.Response, line: String? = null): Lapse = lapseFrom(
         resp.header("X-Rist-Billing"),
         resp.header("X-Rist-Renew-Url"),
         resp.header("X-Rist-Billing-Portal"),
         resp.header("X-Rist-Account-Url"),
+        line,
     )
+
+    /** Headers and the sentence the body speaks, for a route that has no other use for the body. */
+    internal fun lapseWithLine(resp: okhttp3.Response): Lapse =
+        lapseFrom(resp, runCatching { lineFromBody(resp.body?.bytes()) }.getOrNull())
+
+    /** A sentence longer than this is not a 402's line. */
+    internal const val MAX_LINE_CHARS = 300
+
+    /** The sentence a 402 body speaks: a DeviceResponse, or the JSON turn shape. "" when there is none. */
+    internal fun lineFromBody(body: ByteArray?): String {
+        if (body == null || body.isEmpty()) return ""
+        val text = body.toString(Charsets.UTF_8).trim()
+        if (text.startsWith("{")) {
+            return runCatching { JSONObject(text).optJSONObject("speech")?.optString("text").orEmpty().trim() }
+                .getOrDefault("")
+        }
+        return runCatching { rist.v1.DeviceResponse.parseFrom(body).speech.text.trim() }.getOrDefault("")
+    }
 
     /** Said only when the 402's own body cannot be read; the backend's line is always preferred. */
     fun fallbackLine(renewUrl: String = DEFAULT_RENEW_URL): String =
@@ -65,12 +94,17 @@ object Billing {
     fun notActiveLine(renewUrl: String = DEFAULT_RENEW_URL): String =
         "Your Rist Assistant subscription isn't active yet — finish signing up at ${renewUrl.ifBlank { DEFAULT_RENEW_URL }}."
 
-    fun lineFor(lapse: Lapse): String =
+    /** The backend's sentence when it sent one, else ours for the reason. */
+    fun lineFor(lapse: Lapse): String = lapse.line.ifBlank {
         if (lapse.notActiveYet) notActiveLine(lapse.renewUrl) else fallbackLine(lapse.renewUrl)
+    }
 
+    /** Records the lapse. A 402 with no sentence keeps the one already held for the same reason. */
     fun onLapsed(ctx: Context, lapse: Lapse) {
-        if (Config.billingLapse(ctx).isEmpty()) Log.w(TAG, "402: subscription ${lapse.reason}")
-        Config.setBillingLapse(ctx, lapse.reason, lapse.renewUrl, lapse.portalPath, lapse.accountUrl)
+        val was = Config.billingLapse(ctx)
+        if (was.isEmpty()) Log.w(TAG, "402: subscription ${lapse.reason}")
+        val line = lapse.line.ifBlank { if (was == lapse.reason) Config.billingLine(ctx) else "" }
+        Config.setBillingLapse(ctx, lapse.reason, lapse.renewUrl, lapse.portalPath, lapse.accountUrl, line)
     }
 
     /**
@@ -121,7 +155,10 @@ object Billing {
     fun lapse(ctx: Context): Lapse? {
         val reason = Config.billingLapse(ctx)
         if (reason.isEmpty()) return null
-        return lapseFrom(reason, Config.billingRenewUrl(ctx), Config.billingPortalPath(ctx), Config.billingAccountUrl(ctx))
+        return lapseFrom(
+            reason, Config.billingRenewUrl(ctx), Config.billingPortalPath(ctx), Config.billingAccountUrl(ctx),
+            Config.billingLine(ctx),
+        )
     }
 
     fun notice(ctx: Context): String? = lapse(ctx)?.let { lineFor(it) }

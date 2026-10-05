@@ -328,12 +328,10 @@ class BillingLapseTest {
         assertEquals(Enrolment.PairResult.HELD_ELSEWHERE,
             Enrolment.classifyPair(409, true, "this device id is already registered to another account"))
         assertEquals(Enrolment.PairResult.HELD_ELSEWHERE, Enrolment.classifyPair(409, true, ""))
-        Enrolment.lastPairDetail = limit
         val shown = Enrolment.explainPair(Enrolment.PairResult.DEVICE_LIMIT)
-        assertTrue(shown.startsWith(limit))
+        assertTrue(shown.startsWith("This account already has two phones."))
         for (r in listOf(Enrolment.PairResult.DEVICE_LIMIT, Enrolment.PairResult.HELD_ELSEWHERE)) {
             assertFalse(Enrolment.explainPair(r).contains("has not been used"))
         }
-        Enrolment.lastPairDetail = ""
     }
 }

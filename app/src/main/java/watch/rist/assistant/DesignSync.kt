@@ -587,7 +587,13 @@ object DesignSync {
                         nextPostAtMs = nowMs + SWITCHED_OFF_RETRY_MS
                         false
                     }
-                    resp.code in setOf(401, 402, 403, 408, 429) || resp.code >= 500 -> false
+                    resp.code == Billing.PAYMENT_REQUIRED -> {
+                        Log.i(TAG, "the subscription is not active; the phone's look waits")
+                        runCatching { Billing.onLapsed(ctx, Billing.lapseWithLine(resp)) }
+                        nextPostAtMs = nowMs + SWITCHED_OFF_RETRY_MS
+                        false
+                    }
+                    resp.code in setOf(401, 403, 408, 429) || resp.code >= 500 -> false
                     else -> {
                         Log.w(TAG, "design change refused with HTTP ${resp.code}; dropped")
                         if (Config.designPost(ctx) == raw) Config.setDesignPost(ctx, "")

@@ -143,7 +143,7 @@ object WakeLoop {
                     200 -> Outcome.Signal(WakeSignal.parseFrom(resp.body?.bytes() ?: ByteArray(0)), acks)
                     401 -> Outcome.Unauthorised
                     403 -> Outcome.Revoked
-                    Billing.PAYMENT_REQUIRED -> Outcome.Lapsed(Billing.lapseFrom(resp))
+                    Billing.PAYMENT_REQUIRED -> Outcome.Lapsed(Billing.lapseWithLine(resp))
                     else -> Outcome.Retry("HTTP ${resp.code}")
                 }
             }

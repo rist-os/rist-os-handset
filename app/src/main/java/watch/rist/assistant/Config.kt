@@ -50,6 +50,7 @@ object Config {
     private const val KEY_BILLING_PORTAL = "billing_portal_path"
     private const val KEY_BILLING_NO_PORTAL = "billing_no_portal"
     private const val KEY_BILLING_ACCOUNT_URL = "billing_account_url"
+    private const val KEY_BILLING_LINE = "billing_line"
     private const val KEY_FEATURES = "features"
     private const val KEY_HOME_BOXES = "home_boxes"
     private const val KEY_DESIGN_SPEC = "design_spec"
@@ -218,7 +219,7 @@ object Config {
         val had = authToken(ctx).length
         // A revocation or a lapse was one backend's word about this device, not the next one's.
         prefs(ctx).edit().remove(KEY_AUTH_TOKEN).remove(KEY_ENROL_REVOKED).remove(KEY_BILLING_LAPSE)
-            .remove(KEY_BILLING_RENEW).remove(KEY_BILLING_PORTAL).remove(KEY_BILLING_NO_PORTAL).remove(KEY_BILLING_ACCOUNT_URL)
+            .remove(KEY_BILLING_RENEW).remove(KEY_BILLING_PORTAL).remove(KEY_BILLING_NO_PORTAL).remove(KEY_BILLING_ACCOUNT_URL).remove(KEY_BILLING_LINE)
             .remove(KEY_FEATURES).remove(KEY_CONTACTS_SYNC_OFF).remove(KEY_REMOVED_NOTICE_SHOWN)
             .remove(KEY_CONTACTS_REFUSED).remove(KEY_CONTACTS_CURSOR).apply()
         if (had > 0) {
@@ -292,14 +293,20 @@ object Config {
 
     fun billingAccountUrl(ctx: Context): String = prefs(ctx).getString(KEY_BILLING_ACCOUNT_URL, "") ?: ""
 
-    fun setBillingLapse(ctx: Context, reason: String, renewUrl: String, portalPath: String, accountUrl: String = "") {
+    fun billingLine(ctx: Context): String = prefs(ctx).getString(KEY_BILLING_LINE, "") ?: ""
+
+    fun setBillingLapse(
+        ctx: Context, reason: String, renewUrl: String, portalPath: String, accountUrl: String = "", line: String = "",
+    ) {
         prefs(ctx).edit().putString(KEY_BILLING_LAPSE, reason).putString(KEY_BILLING_RENEW, renewUrl)
-            .putString(KEY_BILLING_PORTAL, portalPath).putString(KEY_BILLING_ACCOUNT_URL, accountUrl).apply()
+            .putString(KEY_BILLING_PORTAL, portalPath).putString(KEY_BILLING_ACCOUNT_URL, accountUrl)
+            .putString(KEY_BILLING_LINE, line).apply()
     }
 
     fun clearBillingLapse(ctx: Context) {
         prefs(ctx).edit().remove(KEY_BILLING_LAPSE).remove(KEY_BILLING_RENEW)
-            .remove(KEY_BILLING_PORTAL).remove(KEY_BILLING_NO_PORTAL).remove(KEY_BILLING_ACCOUNT_URL).apply()
+            .remove(KEY_BILLING_PORTAL).remove(KEY_BILLING_NO_PORTAL).remove(KEY_BILLING_ACCOUNT_URL)
+            .remove(KEY_BILLING_LINE).apply()
     }
 
     /** The last feature set the backend sent, as JSON; empty when none has ever arrived. */
