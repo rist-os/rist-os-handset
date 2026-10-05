@@ -56,8 +56,22 @@ object Billing {
         renewUrl = renewUrl?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_RENEW_URL,
         portalPath = portalPath?.trim()?.takeIf { it.startsWith("/") } ?: DEFAULT_PORTAL_PATH,
         accountUrl = accountUrl?.trim().orEmpty(),
-        line = line?.trim()?.takeIf { it.length <= MAX_LINE_CHARS }.orEmpty(),
+        line = noticeLine(line).takeIf { it.length <= MAX_LINE_CHARS }.orEmpty(),
     )
+
+    /**
+     * The router's capped 402 (turn_limits.EMERGENCY_LINE) puts "If this is an emergency, dial 9 1 1
+     * on your phone now." before the billing sentence. That is said once, with that turn; the notice
+     * that stays in the feed and settings keeps only the billing sentence.
+     */
+    internal const val EMERGENCY_PREFIX = "If this is an emergency"
+
+    internal fun noticeLine(raw: String?): String {
+        val text = raw?.trim().orEmpty()
+        if (!text.startsWith(EMERGENCY_PREFIX, ignoreCase = true)) return text
+        val end = text.indexOf(". ")
+        return if (end < 0) "" else text.substring(end + 2).trim()
+    }
 
     /** Headers only; the body is left for the caller. */
     internal fun lapseFrom(resp: okhttp3.Response, line: String? = null): Lapse = lapseFrom(

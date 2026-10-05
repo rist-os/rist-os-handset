@@ -97,6 +97,11 @@ class LaunchLinkingTest {
         assertNull(page("http://ristassist.com/account"))
         assertNull(page("https://ristassist.com:8443/account"))
         assertNull(page("https://someone@ristassist.com/account"))
+        assertNull(page("https://ristassist.com.@evil.example/account"))
+        assertNull(page("https://evil.example\\@ristassist.com/account"))
+        assertNull(page("https://rіstassist.com/account")) // Cyrillic i: a different (punycode) host
+        assertNull(page("javascript:alert(1)"))
+        assertNull(page("ristassist.com.evil.example"))
     }
 
     // ---- pairing ----
@@ -149,6 +154,22 @@ class LaunchLinkingTest {
         assertFalse(up.lastFailure.contains("402"))
         assertEquals(said, Billing.notice(ctx))
         assertEquals("one request: a 402 is not retried", 1, server.requestCount)
+    }
+
+    @Test
+    fun `the capped 402's emergency sentence is spoken with that turn but not kept in the notice`() {
+        val said = "If this is an emergency, dial 9 1 1 on your phone now. $routerLine"
+        server.enqueue(lapsed(said))
+        val reply = Uploader(ctx).sendText("hello")
+        assertEquals(said, reply!!.speech.text)
+        assertEquals(routerLine, Billing.notice(ctx))
+        assertEquals("", Billing.noticeLine("If this is an emergency, dial 9 1 1 on your phone now."))
+        assertEquals(routerLine, Billing.noticeLine(routerLine))
+    }
+
+    @Test
+    fun `a pairing that may have reached the router never says the code is unused`() {
+        assertFalse(Enrolment.explainPair(Enrolment.PairResult.NETWORK).contains("not been used"))
     }
 
     @Test

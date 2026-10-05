@@ -287,7 +287,7 @@ object Enrolment {
         PairResult.NO_ENDPOINT ->
             "No assistant service is set. Fill in the address just above, press Save endpoint, then connect."
         PairResult.NETWORK ->
-            "Couldn't reach the assistant service. Check the connection and try again — your code has not been used."
+            "Couldn't reach the assistant service. Check the connection and try again; if it then says the code was used, get a new one."
         PairResult.NOT_GRANTED ->
             "The assistant service answered but didn't connect this device. Get a new code and try again."
         PairResult.LOCKED_OUT ->
