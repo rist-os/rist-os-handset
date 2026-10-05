@@ -13,6 +13,7 @@ import okhttp3.Request
 import rist.v1.ContactRecord
 import rist.v1.ContactSync
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -101,48 +102,82 @@ object ContactsSync {
         if (cursor.isBlank()) return
         scheduleDailyOnce(ctx)
         if (Config.contactsRefused(ctx)) onFeatureOn(ctx)
+        if (Config.contactsSyncOff(ctx)) return
         // Same cursor: nothing new, unless an address book write is owed and can now land. Without
         // the permission that would be a full pull on every wake, so it waits for a real change.
-        val owed = Config.contactsNeedsFull(ctx) && ContactsMirror.canWrite(ctx)
-        if (cursor == Config.contactsCursor(ctx) && !owed) return
+        if (cursor == Config.contactsCursor(ctx) && !rebuildOwed(ctx)) return
         requestSync(ctx, full = false, reason = "cursor moved")
     }
 
     // ---- running a pull ----
 
-    private val executor = Executors.newSingleThreadExecutor { r -> Thread(r, "rist-contacts").apply { isDaemon = true } }
-    private val queued = AtomicBoolean(false)
+    private val executor = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "rist-contacts").apply { isDaemon = true } }
+    private val autoQueued = AtomicBoolean(false)
+    private val manualQueued = AtomicBoolean(false)
     @Volatile private var lastAutoAtMs = 0L
+    @Volatile private var failures = 0
+    @Volatile private var failedAtMs = 0L
+
+    /** Repeated failures (network, 5xx, an address book that will not take the write) back off to this. */
+    internal const val MAX_BACKOFF_MS = 60 * 60_000L
+
+    /** The gap held between automatic pulls, in ms; a test shortens it. */
+    @Volatile internal var minGapMs = MIN_GAP_MS
 
     /** The test store cannot hold a token (secret keys need the encrypted store), so a test hands one in. */
     @Volatile internal var bearerForTest: String? = null
 
     /** Lets a test run pulls inline, with no gap held between them. */
     @Volatile internal var runInlineForTest = false
-        set(v) { field = v; lastAutoAtMs = 0L }
+        set(v) { field = v; lastAutoAtMs = 0L; failures = 0; failedAtMs = 0L; minGapMs = MIN_GAP_MS }
+
+    internal fun backoffMs(failures: Int): Long =
+        if (failures <= 0) 0L else (MIN_GAP_MS shl (failures - 1).coerceAtMost(12)).coerceAtMost(MAX_BACKOFF_MS)
+
+    /** How long an automatic pull asked for at [now] waits: the gap after the last one, or the failure backoff. */
+    internal fun waitMs(now: Long, lastAutoAt: Long, failures: Int, failedAt: Long, gap: Long = MIN_GAP_MS): Long {
+        val gapEnd = if (lastAutoAt == 0L) 0L else lastAutoAt + gap
+        val backoffEnd = if (failures <= 0) 0L else failedAt + backoffMs(failures)
+        return (maxOf(gapEnd, backoffEnd) - now).coerceAtLeast(0L)
+    }
 
     /**
-     * Asks for a pull in the background. Requests made while one is waiting fold into it. [full]
-     * ("Sync now") rebuilds the mirror from scratch and is never held back by [MIN_GAP_MS].
+     * Asks for a pull in the background. Requests made while one is waiting fold into it. An
+     * automatic one asked for too soon after the last, or while failures are backing off, waits
+     * its turn rather than being dropped, so a cursor that moved is never left unpulled. [full]
+     * ("Sync now") rebuilds the mirror from scratch; a [manual] pull is never held back.
      */
     fun requestSync(ctx: Context, full: Boolean, reason: String, manual: Boolean = false) {
         val app = ctx.applicationContext
-        if (!manual) {
-            val now = SystemClock.elapsedRealtime()
-            if (lastAutoAtMs != 0L && now - lastAutoAtMs < MIN_GAP_MS) return
-            lastAutoAtMs = now
-        }
         if (full) Config.setContactsNeedsFull(app, true)
-        if (runInlineForTest) { runCatching { syncBlocking(app, manual) }; return }
-        if (!queued.compareAndSet(false, true)) return
-        executor.execute {
-            queued.set(false)
-            runCatching { syncBlocking(app, manual) }.onFailure { Log.w(TAG, "contact sync failed ($reason)", it) }
+        if (runInlineForTest) { syncBlocking(app, manual); return }
+        if (manual) {
+            if (!manualQueued.compareAndSet(false, true)) return
+            executor.execute { manualQueued.set(false); syncBlocking(app, true) }
+            return
         }
+        if (!autoQueued.compareAndSet(false, true)) return
+        val delay = waitMs(SystemClock.elapsedRealtime(), lastAutoAtMs, failures, failedAtMs, minGapMs)
+        executor.schedule({
+            autoQueued.set(false)
+            lastAutoAtMs = SystemClock.elapsedRealtime()
+            val out = syncBlocking(app, false)
+            if (out is Outcome.Failed) Log.i(TAG, "contact sync failed ($reason): ${out.why}")
+        }, delay, TimeUnit.MILLISECONDS)
+    }
+
+    private fun noteOutcome(out: Outcome) {
+        val failed = when (out) {
+            is Outcome.Applied -> !out.mirrored
+            is Outcome.Failed -> true
+            is Outcome.Refused -> classify(out.code) == Refusal.RETRY
+            else -> false
+        }
+        if (failed) { failures++; failedAtMs = SystemClock.elapsedRealtime() } else if (out is Outcome.Applied) failures = 0
     }
 
     sealed class Outcome {
-        data class Applied(val full: Boolean, val written: Int, val removed: Int) : Outcome()
+        data class Applied(val full: Boolean, val written: Int, val removed: Int, val mirrored: Boolean = true) : Outcome()
         object NotAllowed : Outcome()
         object NotReady : Outcome()
         data class Refused(val code: Int) : Outcome()
@@ -216,14 +251,28 @@ object ContactsSync {
         return Pulled(cursor, full, records.values.toList(), deleted) to 200
     }
 
-    /** One pull, start to finish. Blocking; call off the main thread. */
+    /** One pull, start to finish. Blocking; call off the main thread. Never throws. */
     @Synchronized
     fun syncBlocking(ctx: Context, manual: Boolean = false, http: OkHttpClient = Uploader.sharedClient()): Outcome {
+        val out = runCatching { pull(ctx, manual, http) }.getOrElse {
+            // The class only: a provider or parser message can quote what it was handed.
+            Outcome.Failed(it.javaClass.simpleName)
+        }
+        noteOutcome(out)
+        return out
+    }
+
+    /** The address book has to be rebuilt: a write owed, or the Rist account (and its rows) gone. */
+    internal fun rebuildOwed(ctx: Context): Boolean =
+        ContactsMirror.canWrite(ctx) && (Config.contactsNeedsFull(ctx) || !ContactsMirror.hasAccount(ctx))
+
+    private fun pull(ctx: Context, manual: Boolean, http: OkHttpClient): Outcome {
         if (manual && Config.contactsRefused(ctx)) Config.setContactsRefused(ctx, false)
         if (!allowed(ctx)) return Outcome.NotAllowed
         val bearer = bearerForTest ?: Uploader.bearer(ctx) ?: return Outcome.NotReady
         val backend = Config.backendUrl(ctx).takeIf { it.isNotBlank() } ?: return Outcome.NotReady
-        val since = if (Config.contactsNeedsFull(ctx)) "" else Config.contactsCursor(ctx)
+        // Removing the account drops its rows, so a delta would leave the address book empty.
+        val since = if (Config.contactsNeedsFull(ctx) || rebuildOwed(ctx)) "" else Config.contactsCursor(ctx)
         val (pulled, code) = fetch(http, backend, bearer, Config.deviceId(ctx), since)
         if (pulled == null) {
             if (code != 0) {
@@ -235,11 +284,10 @@ object ContactsSync {
         }
         // A delta against a mirror we do not hold would be a lie, so the backend never sends one;
         // a full answer to a delta request is honoured as a full.
-        ContactIndex.apply(ctx, pulled.full, pulled.records, pulled.deletedIds)
+        val indexed = ContactIndex.apply(ctx, pulled.full, pulled.records, pulled.deletedIds)
         val mirrored = ContactsMirror.apply(ctx, pulled.full, pulled.records, pulled.deletedIds)
-        Config.setContactsCursor(ctx, pulled.cursor)
-        // A provider write that did not land is retried as a full pull, so it cannot drift.
-        Config.setContactsNeedsFull(ctx, !mirrored)
+        // A write that did not land is retried as a full pull, so it cannot drift.
+        Config.setContactsApplied(ctx, pulled.cursor, needsFull = !mirrored || !indexed)
         Config.setContactsSyncedAt(ctx, System.currentTimeMillis())
         CallerId.forget()
         runCatching {
@@ -248,7 +296,8 @@ object ContactsSync {
         }
         Log.i(TAG, "contacts synced: full=${pulled.full}, ${pulled.records.size} changed, " +
             "${pulled.deletedIds.size} deleted, ${ContactIndex.size(ctx)} held, address book=${if (mirrored) "written" else "NOT written"}")
-        return Outcome.Applied(pulled.full, pulled.records.size, pulled.deletedIds.size)
+        return Outcome.Applied(pulled.full, pulled.records.size, pulled.deletedIds.size,
+            mirrored = (mirrored || !ContactsMirror.canWrite(ctx)) && indexed)
     }
 
     // ---- daily ----
@@ -265,9 +314,12 @@ object ContactsSync {
         dailyScheduled = true
         runCatching {
             val am = ctx.getSystemService(AlarmManager::class.java) ?: return
+            val intent = Intent(ctx, ContactsDailyReceiver::class.java).setAction(ACTION_DAILY)
+            // Already set (it outlives the process, not a reboot): setting it again would push the
+            // first run a day out on every app start, and an app restarted daily would never pull.
+            if (PendingIntent.getBroadcast(ctx, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_NO_CREATE) != null) return
             val pi = PendingIntent.getBroadcast(
-                ctx, 0,
-                Intent(ctx, ContactsDailyReceiver::class.java).setAction(ACTION_DAILY),
+                ctx, 0, intent,
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
             am.setInexactRepeating(
@@ -275,7 +327,7 @@ object ContactsSync {
                 SystemClock.elapsedRealtime() + AlarmManager.INTERVAL_DAY,
                 AlarmManager.INTERVAL_DAY, pi,
             )
-        }.onFailure { Log.w(TAG, "could not schedule the daily contact sync", it) }
+        }.onFailure { Log.w(TAG, "could not schedule the daily contact sync: ${it.javaClass.simpleName}") }
     }
 
     /** On boot: a pull now, and the daily one. */
