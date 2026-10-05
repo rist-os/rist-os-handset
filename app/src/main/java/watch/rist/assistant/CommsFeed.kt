@@ -62,9 +62,10 @@ object CommsFeed {
         // other phone behaves and what the backend already does with the same records.
         val read = ordered.filter { !it.unread }.take(maxRead.coerceAtLeast(0))
 
-        val keptUnread = unread.take(hardCap.coerceAtLeast(0))
-        val keptRead = read.take((hardCap - keptUnread.size).coerceAtLeast(0))
-        return (keptUnread + keptRead).sortedByDescending { it.atMs }
+        // Every unread item is kept: trimming one would hide it silently. The sources bound
+        // them (HARD_CAP calls, HARD_CAP texts, MAX_NOTIFICATIONS notices); hardCap trims read ones.
+        val keptRead = read.take((hardCap - unread.size).coerceAtLeast(0))
+        return (unread + keptRead).sortedByDescending { it.atMs }
     }
 
     fun unreadCount(items: List<FeedItem>): Int = items.count { it.unread }
