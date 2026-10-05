@@ -187,7 +187,7 @@ class HomeBoxesTest {
         assertEquals("Text Sam I'm on my way", t.text)
         assertEquals("", t.targetToolId)
         assertEquals("c1", t.boxId)
-        assertEquals("Text Sam I'm on my way · from a tile", t.prompt)
+        assertEquals("the transcript shows just the words", "Text Sam I'm on my way", t.prompt)
     }
 
     @Test
@@ -198,6 +198,11 @@ class HomeBoxesTest {
         assertEquals("", d.boxId)
         val c = HomeBoxes.addTurn(HomeBoxes.Kind.COMMAND, "check my email")
         assertEquals("Add a command box: check my email", c.text)
+        val e = HomeBoxes.addEdit(ctx, "Check my email, then text Sam ")
+        assertEquals(1, e.addCount)
+        assertEquals("exactly what was typed", "Check my email, then text Sam ", e.getAdd(0).command)
+        assertEquals("the backend names it", "", e.getAdd(0).title)
+        assertTrue(e.editId.isNotBlank())
         val ch = HomeBoxes.changeTurn(box("b7"), "show it in Celsius")
         assertEquals("Change this box: show it in Celsius", ch.text)
         assertEquals("boxes", ch.targetToolId)

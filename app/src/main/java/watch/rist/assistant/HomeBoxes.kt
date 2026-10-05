@@ -10,6 +10,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
+import rist.v1.BoxAdd
 import rist.v1.BoxEdit
 import rist.v1.BoxEditReply
 import rist.v1.BoxSet
@@ -198,10 +199,13 @@ object HomeBoxes {
     /** A turn a box starts. [prompt] is the user's line in the transcript. */
     data class Turn(val text: String, val targetToolId: String, val boxId: String, val prompt: String)
 
-    /** Exactly the stored words, as typed text: no tool is addressed. Null for a display box. */
+    /**
+     * Exactly the stored words, as typed text: no tool is addressed, and the transcript shows just
+     * those words, as if the user had said or typed them. Null for a display box.
+     */
     fun commandTurn(b: HomeBox): Turn? {
         if (kindOf(b) != Kind.COMMAND || b.command.isBlank()) return null
-        return Turn(text = b.command, targetToolId = "", boxId = b.id, prompt = "${b.command} · from a tile")
+        return Turn(text = b.command, targetToolId = "", boxId = b.id, prompt = b.command)
     }
 
     fun addTurn(kind: Kind, words: String): Turn {
@@ -240,13 +244,23 @@ object HomeBoxes {
         BoxEdit.newBuilder().setEditId(newEditId()).setBaseVersion(version(ctx))
             .addRestoreIds(id).addAllOrder(previousOrder).build()
 
+    /**
+     * A new one-tap tile, made by touch edit rather than a turn: [command] is exactly what the user
+     * typed, and the backend names the tile. Nothing changes on the phone until the backend's list
+     * holds it; a placeholder ([BoxCreate]) stands in meanwhile.
+     */
+    fun addEdit(ctx: Context, command: String): BoxEdit =
+        BoxEdit.newBuilder().setEditId(newEditId()).setBaseVersion(version(ctx))
+            .addAdd(BoxAdd.newBuilder().setCommand(command).setTitle("")).build()
+
     fun renameEdit(ctx: Context, id: String, title: String): BoxEdit =
         BoxEdit.newBuilder().setEditId(newEditId()).setBaseVersion(version(ctx))
             .setRenameId(id).setRenameTitle(clip(title.trim(), TITLE_MAX)).build()
 
     /**
      * What [edit] does to [set], as the backend will apply it: deletes and restores first, then a
-     * rename, then the order. An order lists ids; ids that no longer exist are skipped and boxes
+     * rename, then the order. An add changes nothing here: the box exists once the backend says so.
+     * An order lists ids; ids that no longer exist are skipped and boxes
      * it does not mention keep their place after the ones it does.
      */
     @Synchronized
@@ -361,20 +375,52 @@ object HomeBoxes {
             when (val out = send(http, url, bearer, Config.deviceId(ctx), edit)) {
                 is Sent.Later -> {
                     Log.i(TAG, "edit ${edit.editId.take(8)} waits (${out.why})")
+                    // Every tile still to add waits with it: its placeholder goes, with a word.
+                    queued(ctx).filter { it.addCount > 0 }.forEach { BoxCreate.addWaits(it.editId) }
                     return done
                 }
                 is Sent.Refused -> {
                     Log.w(TAG, "edit ${edit.editId.take(8)} refused with HTTP ${out.code}; dropped")
                     dequeue(ctx, edit.editId)
+                    if (edit.addCount > 0) BoxCreate.addEnded(ctx, edit.editId, made = false)
                 }
                 is Sent.Accepted -> {
+                    val before = boxes(ctx).map { it.id }.toSet()
                     dequeue(ctx, edit.editId)
                     if (out.reply.hasBoxes()) apply(ctx, out.reply.boxes)
+                    if (edit.addCount > 0) added(ctx, edit, out.reply, before)
                 }
             }
             done++
         }
         return done
+    }
+
+    /**
+     * An add was accepted. Its reply's list holds the new tile, unless the backend predates
+     * [BoxEdit.add] and ignored it, in which case the tile is asked for by the old add turn, once.
+     */
+    private fun added(ctx: Context, edit: BoxEdit, reply: BoxEditReply, before: Set<String>) {
+        val known = BoxCreate.idsAtSubmit(edit.editId) ?: before
+        val made = reply.hasBoxes() && reply.boxes.boxesList.any { it.id !in known }
+        if (made) {
+            BoxCreate.addEnded(ctx, edit.editId, made = made)
+            return
+        }
+        // FALLBACK, TEMPORARY: remove this branch (and [addTurn]'s command case) once every backend
+        // reads BoxEdit.add (field 9). Until then a reply with no new box means the add was not
+        // understood, so the tile is asked for as before: one "Add a command box: …" turn per add,
+        // sent here, with no further fallback whatever comes back.
+        for (a in edit.addList) {
+            Log.i(TAG, "edit ${edit.editId.take(8)}: no new box in the reply; asking by turn instead")
+            val uploader = Uploader(ctx)
+            val turn = addTurn(Kind.COMMAND, a.command)
+            val answer = runCatching { uploader.sendToolCall(turn.targetToolId, turn.text) }.getOrNull()
+            BoxCreate.addTurnEnded(
+                ctx, edit.editId, answer,
+                mayHaveHappened = uploader.lastFailure == Uploader.MAY_HAVE_HAPPENED,
+            )
+        }
     }
 
     @Synchronized

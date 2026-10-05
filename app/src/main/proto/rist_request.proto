@@ -683,6 +683,15 @@ message BoxEdit {
   // Display boxes to bring up to date now. Never queued offline; the backend answers by sending a
   // list in which each box's updated_at_epoch_s has moved on, even when its value is unchanged.
   repeated string refresh_ids = 8;
+  // New one-tap (command) tiles, made without a turn. The reply's list holds each new box.
+  repeated BoxAdd add         = 9;
+}
+
+// A one-tap tile to make: command is exactly what the user typed; an empty title lets the backend
+// name it.
+message BoxAdd {
+  string command = 1;
+  string title   = 2;
 }
 
 message BoxEditReply {

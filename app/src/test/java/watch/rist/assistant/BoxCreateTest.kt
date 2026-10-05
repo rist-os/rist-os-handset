@@ -24,6 +24,8 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.shadows.ShadowDialog
+import rist.v1.BoxEdit
+import rist.v1.BoxEditReply
 import rist.v1.BoxSet
 import rist.v1.DeviceRequest
 import rist.v1.DeviceResponse
@@ -44,6 +46,13 @@ class BoxCreateTest {
     private val kicks = AtomicInteger()
     private val said = CopyOnWriteArrayList<Int>()
     @Volatile private var reply: () -> MockResponse = { ok(DeviceResponse.newBuilder()) }
+    private val edits = CopyOnWriteArrayList<BoxEdit>()
+    @Volatile private var boxesReply: (BoxEdit) -> MockResponse = { MockResponse().setResponseCode(503) }
+
+    private fun editReply(s: BoxSet) = MockResponse().setResponseCode(200)
+        .setHeader("Content-Type", "application/x-protobuf")
+        .setHeadersDelay(300, TimeUnit.MILLISECONDS)
+        .setBody(Buffer().write(BoxEditReply.newBuilder().setStatus(200).setBoxes(s).build().toByteArray()))
 
     private fun ok(r: DeviceResponse.Builder) = MockResponse().setResponseCode(200)
         .setHeader("Content-Type", "application/x-protobuf")
@@ -65,7 +74,11 @@ class BoxCreateTest {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val body = request.body.readByteArray()
-                if (request.path == "/v1/device/boxes") return MockResponse().setResponseCode(503)
+                if (request.path == "/v1/device/boxes") {
+                    val e = BoxEdit.parseFrom(body)
+                    edits += e
+                    return boxesReply(e)
+                }
                 val req = DeviceRequest.parseFrom(body)
                 // Only a turn gets the test's reply; the home screen's own check-ins get nothing.
                 if (request.path != "/v1/device" || (req.text.isBlank() && req.targetToolId.isBlank())) {
@@ -122,6 +135,73 @@ class BoxCreateTest {
         root.findViewWithTag<EditText>(BoxSheet.TAG_WORDS).setText(words)
         root.findViewWithTag<View>(BoxSheet.TAG_SUBMIT).performClick()
         settle()
+    }
+
+    private fun submitCommand(a: MainActivity, words: String) {
+        a.boxBoard.openAddSheet()
+        settle()
+        val root = ShadowDialog.getLatestDialog().window!!.decorView
+        root.findViewWithTag<View>(BoxSheet.TAG_COMMAND).performClick()
+        root.findViewWithTag<EditText>(BoxSheet.TAG_WORDS).setText(words)
+        root.findViewWithTag<View>(BoxSheet.TAG_SUBMIT).performClick()
+        settle()
+    }
+
+    private fun command(id: String, words: String): HomeBox = HomeBox.newBuilder().setId(id).setTitle("Email")
+        .setKind("command").setState("ok").setCommand(words).setSourceWords(words).build()
+
+    @Test
+    fun `a one-tap tile is added by touch edit, and the reply's new box replaces the placeholder`() {
+        HomeBoxes.apply(app, set("a"))
+        boxesReply = { e ->
+            editReply(set("a").toBuilder().setVersion(5).addBoxes(command("new", e.getAdd(0).command)).build())
+        }
+        val a = home()
+        submitCommand(a, "Check my email, then text Sam")
+        assertNotNull("the placeholder is up at once", placeholder(a))
+        waitFor("the new box") { BoxCreate.waiting().isEmpty() }
+        HomeBoxes.awaitFlushForTest()
+        a.renderBoxes(); settle()
+        assertNull(placeholder(a))
+        assertNotNull(row(a).findViewWithTag<View>(BoxBoard.TILE_TAG_PREFIX + "new"))
+        assertEquals("Check my email, then text Sam", edits.single().getAdd(0).command)
+        assertTrue("no turn at all", turns.isEmpty())
+        assertTrue(HomeBoxes.queued(app).isEmpty())
+        assertTrue(said.isEmpty())
+    }
+
+    @Test
+    fun `a backend that ignores the add gets the old add turn, once`() {
+        HomeBoxes.apply(app, set("a"))
+        boxesReply = { editReply(set("a")) }
+        reply = { ok(DeviceResponse.newBuilder().setBoxes(set("a").toBuilder().addBoxes(command("made", "check my email")))) }
+        val a = home()
+        submitCommand(a, "check my email")
+        waitFor("the fallback's box") { BoxCreate.waiting().isEmpty() }
+        HomeBoxes.awaitFlushForTest()
+        assertEquals(1, edits.size)
+        assertEquals(1, turns.size)
+        assertEquals("boxes", turns[0].targetToolId)
+        assertEquals("Add a command box: check my email", turns[0].text)
+        assertNotNull(HomeBoxes.find(app, "made"))
+        assertTrue(said.isEmpty())
+    }
+
+    @Test
+    fun `a one-tap tile offline is queued, and its placeholder goes with a word`() {
+        HomeBoxes.apply(app, set("a"))
+        val a = home()
+        submitCommand(a, "check my email")
+        HomeBoxes.awaitFlushForTest()
+        waitFor("the placeholder to go") { BoxCreate.waiting().isEmpty() }
+        assertEquals(listOf(R.string.boxes_add_queued), said.toList())
+        assertEquals("check my email", HomeBoxes.queued(app).single().getAdd(0).command)
+        assertTrue(turns.isEmpty())
+        // Back online: the queued add goes and its box arrives.
+        boxesReply = { e -> editReply(set("a").toBuilder().addBoxes(command("new", e.getAdd(0).command)).build()) }
+        HomeBoxes.flush(app)
+        assertNotNull(HomeBoxes.find(app, "new"))
+        assertTrue(turns.isEmpty())
     }
 
     /** The order the row draws: tags of each item, left to right. */

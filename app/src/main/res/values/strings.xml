@@ -280,6 +280,7 @@
     <string name="boxes_creating_desc">Creating tile: %1$s. Hold to cancel.</string>
     <string name="boxes_create_still">Still creating…</string>
     <string name="boxes_create_failed">Couldn\'t create that tile</string>
+    <string name="boxes_add_queued">Offline. The tile will be added when you\'re back online</string>
     <string name="boxes_create_cancel">Cancel</string>
     <string name="boxes_edit">Edit</string>
     <string name="boxes_delete">Delete</string>

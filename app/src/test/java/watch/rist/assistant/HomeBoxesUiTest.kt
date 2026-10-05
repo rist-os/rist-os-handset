@@ -234,28 +234,59 @@ class HomeBoxesUiTest {
         assertTrue(req.requestId.isNotBlank() && req.utteranceId.isNotBlank())
         assertEquals(3L, req.boxesVersion)
         val entry = Transcript.all(app).last()
-        assertEquals("Check my email · from a tile", entry.prompt)
+        assertEquals("Check my email", entry.prompt)
         assertEquals("the answer lands in the feed", "You have 2 new emails.", entry.answer)
         assertNull("and not in the box", text(tile(a, "c"), BoxBoard.DETAIL_TAG))
+    }
+
+    @Test
+    fun `a tile tap lands in the feed exactly as the same words typed`() {
+        hold(box("c", title = "Email", kind = "command", command = "Check my email"))
+        val a = home()
+        tile(a, "c").performClick()
+        settle()
+        waitFor("the tile's reply") { !HomeBoxes.isSending("c") && Transcript.all(app).lastOrNull()?.state == EntryState.ANSWERED }
+        val fromTile = Transcript.all(app).last()
+        val tileStatus = a.findViewById<TextView>(R.id.statusText)?.text?.toString()?.substringAfter("] ")
+        a.findViewById<EditText>(R.id.textInput).apply {
+            setText("Check my email")
+            onEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_SEND)
+        }
+        settle()
+        waitFor("the typed reply") { Transcript.all(app).size == 2 && Transcript.all(app).last().state == EntryState.ANSWERED }
+        val typed = Transcript.all(app).last()
+        assertEquals(typed.prompt, fromTile.prompt)
+        assertEquals(typed.answer, fromTile.answer)
+        assertEquals(typed.state, fromTile.state)
+        assertEquals(tileStatus, a.findViewById<TextView>(R.id.statusText)?.text?.toString()?.substringAfter("] "))
+        assertEquals(2, turns.size)
+        assertEquals(turns[1].text, turns[0].text)
+        assertEquals(turns[1].targetToolId, turns[0].targetToolId)
     }
 
     // ---- sheets ----
 
     @Test
-    fun `the add sheet sends an ordinary turn to the boxes tool`() {
+    fun `a one-tap tile from the add sheet is a touch edit with the exact words, not a turn`() {
         val a = home()
         a.findViewById<View>(R.id.boxList).findViewWithTag<View>(BoxBoard.ADD_TAG).performClick()
         settle()
         val d = ShadowDialog.getLatestDialog()
         val root = d.window!!.decorView
         root.findViewWithTag<View>(BoxSheet.TAG_COMMAND).performClick()
-        root.findViewWithTag<EditText>(BoxSheet.TAG_WORDS).setText("check my email")
+        root.findViewWithTag<EditText>(BoxSheet.TAG_WORDS).setText("Check my email, then text Sam")
         root.findViewWithTag<View>(BoxSheet.TAG_SUBMIT).performClick()
         settle()
-        waitFor("the turn") { turns.isNotEmpty() }
-        assertEquals("boxes", turns[0].targetToolId)
-        assertEquals("Add a command box: check my email", turns[0].text)
-        assertEquals("", turns[0].boxId)
+        HomeBoxes.awaitFlushForTest()
+        waitFor("the edit") { edits.isNotEmpty() }
+        val add = edits.single()
+        assertEquals(1, add.addCount)
+        assertEquals("Check my email, then text Sam", add.getAdd(0).command)
+        assertEquals("", add.getAdd(0).title)
+        Thread.sleep(100); settle()
+        assertTrue("no turn is sent", turns.isEmpty())
+        // The backend answered 503: the add stays queued for the next connection.
+        assertEquals(listOf(add.editId), HomeBoxes.queued(app).map { it.editId })
     }
 
     @Test
@@ -408,6 +439,6 @@ class HomeBoxesUiTest {
         // A command tap goes home to be sent.
         root.findViewWithTag<View>(BoxBoard.TILE_TAG_PREFIX + "b").performClick()
         val result = shadowOf(g).resultIntent
-        assertEquals(HomeBoxes.Turn("go", "", "b", "go · from a tile"), AllBoxesActivity.turnFrom(result))
+        assertEquals(HomeBoxes.Turn("go", "", "b", "go"), AllBoxesActivity.turnFrom(result))
     }
 }

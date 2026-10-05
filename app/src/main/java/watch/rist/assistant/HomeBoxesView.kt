@@ -115,7 +115,14 @@ internal class BoxBoard(
         }
     }
 
-    fun openAddSheet() = BoxSheet.showAdd(activity) { host.onTurn(it) }
+    fun openAddSheet() = BoxSheet.showAdd(activity, onAddCommand = { addCommand(it) }) { host.onTurn(it) }
+
+    /** A one-tap tile: a touch edit, no turn; a placeholder stands in until the backend's list has it. */
+    fun addCommand(words: String) {
+        val edit = HomeBoxes.addEdit(activity, words)
+        BoxCreate.startAdd(activity, words, edit.editId)
+        commit(edit)
+    }
 
     fun openEditSheet(b: HomeBox) = BoxSheet.showEdit(
         activity, b,

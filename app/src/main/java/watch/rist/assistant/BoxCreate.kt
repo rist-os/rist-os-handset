@@ -6,13 +6,16 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.widget.Toast
+import rist.v1.DeviceResponse
 import rist.v1.HomeBox
 
 /**
  * A tile asked for from the add sheet, shown as a placeholder until the backend's list has it.
  *
- * Nothing extra is sent: the add turn goes as it always did, and the wait is ended only by what
- * comes back. A list holding a box that was not there at the submit ends it: the new box whose
+ * A display tile is asked for by an add turn; a one-tap tile by a touch edit ([HomeBoxes.addEdit]),
+ * which counts here as that tile's turn. Nothing extra is sent, and the wait is ended only by what
+ * comes back. A touch edit that has to wait for a connection takes its placeholder down with a word:
+ * the tile comes when the queued edit is sent. A list holding a box that was not there at the submit ends it: the new box whose
  * source words are the request's own, else the newest; a box another placeholder took is never
  * taken again. A turn that failed removes it with a word, unless the connection dropped after the
  * request was sent, when the box may still come; the cap never ends a wait whose turn is still
@@ -63,7 +66,13 @@ object BoxCreate {
         @Volatile internal var turnOpen = true
         /** Token for the cap's callback alone, so it can be moved without dropping the polls. */
         internal val capToken = Any()
+        /** The touch edit adding this one-tap tile; null for a tile asked for by a turn. */
+        @Volatile var editId: String? = null
+            internal set
     }
+
+    /** Box ids there when each add edit was made, kept until the edit is answered. */
+    private val submitted = HashMap<String, Set<String>>()
 
     private var nextKey = 1L
     private val pending = ArrayList<Pending>()
@@ -110,6 +119,42 @@ object BoxCreate {
         schedulePolls(p, p.startedUptimeMs, POLLS_MS)
         announce()
         return p
+    }
+
+    /** [start] for a one-tap tile added by the touch edit [editId]; call before queuing it. */
+    fun startAdd(ctx: Context, words: String, editId: String): Pending {
+        synchronized(this) { submitted[editId] = HomeBoxes.boxes(ctx).map { it.id }.toSet() }
+        return start(ctx, words).also { it.editId = editId }
+    }
+
+    /** The ids there when [editId] was made, or null when that is not known (since a restart). */
+    @Synchronized fun idsAtSubmit(editId: String): Set<String>? = submitted[editId]
+
+    @Synchronized private fun forEdit(editId: String): Pending? = pending.firstOrNull { it.editId == editId }
+
+    /** The add edit [editId] must wait for a connection: its placeholder goes, saying so. */
+    fun addWaits(editId: String) {
+        val p = forEdit(editId) ?: return
+        if (!drop(p)) return
+        announce()
+        say(R.string.boxes_add_queued)
+    }
+
+    /** The add edit [editId] was answered with its new box ([made]), or refused for good. */
+    fun addEnded(ctx: Context, editId: String, made: Boolean) {
+        synchronized(this) { submitted.remove(editId) }
+        val p = forEdit(editId) ?: return
+        if (made) turnEnded(ctx, p, replied = true, carriedBoxes = true, expectsReply = false) else fail(p)
+    }
+
+    /** The fallback add turn for [editId] ended with [reply] (see [HomeBoxes.flush]). */
+    fun addTurnEnded(ctx: Context, editId: String, reply: DeviceResponse?, mayHaveHappened: Boolean) {
+        synchronized(this) { submitted.remove(editId) }
+        val p = forEdit(editId) ?: return
+        turnEnded(
+            ctx, p, replied = reply != null, carriedBoxes = reply?.hasBoxes() == true,
+            expectsReply = reply?.expectsReply == true, mayHaveHappened = mayHaveHappened,
+        )
     }
 
     private fun schedulePolls(p: Pending, fromUptimeMs: Long, offsets: LongArray) {
@@ -226,9 +271,13 @@ object BoxCreate {
     private fun fail(p: Pending) {
         if (!drop(p)) return
         announce()
+        say(R.string.boxes_create_failed)
+    }
+
+    private fun say(res: Int) {
         val tell = Runnable {
-            saidForTest?.invoke(R.string.boxes_create_failed) ?: appCtx?.let {
-                runCatching { Toast.makeText(it, R.string.boxes_create_failed, Toast.LENGTH_SHORT).show() }
+            saidForTest?.invoke(res) ?: appCtx?.let {
+                runCatching { Toast.makeText(it, res, Toast.LENGTH_SHORT).show() }
             }
         }
         if (Looper.myLooper() == Looper.getMainLooper()) tell.run() else main.post(tell)
@@ -260,6 +309,7 @@ object BoxCreate {
     @Synchronized internal fun resetForTest() {
         pending.forEach { dropCallbacks(it) }
         pending.clear()
+        submitted.clear()
         graceMsForTest = null
         turnCapMsForTest = null
         kickForTest = null

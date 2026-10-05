@@ -1891,7 +1891,8 @@ class MainActivity : AppCompatActivity() {
                 )
             }
             renderBoxes()
-            handleReply(reply, subject = "box", clear = true)
+            // The same reply handling as a typed or spoken turn: a tile tap is the user's words.
+            handleReply(reply, subject = "message", clear = true)
         }
     }
 

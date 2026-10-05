@@ -148,8 +148,15 @@ object BoxSheet {
 
     private fun sendable(s: String) = s.any { it.isLetterOrDigit() }
 
-    /** "+": choose display or command, say what it should do, and Add. */
-    fun showAdd(activity: Activity, onTurn: (HomeBoxes.Turn) -> Unit): BottomSheetDialog {
+    /**
+     * "+": choose display or command, say what it should do, and Add. A one-tap (command) tile is
+     * made directly from the words as typed ([onAddCommand]); a display tile is asked for by a turn.
+     */
+    fun showAdd(
+        activity: Activity,
+        onAddCommand: (String) -> Unit,
+        onTurn: (HomeBoxes.Turn) -> Unit,
+    ): BottomSheetDialog {
         val k = Kit(activity)
         val t = k.t
         val root = k.sheet()
@@ -210,7 +217,7 @@ object BoxSheet {
             val w = words.text?.toString()?.trim().orEmpty()
             if (!sendable(w)) return@setOnClickListener
             dialog.dismiss()
-            onTurn(HomeBoxes.addTurn(kind, w))
+            if (kind == HomeBoxes.Kind.COMMAND) onAddCommand(w) else onTurn(HomeBoxes.addTurn(kind, w))
         }
         dialog.show()
         return dialog
