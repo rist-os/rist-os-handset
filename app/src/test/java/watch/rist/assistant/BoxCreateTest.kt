@@ -171,20 +171,54 @@ class BoxCreateTest {
     }
 
     @Test
-    fun `a backend that ignores the add gets the old add turn, once`() {
+    fun `a list taking in the new box before the reply is judged makes one tile and sends no turn`() {
         HomeBoxes.apply(app, set("a"))
-        boxesReply = { editReply(set("a")) }
-        reply = { ok(DeviceResponse.newBuilder().setBoxes(set("a").toBuilder().addBoxes(command("made", "check my email")))) }
+        // As on the phone: while the add is out, the wake flushes too, on another thread, and the
+        // list holding the new box is taken in before the reply to the add is looked at.
+        val other = AtomicInteger()
+        boxesReply = { e ->
+            if (other.getAndIncrement() == 0) {
+                Thread { runCatching { HomeBoxes.flush(app) } }.start()
+                Thread.sleep(300)
+            }
+            val made = set("a").toBuilder().setVersion(5).addBoxes(command("new", e.getAdd(0).command)).build()
+            HomeBoxes.apply(app, made)
+            editReply(made)
+        }
         val a = home()
         submitCommand(a, "check my email")
-        waitFor("the fallback's box") { BoxCreate.waiting().isEmpty() }
+        waitFor("the new box") { BoxCreate.waiting().isEmpty() }
         HomeBoxes.awaitFlushForTest()
-        assertEquals(1, edits.size)
-        assertEquals(1, turns.size)
-        assertEquals("boxes", turns[0].targetToolId)
-        assertEquals("Add a command box: check my email", turns[0].text)
-        assertNotNull(HomeBoxes.find(app, "made"))
+        Thread.sleep(500); settle()
+        assertEquals("the add is sent once", 1, edits.size)
+        assertTrue("no creating turn", turns.isEmpty())
+        assertEquals(listOf("a", "new"), HomeBoxes.boxes(app).map { it.id })
         assertTrue(said.isEmpty())
+    }
+
+    @Test
+    fun `a reply that lacks the new box sends no turn, and the placeholder goes with a word`() {
+        BoxCreate.graceMsForTest = 300L
+        HomeBoxes.apply(app, set("a"))
+        boxesReply = { editReply(set("a")) }
+        val a = home()
+        submitCommand(a, "check my email")
+        HomeBoxes.awaitFlushForTest()
+        waitFor("the failure") { BoxCreate.waiting().isEmpty() }
+        assertEquals(1, edits.size)
+        assertTrue("no creating turn", turns.isEmpty())
+        assertEquals(listOf(R.string.boxes_create_failed), said.toList())
+        assertEquals(listOf("a"), HomeBoxes.boxes(app).map { it.id })
+    }
+
+    @Test
+    fun `tapping a tile that stored the add wrapper sends only the words`() {
+        HomeBoxes.apply(app, set("a").toBuilder().addBoxes(command("old", "Add a command box: check my email")).build())
+        val a = home()
+        a.boxBoard.tap(HomeBoxes.find(app, "old")!!)
+        waitFor("the turn") { turns.isNotEmpty() }
+        assertEquals("check my email", turns.single().text)
+        assertEquals("", turns.single().targetToolId)
     }
 
     @Test

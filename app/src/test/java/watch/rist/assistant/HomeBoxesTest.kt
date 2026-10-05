@@ -183,6 +183,12 @@ class HomeBoxesTest {
 
     @Test
     fun `a command turn is the stored words verbatim, with the box id and no tool`() {
+        for (wrapped in listOf("Add a command box: check my email", "add a display box:check my email")) {
+            val u = HomeBoxes.commandTurn(box("w", kind = "command", command = wrapped))!!
+            assertEquals("check my email", u.text)
+            assertEquals("check my email", u.prompt)
+        }
+        assertNull(HomeBoxes.commandTurn(box("w", kind = "command", command = "Add a command box: ")))
         val t = HomeBoxes.commandTurn(box("c1", kind = "command", command = "Text Sam I'm on my way"))!!
         assertEquals("Text Sam I'm on my way", t.text)
         assertEquals("", t.targetToolId)
