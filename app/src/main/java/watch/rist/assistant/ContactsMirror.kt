@@ -45,10 +45,14 @@ object ContactsMirror {
         ctx.checkSelfPermission(Manifest.permission.WRITE_CONTACTS) == PackageManager.PERMISSION_GRANTED &&
             ctx.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
 
+    fun hasAccount(ctx: Context): Boolean = runCatching {
+        AccountManager.get(ctx).getAccountsByType(ACCOUNT_TYPE).any { it.name == ACCOUNT_NAME }
+    }.getOrDefault(true)
+
     /** Adds the Rist account if it is missing. The provider drops the rows of an account that is gone. */
     fun ensureAccount(ctx: Context): Boolean = runCatching {
         val am = AccountManager.get(ctx)
-        if (am.getAccountsByType(ACCOUNT_TYPE).any { it.name == ACCOUNT_NAME }) return@runCatching true
+        if (hasAccount(ctx)) return@runCatching true
         val added = am.addAccountExplicitly(account, null, null)
         if (added) {
             android.content.ContentResolver.setIsSyncable(account, ContactsContract.AUTHORITY, 1)
@@ -69,7 +73,7 @@ object ContactsMirror {
             Log.w(TAG, "the system refused the Rist contacts account")
         }
         added
-    }.onFailure { Log.w(TAG, "could not add the Rist contacts account", it) }.getOrDefault(false)
+    }.onFailure { Log.w(TAG, "could not add the Rist contacts account: ${it.javaClass.simpleName}") }.getOrDefault(false)
 
     internal fun asSyncAdapter(uri: Uri): Uri = uri.buildUpon()
         .appendQueryParameter(ContactsContract.CALLER_IS_SYNCADAPTER, "true")
@@ -88,7 +92,8 @@ object ContactsMirror {
         )?.use { c ->
             while (c.moveToNext()) {
                 val sid = c.getString(1)
-                if (sid.isNullOrBlank()) out["#" + c.getLong(0)] = c.getLong(0) else out[sid] = c.getLong(0)
+                // A row with no id, or a second row for one person, is keyed apart so a full pull removes it.
+                if (sid.isNullOrBlank() || sid in out) out["#" + c.getLong(0)] = c.getLong(0) else out[sid] = c.getLong(0)
             }
         }
         return out
@@ -139,7 +144,10 @@ object ContactsMirror {
             flush()
             Log.i(TAG, "address book: ${records.size} written, ${gone.size} removed (full=$full)")
             true
-        }.onFailure { Log.w(TAG, "could not write the system address book", it) }.getOrDefault(false)
+        }.onFailure {
+            // The class only: a provider error can quote the row it refused.
+            Log.w(TAG, "could not write the system address book: ${it.javaClass.simpleName}")
+        }.getOrDefault(false)
     }
 
     /** Ops for one person; a new raw contact's insert sits at [base] in its batch. */

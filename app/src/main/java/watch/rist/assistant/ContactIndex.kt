@@ -87,7 +87,10 @@ object ContactIndex {
                     )
                 }
             }
-        }.onFailure { Log.w(TAG, "contact index unreadable; starting empty", it) }
+        }.onFailure {
+            // The class only: a JSON error quotes the text around it, which is names and numbers.
+            Log.w(TAG, "contact index unreadable (${it.javaClass.simpleName}); starting empty")
+        }
         loaded = out
         return out
     }
@@ -99,7 +102,7 @@ object ContactIndex {
      * upserted on id and [deletedIds] removed.
      */
     @Synchronized
-    fun apply(ctx: Context, full: Boolean, records: Collection<ContactRecord>, deletedIds: Collection<String>) {
+    fun apply(ctx: Context, full: Boolean, records: Collection<ContactRecord>, deletedIds: Collection<String>): Boolean {
         val next = if (full) LinkedHashMap() else LinkedHashMap(entries(ctx))
         deletedIds.forEach { next.remove(it) }
         for (r in records) {
@@ -108,15 +111,16 @@ object ContactIndex {
                 .sortedByDescending { it.isPrimary }.map { it.value }
             next[r.id] = Entry(r.id, r.displayName, numbers)
         }
-        save(ctx, next)
+        return save(ctx, next)
     }
 
     @Synchronized
     fun clear(ctx: Context) = save(ctx, emptyMap())
 
+    /** False if the file could not be written; the copy in memory is current either way. */
     @Synchronized
-    private fun save(ctx: Context, m: Map<String, Entry>) {
-        runCatching {
+    private fun save(ctx: Context, m: Map<String, Entry>): Boolean {
+        val ok = runCatching {
             val arr = JSONArray()
             m.values.forEach { e ->
                 arr.put(JSONObject().put("i", e.id).put("d", e.name).put("n", JSONArray(e.numbers)))
@@ -124,17 +128,33 @@ object ContactIndex {
             val f = file(ctx)
             val tmp = File(f.parentFile, "$FILE.tmp")
             tmp.writeText(arr.toString())
-            if (!tmp.renameTo(f)) { f.delete(); tmp.renameTo(f) }
-        }.onFailure { Log.w(TAG, "could not save the contact index", it) }
+            if (!tmp.renameTo(f)) { f.delete(); check(tmp.renameTo(f)) }
+        }.onFailure { Log.w(TAG, "could not save the contact index: ${it.javaClass.simpleName}") }.isSuccess
         loaded = LinkedHashMap(m)
         byKey = null
         byTail = null
+        return ok
     }
 
-    /** The name for [number], or null. Exact on the normalised form, then on a unique last ten digits. */
+    /**
+     * The name for [number], or null. Exact on the normalised form, then on a unique last ten
+     * digits, but only for a number not written internationally: +44 20 6555 0100 is not
+     * +1 206 555 0100, however its digits end.
+     */
     fun nameFor(ctx: Context, number: String): String? {
         if (number.isBlank()) return null
         val country = PhoneNumbers.country(ctx)
+        val (keys, tails) = lookup(ctx, country)
+        PhoneNumbers.key(number, country).takeIf { it.isNotEmpty() }?.let { k -> keys[k]?.let { return it } }
+        val written = number.filter { it.isDigit() || it == '+' }
+        if (written.startsWith("+") || written.startsWith("00")) return null
+        val tail = PhoneNumbers.tail(number)
+        return if (tail.length >= 7) tails[tail] else null
+    }
+
+    /** Built under the lock, so a sync landing mid-build cannot leave a stale table behind. */
+    @Synchronized
+    private fun lookup(ctx: Context, country: String): Pair<Map<String, String>, Map<String, String?>> {
         var keys = byKey
         var tails = byTail
         if (keys == null || tails == null || keyCountry != country) {
@@ -154,9 +174,7 @@ object ContactIndex {
             keys = k; tails = t
             byKey = k; byTail = t; keyCountry = country
         }
-        PhoneNumbers.key(number, country).takeIf { it.isNotEmpty() }?.let { k -> keys[k]?.let { return it } }
-        val tail = PhoneNumbers.tail(number)
-        return if (tail.length >= 7) tails[tail] else null
+        return keys to tails
     }
 
     internal fun resetForTest(ctx: Context) {

@@ -47,8 +47,9 @@ class RistSyncAdapter(ctx: Context) : AbstractThreadedSyncAdapter(ctx, true) {
         account: Account?, extras: Bundle?, authority: String?,
         provider: ContentProviderClient?, syncResult: SyncResult,
     ) {
-        when (ContactsSync.syncBlocking(context.applicationContext)) {
-            is ContactsSync.Outcome.Failed -> syncResult.stats.numIoExceptions++
+        // An exception escaping here would take the whole app down with the sync thread.
+        when (runCatching { ContactsSync.syncBlocking(context.applicationContext) }.getOrNull()) {
+            is ContactsSync.Outcome.Failed, null -> syncResult.stats.numIoExceptions++
             else -> Unit
         }
     }

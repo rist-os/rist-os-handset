@@ -342,6 +342,10 @@ object Config {
     /** The contacts cursor last applied to the mirror; empty = never synced. */
     fun contactsCursor(ctx: Context): String = prefs(ctx).getString(KEY_CONTACTS_CURSOR, "") ?: ""
     fun setContactsCursor(ctx: Context, v: String) { prefs(ctx).edit().putString(KEY_CONTACTS_CURSOR, v).apply() }
+    /** A pull applied: its cursor and whether the next pull must be full, in one write. */
+    fun setContactsApplied(ctx: Context, cursor: String, needsFull: Boolean) {
+        prefs(ctx).edit().putString(KEY_CONTACTS_CURSOR, cursor).putBoolean(KEY_CONTACTS_NEEDS_FULL, needsFull).apply()
+    }
     /** The next pull must be a full one: "Sync now", or the address book write did not land. */
     fun contactsNeedsFull(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_CONTACTS_NEEDS_FULL, false)
     fun setContactsNeedsFull(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_CONTACTS_NEEDS_FULL, v).apply() }
@@ -536,7 +540,12 @@ object Config {
         prefs(ctx).getString(KEY_AUTH_TOKEN, "") ?: ""
 
     fun setAuthToken(ctx: Context, token: String) {
-        prefs(ctx).edit().putString(KEY_AUTH_TOKEN, token.trim()).apply()
+        val t = token.trim()
+        val e = prefs(ctx).edit().putString(KEY_AUTH_TOKEN, t)
+        // A new pairing may be a different account: its first contact pull must replace the
+        // address book, never a delta on top of the last owner's people.
+        if (t.isNotEmpty() && t != authToken(ctx)) e.remove(KEY_CONTACTS_CURSOR).putBoolean(KEY_CONTACTS_NEEDS_FULL, true)
+        e.apply()
     }
 
     private const val TOKEN_IMPORT_FILE = "rist-token.txt"

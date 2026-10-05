@@ -102,7 +102,8 @@ object CallerId {
      */
     fun label(ctx: Context, number: String, hint: String = ""): String {
         val shown = pretty(number).ifBlank { number }
-        val name = hint.trim().takeIf { it.isNotEmpty() && it.filter(Char::isDigit) != number.filter(Char::isDigit) }
+        // A hint with no letters is the number again in some other form, not a name.
+        val name = hint.trim().takeIf { h -> h.any { it.isLetter() } }
             ?: nameFor(ctx, number)
         return if (name.isNullOrBlank()) shown else "$name · $shown"
     }

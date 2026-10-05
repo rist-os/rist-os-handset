@@ -312,6 +312,110 @@ class ContactsSyncTest {
         assertNull(ContactIndex.nameFor(app, "+72065550100"))
     }
 
+    // ---- review fixes ----
+
+    @Test
+    fun `a number written internationally never borrows a name from its last ten digits`() {
+        ContactIndex.apply(app, true, listOf(person("a", "Alice", "+12065550100")), emptyList())
+        assertNull(ContactIndex.nameFor(app, "+442065550100"))
+        assertNull(ContactIndex.nameFor(app, "00442065550100"))
+        assertEquals("Alice", ContactIndex.nameFor(app, "2065550100"))
+        assertEquals("Alice", ContactIndex.nameFor(app, "+1 (206) 555-0100"))
+    }
+
+    @Test
+    fun `a hint that is only the number again is not shown as a name`() {
+        synced()
+        assertEquals("Alice Example · (206) 555-0100", CallerId.label(app, "+12065550100", "(206) 555-0100"))
+        assertEquals("Al · (206) 555-0100", CallerId.label(app, "+12065550100", "Al"))
+    }
+
+    @Test
+    fun `removing the Rist account rebuilds the address book on the next nudge`() {
+        synced()
+        server.takeRequest(5, java.util.concurrent.TimeUnit.SECONDS)!!
+        android.accounts.AccountManager.get(app).removeAccountExplicitly(ContactsMirror.account)
+        contacts.raw.clear(); contacts.data.clear() // the provider drops a removed account's rows
+        server.enqueue(page("c1", full = true, more = false, person("a", "Alice Example", "+12065550100")))
+
+        ContactsSync.onCursor(app, "c1")
+
+        assertEquals("/v1/contacts?since=", server.takeRequest(5, java.util.concurrent.TimeUnit.SECONDS)!!.path)
+        assertEquals(setOf("a"), contacts.sourceIds())
+    }
+
+    @Test
+    fun `a new pairing starts the address book over rather than a delta on the last owner's`() {
+        synced()
+        assertEquals("c1", Config.contactsCursor(app))
+        Config.setAuthToken(app, "ristd_someone_else")
+        assertEquals("", Config.contactsCursor(app))
+        assertTrue(Config.contactsNeedsFull(app))
+    }
+
+    @Test
+    fun `a full pull removes a second row held for the same person`() {
+        synced()
+        val extra = ContentValues().apply {
+            put(ContactsContract.RawContacts.ACCOUNT_TYPE, ContactsMirror.ACCOUNT_TYPE)
+            put(ContactsContract.RawContacts.ACCOUNT_NAME, ContactsMirror.ACCOUNT_NAME)
+            put(ContactsContract.RawContacts.SOURCE_ID, "a")
+        }
+        contacts.insert(ContactsContract.RawContacts.CONTENT_URI, extra)
+        server.enqueue(page("c2", full = true, more = false, person("a", "Alice Example", "+12065550100")))
+        ContactsSync.requestSync(app, full = true, reason = "test", manual = true)
+        assertEquals(1, contacts.raw.values.count { it.getAsString(ContactsContract.RawContacts.SOURCE_ID) == "a" })
+    }
+
+    @Test
+    fun `a damaged index file is never quoted into the log`() {
+        java.io.File(app.noBackupFilesDir, "contacts_index.json")
+            .writeText("""[{"i":"a","d":"Alice Private","n":["+12065550100"]""")
+        org.robolectric.shadows.ShadowLog.clear()
+        assertEquals(0, ContactIndex.size(app))
+        val logged = org.robolectric.shadows.ShadowLog.getLogs().joinToString("\n") { it.msg + (it.throwable?.toString() ?: "") }
+        assertFalse(logged, logged.contains("Alice") || logged.contains("5550100"))
+    }
+
+    @Test
+    fun `failures back off, and a pull asked for inside the gap waits instead of being dropped`() {
+        assertEquals(0L, ContactsSync.waitMs(now = 100_000, lastAutoAt = 0, failures = 0, failedAt = 0))
+        assertEquals(10_000L, ContactsSync.waitMs(now = 10_000, lastAutoAt = 5_000, failures = 0, failedAt = 0))
+        assertEquals(ContactsSync.MIN_GAP_MS * 4, ContactsSync.backoffMs(3))
+        assertEquals(ContactsSync.MAX_BACKOFF_MS, ContactsSync.backoffMs(50))
+        assertEquals(ContactsSync.backoffMs(3) - 1_000,
+            ContactsSync.waitMs(now = 1_000_000 + 1_000, lastAutoAt = 0, failures = 3, failedAt = 1_000_000))
+
+        ContactsSync.runInlineForTest = false
+        ContactsSync.minGapMs = 200L
+        server.enqueue(page("c1", full = true, more = false, person("a", "Alice", "+12065550100")))
+        ContactsSync.requestSync(app, full = false, reason = "test")
+        waitFor { Config.contactsCursor(app) == "c1" }
+        server.enqueue(page("c2", full = false, more = false, person("b", "Bob", "+12065550111")))
+        ContactsSync.requestSync(app, full = false, reason = "test")
+        waitFor { Config.contactsCursor(app) == "c2" }
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun `the daily pull is not pushed back a day every time the app starts`() {
+        val am = app.getSystemService(android.app.AlarmManager::class.java)
+        ContactsSync.scheduleDaily(app)
+        val first = shadowOf(am).peekNextScheduledAlarm()!!.triggerAtTime
+        shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofHours(3))
+        ContactsSync.scheduleDaily(app)
+        assertEquals(1, shadowOf(am).scheduledAlarms.size)
+        assertEquals(first, shadowOf(am).peekNextScheduledAlarm()!!.triggerAtTime)
+    }
+
+    private fun waitFor(cond: () -> Boolean) {
+        val until = System.currentTimeMillis() + 10_000
+        while (!cond()) {
+            check(System.currentTimeMillis() < until) { "timed out" }
+            Thread.sleep(20)
+        }
+    }
+
     @Test
     fun `the contacts url sits beside the device url`() {
         assertEquals("https://h.example/v1/contacts?since=c%201",
