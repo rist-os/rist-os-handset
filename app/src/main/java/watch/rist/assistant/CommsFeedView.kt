@@ -99,11 +99,17 @@ object CommsFeedView {
         }
     }.onFailure { Log.w(TAG, "could not read arrivals", it) }.getOrDefault(emptyList())
 
+    /** A contact sync changed the names; look them up again. */
+    @Synchronized
+    fun forgetNames() { nameCache.clear(); nameCacheAtMs = 0L }
+
+    @Synchronized
     private fun nameFor(ctx: Context, number: String): String? {
         val now = System.currentTimeMillis()
         if (now - nameCacheAtMs > NAME_CACHE_TTL_MS) { nameCache.clear(); nameCacheAtMs = now }
         if (number.isBlank()) return null
-        return nameCache.getOrPut(number) { CallerId.nameFor(ctx, number) }
+        if (nameCache.containsKey(number)) return nameCache[number]
+        return CallerId.nameFor(ctx, number).also { nameCache[number] = it }
     }
 
     private fun markSeen(ctx: Context, ids: Collection<String>) = runCatching {

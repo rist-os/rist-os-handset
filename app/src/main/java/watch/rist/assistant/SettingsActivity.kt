@@ -805,6 +805,13 @@ class SettingsActivity : AppCompatActivity() {
                 findViewById(R.id.sectionsAnchor),
             )
         }.onFailure { Log.e("RistSettings", "location section build failed", it) }
+        runCatching {
+            ContactsSection.build(
+                this,
+                findViewById<LinearLayout>(R.id.themePicker)?.parent as? LinearLayout,
+                findViewById(R.id.sectionsAnchor),
+            )
+        }.onFailure { Log.e("RistSettings", "contacts section build failed", it) }
         runCatching { OtaSection.checkOnOpen(this) }
             .onFailure { Log.e("RistSettings", "ota check-on-open failed", it) }
 

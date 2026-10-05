@@ -165,6 +165,7 @@ object WakeLoop {
         if (signal.hasBoxes()) runCatching { HomeBoxes.apply(ctx, signal.boxes) }
         if (signal.hasDesign()) runCatching { DesignSync.apply(ctx, signal.design) }
         if (signal.hasSettings() && DesignSync.declared()) runCatching { SettingsApply.handle(ctx, signal.settings) }
+        runCatching { ContactsSync.onCursor(ctx, signal.contactsCursor) }
         if (Config.voicemailCount(ctx) != signal.voicemailUnheard) {
             Config.setVoicemailCount(ctx, signal.voicemailUnheard)
             NotificationQueue.countsChanged(ctx)

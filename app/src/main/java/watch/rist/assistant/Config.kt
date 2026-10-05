@@ -60,6 +60,10 @@ object Config {
     private const val KEY_DESIGN_MIGRATED = "design_migrated"
     private const val KEY_BOX_EDIT_QUEUE = "box_edit_queue"
     private const val KEY_CONTACTS_SYNC_OFF = "contacts_sync_off"
+    private const val KEY_CONTACTS_REFUSED = "contacts_refused"
+    private const val KEY_CONTACTS_CURSOR = "contacts_cursor"
+    private const val KEY_CONTACTS_NEEDS_FULL = "contacts_needs_full"
+    private const val KEY_CONTACTS_SYNCED_AT = "contacts_synced_at"
     private const val KEY_REMOVED_NOTICE_SHOWN = "removed_notice_shown"
     private const val KEY_COMMS_RESULTS = "comms_results"
     private const val KEY_VOICEMAILS = "voicemails"
@@ -215,7 +219,8 @@ object Config {
         // A revocation or a lapse was one backend's word about this device, not the next one's.
         prefs(ctx).edit().remove(KEY_AUTH_TOKEN).remove(KEY_ENROL_REVOKED).remove(KEY_BILLING_LAPSE)
             .remove(KEY_BILLING_RENEW).remove(KEY_BILLING_PORTAL).remove(KEY_BILLING_NO_PORTAL).remove(KEY_BILLING_ACCOUNT_URL)
-            .remove(KEY_FEATURES).remove(KEY_CONTACTS_SYNC_OFF).remove(KEY_REMOVED_NOTICE_SHOWN).apply()
+            .remove(KEY_FEATURES).remove(KEY_CONTACTS_SYNC_OFF).remove(KEY_REMOVED_NOTICE_SHOWN)
+            .remove(KEY_CONTACTS_REFUSED).remove(KEY_CONTACTS_CURSOR).apply()
         if (had > 0) {
             android.util.Log.i("RistConfig", "backend endpoint changed; cleared the device token ($had chars)")
         }
@@ -330,6 +335,19 @@ object Config {
 
     fun contactsSyncOff(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_CONTACTS_SYNC_OFF, false)
     fun setContactsSyncOff(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_CONTACTS_SYNC_OFF, v).apply() }
+
+    /** The backend answered a contacts route with "contacts off for this account". */
+    fun contactsRefused(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_CONTACTS_REFUSED, false)
+    fun setContactsRefused(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_CONTACTS_REFUSED, v).apply() }
+    /** The contacts cursor last applied to the mirror; empty = never synced. */
+    fun contactsCursor(ctx: Context): String = prefs(ctx).getString(KEY_CONTACTS_CURSOR, "") ?: ""
+    fun setContactsCursor(ctx: Context, v: String) { prefs(ctx).edit().putString(KEY_CONTACTS_CURSOR, v).apply() }
+    /** The next pull must be a full one: "Sync now", or the address book write did not land. */
+    fun contactsNeedsFull(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_CONTACTS_NEEDS_FULL, false)
+    fun setContactsNeedsFull(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_CONTACTS_NEEDS_FULL, v).apply() }
+    /** Wall-clock ms of the last pull applied; 0 = never. */
+    fun contactsSyncedAt(ctx: Context): Long = prefs(ctx).getLong(KEY_CONTACTS_SYNCED_AT, 0L)
+    fun setContactsSyncedAt(ctx: Context, v: Long) { prefs(ctx).edit().putLong(KEY_CONTACTS_SYNCED_AT, v).apply() }
 
     fun removedNoticeShown(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_REMOVED_NOTICE_SHOWN, false)
     fun setRemovedNoticeShown(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_REMOVED_NOTICE_SHOWN, v).apply() }

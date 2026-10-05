@@ -227,7 +227,9 @@ object DeviceCommands {
         // SmsManager needs a digits-only destination; tel: URIs tolerate formatting.
         val number = normaliseNumber(raw)
         if (number.isBlank()) { Log.w(TAG, "comms: number had no digits (${raw.length} chars)"); return }
-        val who = c.displayName.ifBlank { raw }
+        // The name and the number, so the person can see who it is going to before it goes:
+        // the backend's name if it sent one, else the phone's own address book.
+        val who = CallerId.label(ctx, number, c.displayName)
 
         when (c.action.lowercase()) {
             "send_sms" -> {
@@ -281,12 +283,12 @@ object DeviceCommands {
                 }
                 // Never over a live call: it waits behind a banner the person can tap.
                 if (VideoCalls.queueComposer(compose)) {
-                    Log.i(TAG, "comms: composer to $who held behind the call")
+                    Log.i(TAG, "comms: composer to ${maskNumber(number)} held behind the call")
                     CommsResults.record(ctx, c.correlationId, "sms", true, "")
                     return
                 }
                 val opened = open(ctx, compose)
-                Log.i(TAG, "comms: composing to $who")
+                Log.i(TAG, "comms: composing to ${maskNumber(number)}")
                 CommsResults.record(ctx, c.correlationId, "sms", opened,
                     if (opened) "" else "could not open the composer")
             }
@@ -308,7 +310,7 @@ object DeviceCommands {
                 }
                 lastDialAtMs = now
                 recentDials.addLast(now)
-                toast(ctx, "Calling $who\n$number")
+                toast(ctx, "Calling $who")
                 Log.i(TAG, "comms: dialing ${maskNumber(number)}")
                 val placed = open(ctx, Intent(Intent.ACTION_CALL, android.net.Uri.parse("tel:$number")))
                 // Raise the in-call screen, as CommsFeedView.placeCall already does for a call the
@@ -325,7 +327,7 @@ object DeviceCommands {
                     if (placed) "" else "the platform refused to place the call")
             }
             "dial" -> {
-                toast(ctx, "$who\n$number")
+                toast(ctx, who)
                 val opened = open(ctx, Intent(Intent.ACTION_DIAL, android.net.Uri.parse("tel:$number")))
                 CommsResults.record(ctx, c.correlationId, "dial", opened,
                     if (opened) "" else "could not open the dialer")

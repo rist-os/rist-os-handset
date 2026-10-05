@@ -737,6 +737,7 @@ class Uploader(private val ctx: Context) {
         runCatching { Billing.onServed(ctx, resp) }
         runCatching { Enrolment.onReinstated(ctx) }
         if (resp.hasFeatures()) runCatching { Features.apply(ctx, resp.features) }
+        runCatching { ContactsSync.onCursor(ctx, resp.contactsCursor) }
         if (resp.hasBoxes()) runCatching { HomeBoxes.apply(ctx, resp.boxes) }
         if (designState != null) DesignSync.clearState(ctx, designState)
         if (resp.hasDesign()) runCatching { DesignSync.apply(ctx, resp.design) }

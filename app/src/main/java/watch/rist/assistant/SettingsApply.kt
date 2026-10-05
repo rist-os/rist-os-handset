@@ -107,7 +107,7 @@ object SettingsApply {
             }
             KEY_HAPTICS -> toggle { Config.setHapticsEnabled(ctx, it); true }
             KEY_AUTO_ZONE -> toggle { AutoTimeZone.setEnabled(ctx, it); true }
-            KEY_CONTACTS_SYNC -> toggle { Config.setContactsSyncOff(ctx, !it); true }
+            KEY_CONTACTS_SYNC -> toggle { ContactsSync.setEnabled(ctx, it); true }
             KEY_NETWORK_LOCATION -> toggle {
                 NetworkLocationConsent.apply(ctx, it) == NetworkLocationConsent.Outcome.APPLIED
             }

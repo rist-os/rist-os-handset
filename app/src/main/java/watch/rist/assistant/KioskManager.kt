@@ -109,6 +109,9 @@ object KioskManager {
             Manifest.permission.READ_PHONE_STATE,
             Manifest.permission.READ_CALL_LOG,
             Manifest.permission.READ_CONTACTS,
+            // Contact sync writes the owner's backend contacts into the address book, so caller
+            // ID names them with no network.
+            Manifest.permission.WRITE_CONTACTS,
             Manifest.permission.ADD_VOICEMAIL,
             // Video calls: a kiosk cannot count on a runtime dialog, and a call page that is
             // refused a headset or a microphone fails without a word.

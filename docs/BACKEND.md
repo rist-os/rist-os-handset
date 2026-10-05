@@ -309,6 +309,26 @@ already armed. `label` is for logs only and is never authority.
 do place triggers", and the backend then refuses to create one out loud rather than storing
 a fence nothing will ever evaluate.
 
+## Contacts (`ContactSync`, schema v14)
+
+Optional. A backend that keeps an address book can let the phone mirror it, so a call or a text
+from someone in it shows their name, with no network needed at ring time.
+
+- Put the owner's current contacts cursor in `DeviceResponse.contacts_cursor` and
+  `WakeSignal.contacts_cursor`, on every reply. It is opaque; the phone compares it for equality
+  with the one it last applied and pulls when they differ. Leave it empty while contacts are off.
+- Serve `GET <host>/v1/contacts?since=<cursor>` with the same `Authorization` header as the wake
+  channel, answering a `ContactSync`. An empty or unknown `since` gets `full = true` (the phone
+  replaces its copy); a known one gets the changes since it plus `deleted_ids`. Page with `more`
+  and `cursor`; the phone applies nothing until the last page is in.
+- `409` means contacts are off for this account: the phone stops asking and keeps what it has,
+  until a non-empty cursor arrives again.
+
+The phone writes the contacts into the system address book under a "Rist" account (one row per
+`ContactRecord.id`, with names, phone numbers, email addresses, nicknames from `aliases` and a note
+from `description`) and keeps its own copy for Rist's screens. It is one way for now: contacts made
+on the phone are not sent back. Settings has "Sync contacts with Rist" and "Sync now".
+
 ## Navigation (`NavCommand`)
 
 The backend does the routing (e.g. Valhalla) and the heavy cartography; the device is a
