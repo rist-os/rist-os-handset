@@ -246,14 +246,9 @@ object CommsFeedView {
             )
             drawn++
         }
-        if (all.size > shown.size) host.addView(
-            TextView(activity).apply {
-                text = "${all.size - shown.size} older, not shown"
-                setTextColor(muted); typeface = tf
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                setPadding(0, (8 * d).toInt(), 0, (4 * d).toInt())
-            }
-        )
+        // No "N older, not shown" line: what is left out is calls and texts already seen
+        // (still in the Phone and Messages apps) and read notices past MAX_READ. Every unread
+        // item is drawn; CommsFeed.assemble never trims one.
     }.onFailure { Log.w(TAG, "feed render failed", it) }.let { }
 
     private fun header(
