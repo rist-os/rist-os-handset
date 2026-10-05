@@ -196,7 +196,7 @@
     <string name="torch_off_desc">Flashlight, off</string>
     <string name="record_label_answer">ANSWER</string>
     <string name="app_voicemail">Voicemail</string>
-    <string name="phone_settings_hint">Wi-Fi, Bluetooth, display and the rest of Android.</string>
+    <string name="phone_settings_hint">Wi-Fi, Bluetooth, display and the rest of the phone.</string>
 
     <string name="ota_offer_started">Update starting. It will install in the background, and the phone will ask you to restart when it is ready.</string>
     <string name="ota_offer_refused">That update could not be started. It may have been replaced by a newer one. Please try again later.</string>

@@ -29,7 +29,7 @@ submitting a change.
 
 ## The whole image
 
-RistOS is GrapheneOS for the Pixel 10a (`stallion`) with the Rist layer added. To build it:
+RistOS is built on GrapheneOS for the Pixel 10a (`stallion`) with the Rist layer added. To build it:
 
 1. Build GrapheneOS for `stallion` following [grapheneos.org/build](https://grapheneos.org/build).
 2. Add the Rist layer: append `image/stallion-wiring.txt` to the device makefile, and apply the
