@@ -2452,7 +2452,7 @@ class MainActivity : AppCompatActivity() {
                 var keptAny = false
                 val items = withContext(Dispatchers.IO) {
                     runCatching {
-                        val resolved = Attachments.resolve(this@MainActivity, pending) { isActive }
+                        val resolved = Attachments.resolve(pending) { isActive }
                         // Kept before the feed's decode, which lets the picture's bytes go. With
                         // no answer to keep them under, they stay cards as before.
                         val (photos, rest) =
@@ -2473,6 +2473,8 @@ class MainActivity : AppCompatActivity() {
                                 mime = a.mime, title = a.title, text = "",
                                 bytes = null, toolId = a.toolId,
                                 error = "could not be loaded",
+                                // A picture loaded from a url that fails shows nothing at all.
+                                remote = Attachments.isUrlOnly(a),
                             )
                         }
                     }

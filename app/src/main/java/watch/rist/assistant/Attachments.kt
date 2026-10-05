@@ -1,8 +1,8 @@
 package watch.rist.assistant
 
-import android.content.Context
 import android.graphics.BitmapFactory
 import android.util.Log
+import okhttp3.CookieJar
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -24,6 +24,11 @@ data class RistAttachment(
     val error: String?,
     /** Pre-decoded, sampled-down bitmap; null is valid and the viewer then decodes inline. */
     val bitmap: android.graphics.Bitmap? = null,
+    /**
+     * Loaded from a url rather than sent as bytes (a Brave image-search picture). Held in memory
+     * only, never kept or saved, nothing on it is tappable, and a failed one shows nothing at all.
+     */
+    val remote: Boolean = false,
 ) {
     // A ByteArray field gets identity equality in a data class; compare content instead.
     override fun equals(other: Any?): Boolean {
@@ -35,6 +40,7 @@ data class RistAttachment(
             text == other.text &&
             toolId == other.toolId &&
             error == other.error &&
+            remote == other.remote &&
             (if (bytes == null) other.bytes == null else other.bytes != null && bytes.contentEquals(other.bytes))
     }
 
@@ -45,6 +51,7 @@ data class RistAttachment(
         h = 31 * h + text.hashCode()
         h = 31 * h + toolId.hashCode()
         h = 31 * h + (error?.hashCode() ?: 0)
+        h = 31 * h + remote.hashCode()
         h = 31 * h + (bytes?.contentHashCode() ?: 0)
         return h
     }
@@ -62,32 +69,42 @@ object Attachments {
 
     internal const val MAX_PER_RESPONSE = 8
 
+    /**
+     * The one host a picture is ever loaded from: Brave's image proxy. Exactly this name, https,
+     * port 443, no user-info. Every other `uri`, on any attachment, is refused and shows nothing.
+     */
+    internal const val REMOTE_IMAGE_HOST = "imgs.search.brave.com"
+
+    /** The whole load, every redirect hop and the body included. */
+    internal const val REMOTE_LOAD_TIMEOUT_MS = 10_000L
+
     // Redirects are followed by hand in [fetch]; this is the hop budget.
     private const val MAX_REDIRECTS = 3
 
-    // Test seam; nothing in the app writes them.
-    internal var connectTimeoutS = 10L
-    internal var readTimeoutS = 15L
-    internal var callTimeoutS = 30L
+    // Test seam; nothing in the app writes it.
+    internal var loadTimeoutMs = REMOTE_LOAD_TIMEOUT_MS
 
-    // Redirects are followed by hand per hop in [fetch] and there is deliberately no CookieJar;
-    // newBuilder() in [fetch] inherits both.
+    /**
+     * Test seam; nothing in the app writes it. Lets a test serve the allowed url from a local
+     * server. The policy check has already passed on the real url before this is applied.
+     */
+    internal var dialForTest: ((HttpUrl) -> HttpUrl)? = null
+
+    // No cookies, no cache, no authenticator, redirects by hand; newBuilder() in [fetch] inherits all.
     private val sharedClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .followRedirects(false)
             .followSslRedirects(false)
+            .cookieJar(CookieJar.NO_COOKIES)
+            .cache(null)
             .build()
     }
-
-    /** Test seam; production reads [Config.authToken]. */
-    internal var bearerSource: (Context) -> String = { Config.authToken(it) }
 
     /**
      * Never throws; a failed attachment comes back carrying [RistAttachment.error]. [stillWanted]
      * is checked between attachments only, and the list stays 1:1 with the input (up to the cap).
      */
     fun resolve(
-        ctx: Context,
         protoList: List<rist.v1.Attachment>,
         stillWanted: () -> Boolean = { true },
     ): List<RistAttachment> {
@@ -98,19 +115,18 @@ object Attachments {
             Log.w(TAG, "dropping ${protoList.size - considered.size} attachment(s) over the cap of $MAX_PER_RESPONSE")
         }
 
-        val allowHttp = Config.isDebugBuild(ctx)
         var budget = MAX_BYTES_PER_RESPONSE
 
         return considered.map { a ->
-            if (!stillWanted()) return@map refuse(a, "abandoned")
+            if (!stillWanted()) return@map refuse(a, "abandoned", remote = isUrlOnly(a))
 
             // Charged for everything that crossed the wire, kept or not.
             val spend = Spend()
-            val resolved = runCatching { resolveOne(ctx, a, allowHttp, budget, spend) }
+            val resolved = runCatching { resolveOne(a, budget, spend) }
                 .getOrElse { t ->
                     // Throwable messages can carry the uri, so they are not logged.
                     Log.w(TAG, "attachment failed: ${t.javaClass.simpleName}")
-                    refuse(a, "could not be loaded")
+                    refuse(a, "could not be loaded", remote = isUrlOnly(a))
                 }
             budget -= spend.wire
             resolved
@@ -123,7 +139,11 @@ object Attachments {
             else -> "data"
         }
 
-    private fun refuse(a: rist.v1.Attachment, why: String) = RistAttachment(
+    /** A picture whose content would come from `uri`: a failure on it shows nothing, never a card. */
+    fun isUrlOnly(a: rist.v1.Attachment): Boolean =
+        a.data.isEmpty && a.uri.isNotBlank() && normaliseKind(a.kind) == "image"
+
+    private fun refuse(a: rist.v1.Attachment, why: String, remote: Boolean = false) = RistAttachment(
         kind = normaliseKind(a.kind),
         mime = a.mime,
         title = a.title,
@@ -131,18 +151,17 @@ object Attachments {
         bytes = null,
         toolId = a.toolId,
         error = why,
+        remote = remote,
     )
 
     private fun resolveOne(
-        ctx: Context,
         a: rist.v1.Attachment,
-        allowHttp: Boolean,
         budget: Int,
         spend: Spend,
     ): RistAttachment {
         val kind = normaliseKind(a.kind)
         val cap = minOf(MAX_BYTES_PER_ATTACHMENT, budget)
-        if (cap <= 0) return refuse(a, "no room left in this response")
+        if (cap <= 0) return refuse(a, "no room left in this response", remote = isUrlOnly(a))
 
         val inline = a.data
         if (!inline.isEmpty) {
@@ -165,11 +184,30 @@ object Attachments {
         val uri = a.uri.trim()
         if (uri.isEmpty()) return refuse(a, "no content")
 
-        return when (val f = fetch(ctx, uri, cap, allowHttp, spend)) {
-            is Fetched.Err -> refuse(a, f.why)
+        // A file sent as a link (a short-lived storage link, say) is never fetched: the phone has
+        // nothing to open it with, so it gets the usual file card, size unknown, and no request.
+        if (kind == "data") return RistAttachment(kind, a.mime, a.title, "", null, a.toolId, null)
+        if (kind != "image") {
+            Log.w(TAG, "refused a link attachment of kind '$kind'")
+            return refuse(a, "refused a link")
+        }
+        // Only from Brave's image proxy. Any other picture link is skipped without a request.
+        if (!isAllowedImageUrl(uri)) {
+            Log.w(TAG, "refused a picture link")
+            return refuse(a, "refused a link", remote = true)
+        }
+        // The credit must be shown whenever the picture is; without one the picture is not shown.
+        if (a.title.isBlank()) return refuse(a, "no credit", remote = true)
+
+        return when (val f = fetch(uri, cap, spend)) {
+            is Fetched.Err -> refuse(a, f.why, remote = true)
             is Fetched.Ok ->
-                if (kind == "text") RistAttachment(kind, a.mime, a.title, String(f.bytes, Charsets.UTF_8), null, a.toolId, null)
-                else finish(a, kind, f.bytes)
+                if (!looksLikeWebImage(f.bytes) || !decodesAsImage(f.bytes)) {
+                    Log.w(TAG, "refusing a ${f.bytes.size}-byte loaded picture: not a jpeg, png, webp or gif")
+                    refuse(a, "not a valid image", remote = true)
+                } else {
+                    RistAttachment(kind, a.mime, a.title, "", f.bytes, a.toolId, null, remote = true)
+                }
         }
     }
 
@@ -193,13 +231,9 @@ object Attachments {
     /** Whitelist of container magic bytes; must run before anything native sees the buffer. */
     internal fun looksLikeImage(b: ByteArray): Boolean {
         if (b.size < 12) return false
-        fun at(i: Int, vararg v: Int) = v.indices.all { b[i + it] == v[it].toByte() }
         fun ascii(i: Int, s: String) = s.indices.all { b[i + it] == s[it].code.toByte() }
         return when {
-            at(0, 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A) -> true            // PNG
-            at(0, 0xFF, 0xD8, 0xFF) -> true                                          // JPEG
-            ascii(0, "GIF87a") || ascii(0, "GIF89a") -> true                          // GIF
-            ascii(0, "RIFF") && ascii(8, "WEBP") -> true                              // WebP
+            looksLikeWebImage(b) -> true
             ascii(0, "BM") -> true                                                    // BMP
             ascii(4, "ftyp") && (ascii(8, "heic") || ascii(8, "heix") ||
                 ascii(8, "mif1") || ascii(8, "avif")) -> true                         // HEIF / AVIF
@@ -207,31 +241,36 @@ object Attachments {
         }
     }
 
-    // Scheme whitelist; http only in a debuggable build (release also refuses cleartext in
-    // res/xml/network_security_config.xml).
-    internal fun schemeRefusal(uri: String, allowHttp: Boolean): String? {
-        val scheme = runCatching { java.net.URI(uri.trim()).scheme }.getOrNull()?.lowercase()
-            ?: return "unusable link"
+    /** The four formats a loaded picture may be: jpeg, png, webp or gif. */
+    internal fun looksLikeWebImage(b: ByteArray): Boolean {
+        if (b.size < 12) return false
+        fun at(i: Int, vararg v: Int) = v.indices.all { b[i + it] == v[it].toByte() }
+        fun ascii(i: Int, s: String) = s.indices.all { b[i + it] == s[it].code.toByte() }
         return when {
-            scheme == "https" -> null
-            scheme == "http" && allowHttp -> null
-            scheme == "http" -> "refused an insecure link"
-            else -> "refused a '$scheme' link"
+            at(0, 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A) -> true            // PNG
+            at(0, 0xFF, 0xD8, 0xFF) -> true                                          // JPEG
+            ascii(0, "GIF87a") || ascii(0, "GIF89a") -> true                          // GIF
+            ascii(0, "RIFF") && ascii(8, "WEBP") -> true                              // WebP
+            else -> false
         }
     }
 
-    // Compared as a full origin: scheme, host and port.
-    internal fun isBackendOrigin(backend: HttpUrl?, target: HttpUrl): Boolean =
-        backend != null &&
-            backend.scheme.equals(target.scheme, ignoreCase = true) &&
-            backend.host.equals(target.host, ignoreCase = true) &&
-            backend.port == target.port
-
-    // Path and query are never logged; the host only in a debuggable build.
-    internal fun originLabel(url: HttpUrl, backend: HttpUrl?, verbose: Boolean): String = when {
-        verbose -> "${url.host}:${url.port}"
-        isBackendOrigin(backend, url) -> "the backend"
-        else -> "a third-party host"
+    /**
+     * True only for https on exactly [REMOTE_IMAGE_HOST], port 443, no user-info. Parsed twice,
+     * strictly by java.net.URI and again by OkHttp, which is what dials; both must agree.
+     */
+    internal fun isAllowedImageUrl(raw: String): Boolean {
+        val s = raw.trim()
+        if (s.isEmpty() || s.any { it.isWhitespace() || it.code < 0x20 || it == '\\' }) return false
+        val u = runCatching { java.net.URI(s) }.getOrNull() ?: return false
+        if (!u.isAbsolute || u.isOpaque) return false
+        if (!"https".equals(u.scheme, ignoreCase = true)) return false
+        if (u.rawUserInfo != null) return false
+        if (!REMOTE_IMAGE_HOST.equals(u.host, ignoreCase = true)) return false
+        if (u.port != -1 && u.port != 443) return false
+        val h = s.toHttpUrlOrNull() ?: return false
+        return h.isHttps && h.host == REMOTE_IMAGE_HOST && h.port == 443 &&
+            h.username.isEmpty() && h.password.isEmpty()
     }
 
     /** Bytes that crossed the wire, kept or not. */
@@ -245,35 +284,37 @@ object Attachments {
         class Err(val why: String) : Fetched()
     }
 
-    // The bearer is attached per hop only when that hop's origin is the backend's own, and
-    // every redirect hop goes back through [schemeRefusal].
-    private fun fetch(ctx: Context, rawUri: String, cap: Int, allowHttp: Boolean, spend: Spend): Fetched {
-        val backend = Config.backendUrl(ctx).toHttpUrlOrNull()
-        val client = sharedClient.newBuilder()
-            .connectTimeout(connectTimeoutS, TimeUnit.SECONDS)
-            .readTimeout(readTimeoutS, TimeUnit.SECONDS)
-            // callTimeout bounds the whole call, including a server that dribbles bytes forever.
-            .callTimeout(callTimeoutS, TimeUnit.SECONDS)
-            .build()
-
-        val verboseLog = Config.isDebugBuild(ctx)
-
+    /**
+     * A plain GET: no cookies, no credential of any kind, no Referer. Every hop, the first one
+     * included, goes back through [isAllowedImageUrl]; one deadline covers the whole load.
+     */
+    private fun fetch(rawUri: String, cap: Int, spend: Spend): Fetched {
+        val startedAt = System.nanoTime()
         var current = rawUri.trim()
         var hops = 0
         while (true) {
-            schemeRefusal(current, allowHttp)?.let { return Fetched.Err(it) }
-            val url = current.toHttpUrlOrNull() ?: return Fetched.Err("unusable link")
+            if (!isAllowedImageUrl(current)) return Fetched.Err("refused a link")
+            val real = current.toHttpUrlOrNull() ?: return Fetched.Err("refused a link")
+            val dial = dialForTest?.invoke(real) ?: real
 
-            val builder = Request.Builder().url(url)
-            if (isBackendOrigin(backend, url)) {
-                val token = bearerSource(ctx)
-                if (token.isNotEmpty()) builder.header("Authorization", "Bearer $token")
-            }
+            val leftMs = loadTimeoutMs - (System.nanoTime() - startedAt) / 1_000_000
+            if (leftMs <= 0) return Fetched.Err("timed out")
+            val client = sharedClient.newBuilder()
+                .connectTimeout(leftMs, TimeUnit.MILLISECONDS)
+                .readTimeout(leftMs, TimeUnit.MILLISECONDS)
+                // callTimeout bounds the whole hop, body included, against a server that dribbles.
+                .callTimeout(leftMs, TimeUnit.MILLISECONDS)
+                .build()
 
-            val where = originLabel(url, backend, verboseLog)
-            val resp = runCatching { client.newCall(builder.build()).execute() }
+            val request = Request.Builder()
+                .url(dial)
+                .get()
+                .header("Accept", "image/jpeg,image/png,image/webp,image/gif")
+                .build()
+
+            val resp = runCatching { client.newCall(request).execute() }
                 .getOrElse { t ->
-                    Log.w(TAG, "attachment fetch from $where failed: ${t.javaClass.simpleName}")
+                    Log.w(TAG, "picture load failed: ${t.javaClass.simpleName}")
                     return Fetched.Err("could not be loaded")
                 }
             try {
@@ -282,11 +323,11 @@ object Attachments {
                     val loc = resp.header("Location")?.trim().orEmpty()
                     if (loc.isEmpty()) return Fetched.Err("could not be loaded")
                     current = runCatching { java.net.URI(current).resolve(loc).toString() }
-                        .getOrElse { return Fetched.Err("unusable link") }
+                        .getOrElse { return Fetched.Err("refused a link") }
                     continue
                 }
-                if (resp.code !in 200..299) {
-                    Log.w(TAG, "attachment fetch from $where returned ${resp.code}")
+                if (resp.code != 200) {
+                    Log.w(TAG, "picture load returned ${resp.code}")
                     return Fetched.Err("could not be loaded (${resp.code})")
                 }
 
@@ -294,18 +335,22 @@ object Attachments {
                 val body = resp.body ?: return Fetched.Err("could not be loaded")
                 val declared = body.contentLength()
                 if (declared > cap) {
-                    Log.w(TAG, "attachment from $where refused: declared $declared bytes over the ${cap}-byte cap")
+                    Log.w(TAG, "picture refused: declared $declared bytes over the ${cap}-byte cap")
                     return Fetched.Err("too large (${declared / 1024} KiB)")
                 }
 
-                val bytes = readBounded(body.byteStream(), cap)
+                val bytes = runCatching { readBounded(body.byteStream(), cap) }
+                    .getOrElse { t ->
+                        Log.w(TAG, "picture load failed mid-body: ${t.javaClass.simpleName}")
+                        return Fetched.Err("could not be loaded")
+                    }
                 if (bytes == null) {
                     spend.charge(cap)
-                    Log.w(TAG, "attachment from $where refused: body exceeded the ${cap}-byte cap")
+                    Log.w(TAG, "picture refused: body exceeded the ${cap}-byte cap")
                     return Fetched.Err("too large")
                 }
                 spend.charge(bytes.size)
-                Log.i(TAG, "attachment fetched from $where: ${bytes.size} bytes")
+                Log.i(TAG, "picture loaded: ${bytes.size} bytes")
                 return Fetched.Ok(bytes)
             } finally {
                 resp.close()
@@ -330,3 +375,4 @@ object Attachments {
         return out.toByteArray()
     }
 }
+

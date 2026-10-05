@@ -44,6 +44,11 @@ class ReceivedPhotosTest {
     }
 
     @Test
+    fun `a picture loaded from a url is never kept on disk`() {
+        assertFalse(ReceivedPhotos.isKeepable(image("Photo: theguardian.com").copy(remote = true)))
+    }
+
+    @Test
     fun `pictures are kept under their answer, in order, with their credit`() {
         ReceivedPhotos.save(ctx, 42L, listOf(image("first", "image/jpeg"), image("second")))
         val kept = ReceivedPhotos.byEntry(ctx)[42L]!!
