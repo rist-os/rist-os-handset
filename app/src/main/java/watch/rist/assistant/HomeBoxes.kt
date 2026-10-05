@@ -204,8 +204,22 @@ object HomeBoxes {
      * those words, as if the user had said or typed them. Null for a display box.
      */
     fun commandTurn(b: HomeBox): Turn? {
-        if (kindOf(b) != Kind.COMMAND || b.command.isBlank()) return null
-        return Turn(text = b.command, targetToolId = "", boxId = b.id, prompt = b.command)
+        if (kindOf(b) != Kind.COMMAND) return null
+        val words = unwrapped(b.command)
+        if (words.isBlank()) return null
+        return Turn(text = words, targetToolId = "", boxId = b.id, prompt = words)
+    }
+
+    private val ADD_WRAPPERS = listOf("Add a command box:", "Add a display box:")
+
+    /**
+     * [command] without the add sheet's own "Add a command box: " wrapper. A tile made by the old
+     * add turn may have stored it, and sending it as typed would ask for another tile.
+     */
+    internal fun unwrapped(command: String): String {
+        val c = command.trim()
+        val w = ADD_WRAPPERS.firstOrNull { c.startsWith(it, ignoreCase = true) } ?: return c
+        return c.substring(w.length).trim()
     }
 
     fun addTurn(kind: Kind, words: String): Turn {
@@ -370,11 +384,21 @@ object HomeBoxes {
      */
     fun flush(ctx: Context, http: OkHttpClient = Uploader.sharedClient()): Int {
         if (queued(ctx).isEmpty()) return 0
+        // One flush at a time: the wake and [flushSoon] both flush, and two at once would send the
+        // same edit twice and judge its reply against a list the other had already taken in.
+        return synchronized(flushLock) { flushOneAtATime(ctx, http) }
+    }
+
+    private val flushLock = Any()
+
+    private fun flushOneAtATime(ctx: Context, http: OkHttpClient): Int {
         val bearer = Uploader.bearer(ctx)
         val url = boxesUrl(Config.backendUrl(ctx)) ?: return 0
         var done = 0
         while (true) {
             val edit = queued(ctx).firstOrNull() ?: break
+            // Taken before the send: a list arriving meanwhile (a reply, the wake) may hold the box.
+            val before = boxes(ctx).map { it.id }.toSet()
             when (val out = send(http, url, bearer, Config.deviceId(ctx), edit)) {
                 is Sent.Later -> {
                     Log.i(TAG, "edit ${edit.editId.take(8)} waits (${out.why})")
@@ -394,10 +418,9 @@ object HomeBoxes {
                 is Sent.Refused -> {
                     Log.w(TAG, "edit ${edit.editId.take(8)} refused with HTTP ${out.code}; dropped")
                     dequeue(ctx, edit.editId)
-                    if (edit.addCount > 0) BoxCreate.addEnded(ctx, edit.editId, made = false)
+                    if (edit.addCount > 0) BoxCreate.addRefused(edit.editId)
                 }
                 is Sent.Accepted -> {
-                    val before = boxes(ctx).map { it.id }.toSet()
                     dequeue(ctx, edit.editId)
                     if (out.reply.hasBoxes()) apply(ctx, out.reply.boxes)
                     if (edit.addCount > 0) added(ctx, edit, out.reply, before)
@@ -409,30 +432,20 @@ object HomeBoxes {
     }
 
     /**
-     * An add was accepted. Its reply's list holds the new tile, unless the backend predates
-     * [BoxEdit.add] and ignored it, in which case the tile is asked for by the old add turn, once.
+     * An add was accepted. The reply's list normally holds the new tile: a box not there when the
+     * add was made (or, if that is not known, before it was sent), else one whose words are the
+     * add's own. Either way nothing more is sent: if the box is not there yet, the placeholder
+     * waits for it on the wake, and goes with a word at its cap.
      */
     private fun added(ctx: Context, edit: BoxEdit, reply: BoxEditReply, before: Set<String>) {
-        val known = BoxCreate.idsAtSubmit(edit.editId) ?: before
-        val made = reply.hasBoxes() && reply.boxes.boxesList.any { it.id !in known }
-        if (made) {
-            BoxCreate.addEnded(ctx, edit.editId, made = made)
-            return
-        }
-        // FALLBACK, TEMPORARY: remove this branch (and [addTurn]'s command case) once every backend
-        // reads BoxEdit.add (field 9). Until then a reply with no new box means the add was not
-        // understood, so the tile is asked for as before: one "Add a command box: …" turn per add,
-        // sent here, with no further fallback whatever comes back.
-        for (a in edit.addList) {
-            Log.i(TAG, "edit ${edit.editId.take(8)}: no new box in the reply; asking by turn instead")
-            val uploader = Uploader(ctx)
-            val turn = addTurn(Kind.COMMAND, a.command)
-            val answer = runCatching { uploader.sendToolCall(turn.targetToolId, turn.text) }.getOrNull()
-            BoxCreate.addTurnEnded(
-                ctx, edit.editId, answer,
-                mayHaveHappened = uploader.lastFailure == Uploader.MAY_HAVE_HAPPENED,
-            )
-        }
+        val snapshot = BoxCreate.idsAtSubmit(edit.editId)
+        val known = snapshot ?: before
+        val list = if (reply.hasBoxes()) reply.boxes.boxesList else emptyList()
+        val made = list.any { it.id !in known } || (snapshot == null && list.any { b ->
+            edit.addList.any { a -> BoxCreate.sameWords(b.command, a.command) || BoxCreate.sameWords(b.sourceWords, a.command) }
+        })
+        if (!made) Log.i(TAG, "edit ${edit.editId.take(8)}: no new box in the reply yet; waiting on the wake")
+        BoxCreate.addAccepted(ctx, edit.editId)
     }
 
     @Synchronized

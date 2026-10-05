@@ -6,7 +6,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.widget.Toast
-import rist.v1.DeviceResponse
 import rist.v1.HomeBox
 
 /**
@@ -151,21 +150,22 @@ object BoxCreate {
         sayText(line)
     }
 
-    /** The add edit [editId] was answered with its new box ([made]), or refused for good. */
-    fun addEnded(ctx: Context, editId: String, made: Boolean) {
+    /**
+     * The add edit [editId] was accepted, its reply's list taken in. If that list did not end the
+     * wait, the box may still come (the backend can make it just after replying): the wait goes on
+     * a grace more with the wake polled, and then goes with a word. Nothing is ever sent for it.
+     */
+    fun addAccepted(ctx: Context, editId: String) {
         synchronized(this) { submitted.remove(editId) }
         val p = forEdit(editId) ?: return
-        if (made) turnEnded(ctx, p, replied = true, carriedBoxes = true, expectsReply = false) else fail(p)
+        turnEnded(ctx, p, replied = true, carriedBoxes = true, expectsReply = false)
     }
 
-    /** The fallback add turn for [editId] ended with [reply] (see [HomeBoxes.flush]). */
-    fun addTurnEnded(ctx: Context, editId: String, reply: DeviceResponse?, mayHaveHappened: Boolean) {
+    /** The add edit [editId] was refused for good: its placeholder goes with a word. */
+    fun addRefused(editId: String) {
         synchronized(this) { submitted.remove(editId) }
         val p = forEdit(editId) ?: return
-        turnEnded(
-            ctx, p, replied = reply != null, carriedBoxes = reply?.hasBoxes() == true,
-            expectsReply = reply?.expectsReply == true, mayHaveHappened = mayHaveHappened,
-        )
+        fail(p)
     }
 
     private fun schedulePolls(p: Pending, fromUptimeMs: Long, offsets: LongArray) {
