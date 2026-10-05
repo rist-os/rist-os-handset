@@ -123,9 +123,12 @@ object CommsFeedView {
         host.removeAllViews()
 
         val all = candidates(activity)
-        val shown = CommsFeed.assemble(all, System.currentTimeMillis())
+        val shown = CommsFeed.assemble(
             // `it.id in expanded` is load-bearing: a tap marks seen AND expands, so an open row stays until closed.
-            .filter { it.unread || it.id in expanded }
+            // A notice stays read or unread: NotificationQueue.renderable already chose which to keep.
+            all.filter { it.kind == FeedKind.NOTIFICATION || it.unread || it.id in expanded },
+            System.currentTimeMillis(),
+        )
         val vmWaiting = CarrierVoicemail.showing(activity)
         val textsUnreadable = !SmsInbox.canRead(activity)
         val unconnected = Config.credentialRejected(activity) || Config.enrolRevoked(activity)
@@ -236,7 +239,10 @@ object CommsFeedView {
 
         for (item in shown) {
             if (drawn > 0) divider()
-            host.addView(row(activity, t, tf, muted, d, item))
+            host.addView(
+                if (item.kind == FeedKind.NOTIFICATION) noticeCard(activity, t, tf, muted, d, item)
+                else row(activity, t, tf, muted, d, item)
+            )
             drawn++
         }
         if (all.size > shown.size) host.addView(
@@ -287,6 +293,7 @@ object CommsFeedView {
             setOnClickListener {
                 expanded.clear()
                 markSeen(activity, all.filter { it.unread }.map { it.id })
+                NotificationQueue.dismiss(activity, all.mapNotNull { NotificationQueue.noticeIdOf(it.id) })
                 Config.setMailAcknowledged(activity, Config.mailUnread(activity))
                 if (vmWaiting) CarrierVoicemail.dismiss(activity)
                 Haptics.ack(activity)
@@ -435,6 +442,194 @@ object CommsFeedView {
                 render(activity)
             }
         }
+    }
+
+    internal const val NOTICE_CARD_TAG = "notice-card"
+    internal const val NOTICE_BAR_TAG = "notice-bar"
+    internal const val NOTICE_LABEL_TAG = "notice-label"
+    internal const val NOTICE_BODY_TAG = "notice-body"
+    internal const val NOTICE_TOGGLE_TAG = "notice-toggle"
+    internal const val NOTICE_CLOSE_TAG = "notice-close"
+
+    /** Lines a long notice shows before "Show more". */
+    internal const val NOTICE_PREVIEW_LINES = 4
+
+    internal const val NOTICE_SHOW_MORE = "SHOW MORE"
+    internal const val NOTICE_SHOW_LESS = "SHOW LESS"
+
+    /**
+     * The leading bar: the accent when it holds 3:1 against the ground (a design that fails the
+     * rail is nudged there by DesignSync), else the ink. The label says "Notification" as well,
+     * so the colour is never the only sign.
+     */
+    internal fun noticeBarColor(t: RistTheme): Int =
+        if (contrast(t.accent, t.ground) >= 3.0) t.accent else t.ink
+
+    /** Small text in the accent only where the accent reads as text (4.5:1); else the ink. */
+    internal fun noticeAccentText(t: RistTheme): Int =
+        if (contrast(t.accent, t.ground) >= 4.5) t.accent else t.ink
+
+    /** For tests: forget which rows are open. */
+    internal fun resetForTest() = expanded.clear()
+
+    /**
+     * A server notice drawn as an answer is drawn (same text, size and markdown), with an accent
+     * bar down its leading edge, a "NOTIFICATION · time" label and a close button. A long one shows
+     * [NOTICE_PREVIEW_LINES] lines and SHOW MORE; a tap on the card or the link opens it in place.
+     * Kept until dismissed (swipe, close, CLEAR ALL); see [NotificationQueue.renderable].
+     */
+    private fun noticeCard(
+        activity: Activity, t: RistTheme, tf: android.graphics.Typeface?, muted: Int,
+        d: Float, item: FeedItem,
+    ): View {
+        val isOpen = item.id in expanded
+        val nowMs = System.currentTimeMillis()
+        val text = item.title.trim().ifBlank { "Notice from Rist" }
+        val noticeId = NotificationQueue.noticeIdOf(item.id)
+        val accentText = noticeAccentText(t)
+        val dismiss = {
+            expanded.remove(item.id)
+            markSeen(activity, listOf(item.id))
+            if (noticeId != null) NotificationQueue.dismiss(activity, listOf(noticeId))
+        }
+
+        val col = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        col.addView(LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            addView(TextView(activity).apply {
+                tag = NOTICE_LABEL_TAG
+                this.text = CommsFeed.noticeCardLabel(item, nowMs)
+                setTextColor(if (item.unread) accentText else muted); typeface = tf
+                isAllCaps = true
+                letterSpacing = 0.06f
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            if (item.unread) addView(TextView(activity).apply {
+                this.text = "NEW"
+                setTextColor(accentText); typeface = tf
+                isAllCaps = true
+                letterSpacing = 0.10f
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                setPadding(0, 0, (4 * d).toInt(), 0)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            })
+            addView(ImageView(activity).apply {
+                tag = NOTICE_CLOSE_TAG
+                setImageResource(R.drawable.ic_close)
+                setColorFilter(muted)
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                val pad = (14 * d).toInt()
+                setPadding(pad, pad, pad, pad)
+                layoutParams = LinearLayout.LayoutParams((48 * d).toInt(), (48 * d).toInt())
+                contentDescription = "Dismiss notification"
+                isClickable = true; isFocusable = true
+                setOnClickListener {
+                    dismiss()
+                    Haptics.ack(activity)
+                    render(activity)
+                }
+            })
+        })
+
+        val body = TextView(activity).apply {
+            tag = NOTICE_BODY_TAG
+            this.text = Markdown.render(text)
+            setTextColor(t.ink); typeface = tf
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
+            setPadding(0, 0, 0, (2 * d).toInt())
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            if (isOpen) {
+                maxLines = Int.MAX_VALUE; ellipsize = null
+            } else {
+                maxLines = NOTICE_PREVIEW_LINES; ellipsize = android.text.TextUtils.TruncateAt.END
+            }
+        }
+        col.addView(body)
+
+        val toggle = TextView(activity).apply {
+            tag = NOTICE_TOGGLE_TAG
+            this.text = if (isOpen) NOTICE_SHOW_LESS else NOTICE_SHOW_MORE
+            setTextColor(accentText); typeface = tf
+            isAllCaps = true
+            letterSpacing = 0.06f
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            gravity = Gravity.CENTER_VERTICAL
+            minHeight = (48 * d).toInt()
+            setPadding(0, 0, (16 * d).toInt(), 0)
+            // An open card always offers to close; a closed one only once its text is seen to overflow.
+            visibility = if (isOpen) View.VISIBLE else View.GONE
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        col.addView(toggle)
+
+        val bar = View(activity).apply {
+            tag = NOTICE_BAR_TAG
+            layoutParams = LinearLayout.LayoutParams((5 * d).toInt(), LinearLayout.LayoutParams.MATCH_PARENT)
+                .apply { rightMargin = (12 * d).toInt() }
+            setBackgroundColor(noticeBarColor(t))
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+
+        val spokenText = Markdown.render(text).toString()
+        return LinearLayout(activity).apply {
+            tag = NOTICE_CARD_TAG
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setPadding(0, (8 * d).toInt(), 0, (8 * d).toInt())
+            addView(bar); addView(col)
+            swipeToDismiss(activity, this, "this notification") { dismiss() }
+            isClickable = true; isFocusable = true
+            contentDescription = CommsFeed.noticeSpoken(item, nowMs, spokenText)
+            val card = this
+            fun labelClick(overflows: Boolean) {
+                val label = when {
+                    isOpen -> "Show less"
+                    overflows -> "Show more"
+                    else -> "Mark as read"
+                }
+                androidx.core.view.ViewCompat.replaceAccessibilityAction(
+                    card,
+                    androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat.ACTION_CLICK,
+                    label, null,
+                )
+            }
+            labelClick(false)
+            // Whether the preview cut anything is only known once the text is laid out at its width.
+            body.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+                if (isOpen) return@addOnLayoutChangeListener
+                val overflows = noticeOverflows(v as TextView)
+                val want = if (overflows) View.VISIBLE else View.GONE
+                if (toggle.visibility != want) v.post { toggle.visibility = want; labelClick(overflows) }
+            }
+            val flip = {
+                if (isOpen || toggle.visibility == View.VISIBLE) {
+                    if (isOpen) expanded.remove(item.id) else expanded.add(item.id)
+                }
+                markSeen(activity, listOf(item.id))
+                Haptics.ack(activity)
+                render(activity)
+            }
+            setOnClickListener { flip() }
+            toggle.setOnClickListener { flip() }
+            toggle.isClickable = true
+        }
+    }
+
+    /** True when the collapsed preview hides some of the text. */
+    internal fun noticeOverflows(body: TextView): Boolean {
+        val l = body.layout ?: return false
+        if (l.lineCount == 0) return false
+        return l.lineCount > NOTICE_PREVIEW_LINES || l.getEllipsisCount(l.lineCount - 1) > 0
     }
 
     internal const val BILLING_ROW_TAG = "billing-lapse"

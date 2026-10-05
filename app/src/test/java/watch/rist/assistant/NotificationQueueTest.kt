@@ -441,4 +441,38 @@ class NotificationQueueTest {
         assertTrue(caps.maxNotifications > 0)
         assertTrue("and the schema version the notifications ride on", caps.schemaVersion >= 12)
     }
+
+    @Test
+    fun `a read notice stays a day, an unread one stays until dismissed`() {
+        val keep = NotificationQueue.READ_KEEP_MS
+        val read = notice("n-read", atMs = T0 - keep - 1)
+        val readFresh = notice("n-read-fresh", atMs = T0 - keep + 60_000L)
+        val unread = notice("n-unread", atMs = T0 - 30 * keep)
+        val seen = setOf(NotificationQueue.feedId("n-read"), NotificationQueue.feedId("n-read-fresh"))
+        assertEquals(
+            setOf("n-read-fresh", "n-unread"),
+            NotificationQueue.renderable(listOf(read, readFresh, unread), T0, seen).map { it.id }.toSet(),
+        )
+    }
+
+    @Test
+    fun `dismissing hides a notice without touching its ack, across a reboot and a redelivery`() {
+        val disk = FakeDisk()
+        disk.store(listOf(notice("n-1"), notice("n-2")))
+        disk.save(NotificationQueue.dismiss(disk.load(), listOf("n-1")))
+
+        val after = disk.reboot()
+        assertEquals(listOf("n-2"), NotificationQueue.renderable(after.load(), T0).map { it.id })
+        assertEquals("the ack is still owed", setOf("n-1", "n-2"), after.pendingAcks().toSet())
+
+        after.store(listOf(notice("n-1")))
+        assertTrue("a redelivery stays dismissed", after.load().single { it.id == "n-1" }.dismissed)
+        assertEquals(listOf("n-2"), NotificationQueue.renderable(after.load(), T0).map { it.id })
+    }
+
+    @Test
+    fun `feed ids map back to notice ids and nothing else`() {
+        assertEquals("abc", NotificationQueue.noticeIdOf(NotificationQueue.feedId("abc")))
+        assertEquals(null, NotificationQueue.noticeIdOf("sms:12"))
+    }
 }

@@ -104,6 +104,13 @@ object Config {
 
     @Volatile private var cached: SharedPreferences? = null
 
+    /** Robolectric has no AndroidKeyStore; this lets a test hold the secret keys in plain prefs. */
+    internal fun usePlainPrefsForTest(ctx: Context) {
+        cached = ctx.applicationContext.getSharedPreferences("$PREFS.test", Context.MODE_PRIVATE)
+    }
+
+    internal fun forgetPrefsForTest() { cached = null }
+
     private fun prefs(ctx: Context): SharedPreferences {
         cached?.let { return it }
         synchronized(this) {

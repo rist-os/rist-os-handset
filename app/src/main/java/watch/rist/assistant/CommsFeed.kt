@@ -143,6 +143,28 @@ object CommsFeed {
         }
     }
 
+    /** A notice card's label: the kind, then the time, as an answer carries its time. */
+    fun noticeCardLabel(item: FeedItem, nowMs: Long): String {
+        val base = if (item.noticeKind == KIND_MAIL) "NEW MAIL" else "NOTIFICATION"
+        val kind = when (item.urgency) {
+            "critical" -> "$base · URGENT"
+            "time_sensitive" -> "$base · TIME SENSITIVE"
+            else -> base
+        }
+        return "$kind · " + entryStamp(item.atMs, nowMs)
+    }
+
+    /** What a screen reader says for a notice card; [text] is the whole notice, never the preview. */
+    fun noticeSpoken(item: FeedItem, nowMs: Long, text: String): String = buildString {
+        append("Notification from Rist, ").append(entryStamp(item.atMs, nowMs)).append(". ")
+        when (item.urgency) {
+            "critical" -> append("Urgent. ")
+            "time_sensitive" -> append("Time sensitive. ")
+        }
+        append(text.trim())
+        if (item.unread) append(". New.")
+    }
+
     fun voicemailKindLine(): String = "VOICEMAIL"
 
     fun voicemailSenderLine(): String = "You have a voicemail"
