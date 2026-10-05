@@ -36,7 +36,9 @@ class HomeBoxesLayoutTest {
     }
 
     @Before fun setUp() { HomeBoxes.resetForTest(app); HomeBoxes.shippedForTest = true; fontScale(1f) }
-    @After fun tidy() { HomeBoxes.resetForTest(app); fontScale(1f) }
+    @After fun tidy() { HomeBoxes.resetForTest(app); BoxRefresh.resetForTest(); fontScale(1f) }
+
+    private val asked = "Show me the weather forecast for the whole weekend including wind and rain"
 
     private fun settle() = shadowOf(Looper.getMainLooper()).idle()
 
@@ -93,6 +95,9 @@ class HomeBoxesLayoutTest {
             HomeBoxes.resetForTest(app); HomeBoxes.shippedForTest = true
             HomeBoxes.apply(app, BoxSet.newBuilder().setVersion(3).addAllBoxes(long()).build())
             HomeBoxes.beginSend("send")
+            BoxRefresh.motionForTest = true
+            BoxCreate.capMsForTest = 3_600_000L
+            BoxCreate.start(app, asked)
             val a = Robolectric.buildActivity(MainActivity::class.java).setup().get()
             settle()
             val list = a.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.boxList)
@@ -101,6 +106,10 @@ class HomeBoxesLayoutTest {
                 val tile = requireNotNull(list.findViewWithTag<ViewGroup>(BoxBoard.TILE_TAG_PREFIX + b.id)) { b.id }
                 assertContained(tile, BoxBoard.TILE_DP, scale)
             }
+            list.scrollToPosition(long().size); settle()
+            val creating = requireNotNull(list.findViewWithTag<ViewGroup>(BoxBoard.CREATING_TAG)) { "placeholder" }
+            assertEquals("square", creating.height, creating.width)
+            assertContained(creating, BoxBoard.TILE_DP, scale)
             val sending = list.findViewWithTag<ViewGroup>(BoxBoard.TILE_TAG_PREFIX + "send")
             assertEquals("Sending…", sending.findViewWithTag<TextView>(BoxBoard.DETAIL_TAG)?.text?.toString())
             HomeBoxes.endSend("send")
@@ -113,6 +122,9 @@ class HomeBoxesLayoutTest {
             fontScale(scale)
             HomeBoxes.resetForTest(app); HomeBoxes.shippedForTest = true
             HomeBoxes.apply(app, BoxSet.newBuilder().setVersion(3).addAllBoxes(long()).build())
+            BoxRefresh.motionForTest = false
+            BoxCreate.capMsForTest = 3_600_000L
+            BoxCreate.start(app, asked)
             val g = Robolectric.buildActivity(AllBoxesActivity::class.java).setup().get()
             settle()
             val root = g.window.decorView
@@ -120,6 +132,9 @@ class HomeBoxesLayoutTest {
                 val tile = root.findViewWithTag<ViewGroup>(BoxBoard.TILE_TAG_PREFIX + b.id) ?: continue
                 assertContained(tile, BoxBoard.GRID_H_DP, scale)
             }
+            val grid = root.findViewWithTag<androidx.recyclerview.widget.RecyclerView>(AllBoxesActivity.TAG_GRID)
+            grid.scrollToPosition(long().size); settle()
+            assertContained(requireNotNull(root.findViewWithTag<ViewGroup>(BoxBoard.CREATING_TAG)), BoxBoard.GRID_H_DP, scale)
         }
     }
 

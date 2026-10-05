@@ -275,6 +275,12 @@
     <string name="boxes_refresh_slow">Still working…</string>
     <string name="boxes_refresh_offline">Offline</string>
     <string name="boxes_refresh_failed">Couldn\'t update</string>
+    <string name="boxes_create_label">New tile</string>
+    <string name="boxes_creating">Creating…</string>
+    <string name="boxes_creating_desc">Creating tile: %1$s. Hold to cancel.</string>
+    <string name="boxes_create_still">Still creating…</string>
+    <string name="boxes_create_failed">Couldn\'t create that tile</string>
+    <string name="boxes_create_cancel">Cancel</string>
     <string name="boxes_edit">Edit</string>
     <string name="boxes_delete">Delete</string>
     <string name="boxes_move_left">Move left</string>

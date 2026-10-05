@@ -82,12 +82,15 @@ internal class BoxBoard(
     fun render() {
         val boxes = HomeBoxes.boxes(activity)
         BoxRefresh.observe(boxes)
+        BoxCreate.observe(boxes)
+        val creating = BoxCreate.waiting()
         adapter.items = buildList {
             boxes.forEach { add(Item.Box(it)) }
+            creating.forEach { add(Item.Creating(it)) }
             when {
                 editMode -> add(Item.Done)
                 grid -> add(Item.Add)
-                boxes.isEmpty() -> add(Item.Empty)
+                boxes.isEmpty() && creating.isEmpty() -> add(Item.Empty)
                 else -> { add(Item.Add); add(Item.All(boxes.size)) }
             }
         }
@@ -171,6 +174,7 @@ internal class BoxBoard(
 
     private sealed class Item {
         data class Box(val box: HomeBox) : Item()
+        data class Creating(val pending: BoxCreate.Pending) : Item()
         object Add : Item()
         data class All(val count: Int) : Item()
         object Done : Item()
@@ -180,6 +184,7 @@ internal class BoxBoard(
     private class Holder(val frame: FrameLayout) : RecyclerView.ViewHolder(frame) {
         val actions = ArrayList<Int>()
         var boxId: String = ""
+        var spin: android.animation.ObjectAnimator? = null
     }
 
     private inner class Adapter : RecyclerView.Adapter<Holder>() {
@@ -194,8 +199,11 @@ internal class BoxBoard(
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = Holder(FrameLayout(activity))
 
+        override fun onViewRecycled(h: Holder) { h.spin?.cancel(); h.spin = null }
+
         override fun onBindViewHolder(h: Holder, position: Int) {
             val frame = h.frame
+            h.spin?.cancel(); h.spin = null
             frame.removeAllViews()
             frame.background = null
             frame.foreground = null
@@ -223,6 +231,7 @@ internal class BoxBoard(
             }
             when (item) {
                 is Item.Box -> bindBox(h, item.box)
+                is Item.Creating -> bindCreating(h, item.pending)
                 Item.Add -> bindAdd(frame)
                 is Item.All -> bindAll(frame, item.count)
                 Item.Done -> bindDone(frame)
@@ -367,6 +376,57 @@ internal class BoxBoard(
         if (at in 0 until order.size - 1) action(if (grid) R.string.boxes_move_later else R.string.boxes_move_right) { move(b, +1) }
         action(R.string.boxes_edit) { openEditSheet(b) }
         action(R.string.boxes_delete) { delete(b) }
+    }
+
+    /**
+     * A tile asked for and not yet made: the request's first words under "New tile", and a spinner,
+     * or with animations off the word "Creating…". A tap says it is still being made; a long press
+     * removes it from the phone only.
+     */
+    private fun bindCreating(h: Holder, p: BoxCreate.Pending) {
+        val frame = h.frame
+        frame.tag = CREATING_TAG
+        val t = theme()
+        val tf = ThemePaint.typefaceOf(activity, t)
+        val muted = Themes.readableMuted(t)
+        frame.background = tileBackground(t.tileFill, t.accent, 1.5f, dashed = true)
+        val col = column()
+        col.addView(label(activity.getString(R.string.boxes_create_label), muted).apply { tag = LABEL_TAG })
+        if (BoxRefresh.motion()) {
+            // Fills the space between label and detail; the arc keeps its own size, centred, and
+            // only shrinks when large text leaves less room than that.
+            val arc = ImageView(activity).apply {
+                tag = SPINNER_TAG
+                setImageDrawable(ContextCompat.getDrawable(activity, R.drawable.ic_box_sending)?.mutate())
+                setColorFilter(t.accent)
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+            }
+            col.addView(arc)
+            h.spin = android.animation.ObjectAnimator.ofFloat(arc, View.ROTATION, 0f, 360f).apply {
+                duration = 900
+                repeatCount = android.animation.ValueAnimator.INFINITE
+                interpolator = android.view.animation.LinearInterpolator()
+                start()
+            }
+        } else {
+            col.addView(value(activity.getString(R.string.boxes_creating), 15f, t.ink, tf, 2,
+                Gravity.CENTER_VERTICAL or Gravity.START))
+        }
+        val detail = BoxCreate.detailOf(p.words)
+        if (detail.isNotBlank()) col.addView(small(detail, muted, tf).apply { tag = DETAIL_TAG; maxLines = detailLines() })
+        frame.addView(col)
+        frame.contentDescription = activity.getString(R.string.boxes_creating_desc, p.words)
+        frame.isClickable = true; frame.isFocusable = true
+        frame.setOnClickListener {
+            android.widget.Toast.makeText(activity, R.string.boxes_create_still, android.widget.Toast.LENGTH_SHORT).show()
+        }
+        frame.isLongClickable = true
+        frame.setOnLongClickListener { Haptics.ack(activity); BoxCreate.cancel(p); render(); true }
+        h.actions += ViewCompat.addAccessibilityAction(frame, activity.getString(R.string.boxes_create_cancel)) { _, _ ->
+            BoxCreate.cancel(p); render(); true
+        }
     }
 
     private fun addEditControls(frame: FrameLayout, b: HomeBox, t: RistTheme) {
@@ -532,6 +592,8 @@ internal class BoxBoard(
         const val VALUE_TAG = "box-value"
         const val DETAIL_TAG = "box-detail"
         const val ADD_TAG = "box-add"
+        const val CREATING_TAG = "box-creating"
+        const val SPINNER_TAG = "box-spinner"
         const val ALL_TAG = "box-all"
         const val DONE_TAG = "box-done"
         const val DELETE_TAG = "box-delete"

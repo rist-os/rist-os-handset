@@ -1858,6 +1858,8 @@ class MainActivity : AppCompatActivity() {
         if (fromCommand) Haptics.ack(this)
         status(getString(R.string.text_sending))
         val entryId = runCatching { Transcript.begin(this, turn.prompt, EntryState.WAITING) }.getOrDefault(0L)
+        // An add from the sheet puts up a placeholder tile until the new box arrives.
+        val creating = HomeBoxes.addWords(turn)?.let { BoxCreate.start(this, it) }
         renderTranscript()
         renderBoxes()
         uiScope.launch {
@@ -1873,6 +1875,10 @@ class MainActivity : AppCompatActivity() {
             } finally {
                 if (fromCommand) HomeBoxes.endSend(turn.boxId)
             }
+            if (creating != null) BoxCreate.turnEnded(
+                applicationContext, creating, replied = reply != null,
+                carriedBoxes = reply?.hasBoxes() == true, expectsReply = reply?.expectsReply == true,
+            )
             if (reply == null) announceFailure(uploader.lastFailure)
             if (entryId != 0L) runCatching {
                 Transcript.update(

@@ -175,6 +175,7 @@ object HomeBoxes {
         }
         Log.i(TAG, "box list now v${next.version}: ${next.boxesCount} box(es)")
         runCatching { BoxRefresh.observe(next.boxesList) }
+        runCatching { BoxCreate.observe(next.boxesList) }
         // Decoded here, off the main thread, so the first draw of a new icon does not decode it.
         runCatching { BoxIcons.warm(ctx, next.boxesList) }
         announce(ctx)
@@ -207,6 +208,13 @@ object HomeBoxes {
         val w = words.trim()
         val text = if (kind == Kind.COMMAND) "Add a command box: $w" else "Add a display box: $w"
         return Turn(text = text, targetToolId = TOOL_ID, boxId = "", prompt = text)
+    }
+
+    /** The user's own words of an add turn from the sheet; null for any other turn. */
+    fun addWords(turn: Turn): String? {
+        if (turn.targetToolId != TOOL_ID || turn.boxId.isNotBlank()) return null
+        val prefix = listOf("Add a command box: ", "Add a display box: ").firstOrNull { turn.text.startsWith(it) } ?: return null
+        return turn.text.removePrefix(prefix).trim().ifBlank { null }
     }
 
     fun changeTurn(b: HomeBox, words: String): Turn {
@@ -471,6 +479,7 @@ object HomeBoxes {
         shippedForTest = null
         sending.clear()
         removed.clear()
+        BoxCreate.resetForTest()
         Config.setHomeBoxes(ctx, "")
         Config.setBoxEditQueue(ctx, "")
     }
