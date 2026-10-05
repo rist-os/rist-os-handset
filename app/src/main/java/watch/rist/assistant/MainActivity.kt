@@ -658,6 +658,8 @@ class MainActivity : AppCompatActivity() {
                 navSensorManager?.registerListener(compassListener, it, SensorManager.SENSOR_DELAY_NORMAL)
             }
         }
+        // A tile held past its stale time would sit dimmed until the idle poll comes round.
+        WakeLoop.kick()
         applyTheme()
         refreshTalkEnabled()
         refreshGearBadge()
