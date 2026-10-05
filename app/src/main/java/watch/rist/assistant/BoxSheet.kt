@@ -246,9 +246,9 @@ object BoxSheet {
             setText(box.title)
         }
         val command = HomeBoxes.kindOf(box) == HomeBoxes.Kind.COMMAND
-        // The box's own defining words when the backend sent them; a command box falls back to
-        // its command, and a display box without them starts empty.
-        val before = box.sourceWords.ifBlank { if (command) box.command else "" }
+        // The box's own defining words as the user wrote them; a command box falls back to its
+        // command, and a display box without them starts empty.
+        val before = HomeBoxes.editWords(box)
         val prompt = k.text(
             activity.getString(if (command) R.string.boxes_sheet_change_command else R.string.boxes_sheet_change_display),
             13f, k.muted,
@@ -267,10 +267,10 @@ object BoxSheet {
         val dialog = k.dialog(root)
         save.setOnClickListener {
             val newName = name.text?.toString()?.trim().orEmpty()
-            val newWords = words.text?.toString()?.trim().orEmpty()
+            val newWords = HomeBoxes.userWords(words.text?.toString().orEmpty())
             dialog.dismiss()
             if (sendable(newName) && newName != box.title) onRename(newName)
-            if (sendable(newWords) && newWords != before.trim()) onTurn(HomeBoxes.changeTurn(box, newWords))
+            if (sendable(newWords) && newWords != before) onTurn(HomeBoxes.changeTurn(box, newWords))
         }
         dialog.show()
         return dialog

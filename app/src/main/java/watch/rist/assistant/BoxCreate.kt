@@ -233,7 +233,7 @@ object BoxCreate {
             pending.any { it !== p && sameWords(b.sourceWords, it.words) }
 
     internal fun sameWords(a: String, b: String): Boolean {
-        fun norm(s: String) = s.trim().lowercase().split(Regex("\\s+")).filter { it.isNotBlank() }
+        fun norm(s: String) = HomeBoxes.userWords(s).lowercase().split(Regex("\\s+")).filter { it.isNotBlank() }
         val x = norm(a)
         return x.isNotEmpty() && x == norm(b)
     }

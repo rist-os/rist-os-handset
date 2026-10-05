@@ -208,22 +208,45 @@ object HomeBoxes {
         return Turn(text = b.command, targetToolId = "", boxId = b.id, prompt = b.command)
     }
 
+    /**
+     * The wrappers this phone's own sheets put around the user's words in a turn. The backend may
+     * keep the whole turn as a box's source words, so they are taken off again wherever the words
+     * are shown or sent back: this phone's own data format, matched exactly.
+     */
+    private const val ADD_COMMAND = "Add a command box: "
+    private const val ADD_DISPLAY = "Add a display box: "
+    private const val CHANGE = "Change this box: "
+    private val SHEET_PREFIXES = listOf(ADD_COMMAND, ADD_DISPLAY, CHANGE)
+
+    /** [s] without any of this phone's sheet wrappers at its start, however many were nested. */
+    fun userWords(s: String): String {
+        var w = s.trim()
+        while (true) {
+            val p = SHEET_PREFIXES.firstOrNull { w.startsWith(it) } ?: return w
+            w = w.removePrefix(p).trim()
+        }
+    }
+
+    /** What the edit sheet starts with: the box's defining words as the user wrote them. */
+    fun editWords(b: HomeBox): String =
+        userWords(b.sourceWords).ifBlank { if (kindOf(b) == Kind.COMMAND) b.command.trim() else "" }
+
     fun addTurn(kind: Kind, words: String): Turn {
-        val w = words.trim()
-        val text = if (kind == Kind.COMMAND) "Add a command box: $w" else "Add a display box: $w"
-        return Turn(text = text, targetToolId = TOOL_ID, boxId = "", prompt = text)
+        val w = userWords(words)
+        val text = (if (kind == Kind.COMMAND) ADD_COMMAND else ADD_DISPLAY) + w
+        return Turn(text = text, targetToolId = TOOL_ID, boxId = "", prompt = w)
     }
 
     /** The user's own words of an add turn from the sheet; null for any other turn. */
     fun addWords(turn: Turn): String? {
         if (turn.targetToolId != TOOL_ID || turn.boxId.isNotBlank()) return null
-        val prefix = listOf("Add a command box: ", "Add a display box: ").firstOrNull { turn.text.startsWith(it) } ?: return null
-        return turn.text.removePrefix(prefix).trim().ifBlank { null }
+        if (!turn.text.startsWith(ADD_COMMAND) && !turn.text.startsWith(ADD_DISPLAY)) return null
+        return userWords(turn.text).ifBlank { null }
     }
 
     fun changeTurn(b: HomeBox, words: String): Turn {
-        val text = "Change this box: ${words.trim()}"
-        return Turn(text = text, targetToolId = TOOL_ID, boxId = b.id, prompt = text)
+        val w = userWords(words)
+        return Turn(text = CHANGE + w, targetToolId = TOOL_ID, boxId = b.id, prompt = w)
     }
 
     // ---- touch edits ----

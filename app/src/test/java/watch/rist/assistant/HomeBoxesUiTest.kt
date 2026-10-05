@@ -344,6 +344,51 @@ class HomeBoxesUiTest {
     }
 
     @Test
+    fun `the edit sheet shows only the user's words when the stored words carry the phone's own wrapper`() {
+        hold(
+            box("d", title = "Weather", words = "Add a display box: the temperature here"),
+            box("c", title = "Email", kind = "command", command = "Check my email", words = "Add a command box: check my email"),
+            box("x", title = "Rain", words = "Change this box: rain today"),
+            box("n", title = "Nest", words = "Change this box: Add a display box: the tide"),
+            box("p", title = "Plain", words = "add a display box: lower case is the user's own"),
+        )
+        val a = home()
+        fun wordsIn(id: String): String {
+            a.boxBoard.openEditSheet(HomeBoxes.find(app, id)!!)
+            settle()
+            val root = ShadowDialog.getLatestDialog().window!!.decorView
+            return root.findViewWithTag<EditText>(BoxSheet.TAG_WORDS).text.toString()
+        }
+        assertEquals("the temperature here", wordsIn("d"))
+        assertEquals("check my email", wordsIn("c"))
+        assertEquals("rain today", wordsIn("x"))
+        assertEquals("the tide", wordsIn("n"))
+        assertEquals("add a display box: lower case is the user's own", wordsIn("p"))
+    }
+
+    @Test
+    fun `saving a wrapped tile neither resends the wrapper nor nests it`() {
+        hold(box("d", title = "Weather", words = "Add a display box: the temperature here"))
+        val a = home()
+        a.boxBoard.openEditSheet(HomeBoxes.find(app, "d")!!)
+        settle()
+        var root = ShadowDialog.getLatestDialog().window!!.decorView
+        root.findViewWithTag<View>(BoxSheet.TAG_SUBMIT).performClick()
+        settle()
+        Thread.sleep(100); settle()
+        assertTrue("unchanged words send nothing", turns.isEmpty())
+
+        a.boxBoard.openEditSheet(HomeBoxes.find(app, "d")!!)
+        settle()
+        root = ShadowDialog.getLatestDialog().window!!.decorView
+        root.findViewWithTag<EditText>(BoxSheet.TAG_WORDS).setText("the temperature here in Celsius")
+        root.findViewWithTag<View>(BoxSheet.TAG_SUBMIT).performClick()
+        settle()
+        waitFor("the turn") { turns.isNotEmpty() }
+        assertEquals("Change this box: the temperature here in Celsius", turns[0].text)
+    }
+
+    @Test
     fun `unchanged defining words send no turn`() {
         hold(box("d", title = "Weather", words = "the temperature here"))
         val a = home()

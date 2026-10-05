@@ -191,6 +191,19 @@ class HomeBoxesTest {
     }
 
     @Test
+    fun `sheet turns never nest the phone's own wrappers, and the transcript shows just the words`() {
+        val d = HomeBoxes.addTurn(HomeBoxes.Kind.DISPLAY, "the tide")
+        assertEquals("the tide", d.prompt)
+        assertEquals("the tide", HomeBoxes.addWords(d))
+        val ch = HomeBoxes.changeTurn(box("b7"), "Change this box: Add a display box: the tide at noon")
+        assertEquals("Change this box: the tide at noon", ch.text)
+        assertEquals("the tide at noon", ch.prompt)
+        assertEquals("No wrapper here", HomeBoxes.userWords(" No wrapper here "))
+        assertEquals("change this box: mine", HomeBoxes.userWords("change this box: mine"))
+        assertTrue("a placeholder knows its box by the words", BoxCreate.sameWords("Add a display box: The tide", "the tide"))
+    }
+
+    @Test
     fun `the add and change sheets address the boxes tool`() {
         val d = HomeBoxes.addTurn(HomeBoxes.Kind.DISPLAY, " the temperature, every 30 minutes ")
         assertEquals("Add a display box: the temperature, every 30 minutes", d.text)
