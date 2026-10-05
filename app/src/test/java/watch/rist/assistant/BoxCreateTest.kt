@@ -132,6 +132,7 @@ class BoxCreateTest {
 
     @Test
     fun `a submit puts up a spinning placeholder before the Add square, with the request's first words`() {
+        BoxCreate.graceMsForTest = 300L
         HomeBoxes.apply(app, set("a"))
         // A list without the new box, late: the placeholder is checked while the turn is out.
         reply = { ok(DeviceResponse.newBuilder().setBoxes(set("a"))).setHeadersDelay(2, TimeUnit.SECONDS) }
@@ -198,7 +199,8 @@ class BoxCreateTest {
     }
 
     @Test
-    fun `a reply whose list has no new box removes the placeholder`() {
+    fun `a reply whose list has no new box removes the placeholder after a grace`() {
+        BoxCreate.graceMsForTest = 300L
         HomeBoxes.apply(app, set("a"))
         reply = { ok(DeviceResponse.newBuilder().setBoxes(set("a"))) }
         val a = home()
@@ -275,5 +277,125 @@ class BoxCreateTest {
         assertTrue(BoxCreate.waiting().isEmpty())
         assertTrue(said.isEmpty())
         assertTrue(turns.isEmpty())
+    }
+
+    private fun idle(ms: Long) = shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ms))
+
+    private fun worded(id: String, words: String): HomeBox = box(id).toBuilder().setSourceWords(words).build()
+
+    @Test
+    fun `a box made just after a reply whose list lacked it still ends the wait, without a word`() {
+        BoxCreate.graceMsForTest = 60_000L
+        HomeBoxes.apply(app, set("a"))
+        val p = BoxCreate.start(app, "my next meeting")
+        val before = kicks.get()
+        BoxCreate.turnEnded(app, p, replied = true, carriedBoxes = true, expectsReply = false)
+        assertTrue("a list from before the box is not yet a failure", BoxCreate.isWaiting(p))
+        assertTrue("the wake is polled at the reply", kicks.get() > before)
+        idle(1_000)
+        HomeBoxes.apply(app, set("a", "fresh"))
+        assertTrue(BoxCreate.waiting().isEmpty())
+        idle(61_000)
+        assertTrue(said.isEmpty())
+    }
+
+    @Test
+    fun `a box another placeholder took never ends a later wait`() {
+        HomeBoxes.apply(app, set("a"))
+        val first = BoxCreate.start(app, "my next meeting")
+        val second = BoxCreate.start(app, "stocks")
+        HomeBoxes.apply(app, set("a", "x"))
+        assertTrue(!BoxCreate.isWaiting(first))
+        assertTrue(BoxCreate.isWaiting(second))
+        // The second's reply carries the same list: x is the first's, not the second's.
+        BoxCreate.observe(HomeBoxes.boxes(app))
+        assertTrue(BoxCreate.isWaiting(second))
+        HomeBoxes.apply(app, set("a", "x", "y"))
+        assertTrue(BoxCreate.waiting().isEmpty())
+    }
+
+    @Test
+    fun `a new box goes to the placeholder whose words made it`() {
+        HomeBoxes.apply(app, set("a"))
+        val meeting = BoxCreate.start(app, "my next meeting")
+        val stocks = BoxCreate.start(app, "stocks")
+        HomeBoxes.apply(app, BoxSet.newBuilder().setVersion(5)
+            .addBoxes(box("a")).addBoxes(worded("s", "Stocks")).build())
+        assertTrue("the stocks box is not the meeting's", BoxCreate.isWaiting(meeting))
+        assertTrue(!BoxCreate.isWaiting(stocks))
+        assertTrue(BoxCreate.sameWords("  My next\tmeeting ", "my next meeting"))
+        assertTrue(!BoxCreate.sameWords("", ""))
+    }
+
+    @Test
+    fun `a connection lost after the add was sent keeps waiting`() {
+        HomeBoxes.apply(app, set("a"))
+        val p = BoxCreate.start(app, "my next meeting")
+        BoxCreate.turnEnded(app, p, replied = false, carriedBoxes = false, expectsReply = false, mayHaveHappened = true)
+        assertTrue(BoxCreate.isWaiting(p))
+        assertTrue(said.isEmpty())
+        HomeBoxes.apply(app, set("a", "fresh"))
+        assertTrue(BoxCreate.waiting().isEmpty())
+    }
+
+    @Test
+    fun `the cap does not end a wait whose turn is still out, its late reply decides`() {
+        BoxCreate.capMsForTest = 400L
+        BoxCreate.graceMsForTest = 300L
+        HomeBoxes.apply(app, set("a"))
+        val p = BoxCreate.start(app, "my next meeting")
+        idle(1_000)
+        assertTrue("the turn is still out", BoxCreate.isWaiting(p))
+        assertTrue(said.isEmpty())
+        BoxCreate.turnEnded(app, p, replied = true, carriedBoxes = false, expectsReply = false)
+        assertTrue("a grace from the reply", BoxCreate.isWaiting(p))
+        idle(500)
+        assertTrue(BoxCreate.waiting().isEmpty())
+        assertEquals(listOf(R.string.boxes_create_failed), said.toList())
+    }
+
+    @Test
+    fun `a turn never heard from still ends at the turn cap`() {
+        BoxCreate.capMsForTest = 400L
+        BoxCreate.turnCapMsForTest = 120_000L
+        HomeBoxes.apply(app, set("a"))
+        val p = BoxCreate.start(app, "my next meeting")
+        idle(500)
+        assertTrue(BoxCreate.isWaiting(p))
+        idle(121_000)
+        assertTrue(BoxCreate.waiting().isEmpty())
+        assertEquals(listOf(R.string.boxes_create_failed), said.toList())
+    }
+
+    @Test
+    fun `a reply asking something back goes quietly at the cap`() {
+        BoxCreate.capMsForTest = 400L
+        HomeBoxes.apply(app, set("a"))
+        val p = BoxCreate.start(app, "my next meeting")
+        BoxCreate.turnEnded(app, p, replied = true, carriedBoxes = true, expectsReply = true)
+        idle(1_000)
+        assertTrue(BoxCreate.waiting().isEmpty())
+        assertTrue("the answer may still make it; no failure is said", said.isEmpty())
+    }
+
+    @Test
+    fun `the spinner runs only while on screen, and a replaced one does not come back`() {
+        val a = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+        val root = android.widget.FrameLayout(a).also { a.setContentView(it) }
+        settle()
+        val arc = View(a)
+        var current: android.animation.Animator? = null
+        val spin = BoxBoard.spinWhileAttached(arc) { current }
+        current = spin
+        root.addView(arc)
+        assertTrue("on screen it spins", spin.isStarted)
+        root.removeView(arc)
+        assertTrue("gone from the window it stops", !spin.isStarted)
+        root.addView(arc)
+        assertTrue("back on screen it spins again", spin.isStarted)
+        root.removeView(arc)
+        current = null
+        root.addView(arc)
+        assertTrue("one a rebind replaced stays stopped", !spin.isStarted)
     }
 }

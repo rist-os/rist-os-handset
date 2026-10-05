@@ -404,12 +404,7 @@ internal class BoxBoard(
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
             }
             col.addView(arc)
-            h.spin = android.animation.ObjectAnimator.ofFloat(arc, View.ROTATION, 0f, 360f).apply {
-                duration = 900
-                repeatCount = android.animation.ValueAnimator.INFINITE
-                interpolator = android.view.animation.LinearInterpolator()
-                start()
-            }
+            h.spin = spinWhileAttached(arc) { h.spin }
         } else {
             col.addView(value(activity.getString(R.string.boxes_creating), 15f, t.ink, tf, 2,
                 Gravity.CENTER_VERTICAL or Gravity.START))
@@ -594,6 +589,32 @@ internal class BoxBoard(
         const val ADD_TAG = "box-add"
         const val CREATING_TAG = "box-creating"
         const val SPINNER_TAG = "box-spinner"
+        const val SPIN_MS = 900L
+
+        /**
+         * Turns [arc] endlessly, but only while it is on screen: an endless animator left running
+         * after its window goes holds the activity and asks for every frame. [current] is the
+         * holder's animator now; one replaced by a rebind does not start again. The phase follows
+         * the clock, so a redraw (each list change rebinds) does not snap the arc back to the top.
+         */
+        internal fun spinWhileAttached(arc: View, current: () -> android.animation.Animator?): android.animation.ObjectAnimator {
+            val spin = android.animation.ObjectAnimator.ofFloat(arc, View.ROTATION, 0f, 360f).apply {
+                duration = SPIN_MS
+                repeatCount = android.animation.ValueAnimator.INFINITE
+                interpolator = android.view.animation.LinearInterpolator()
+            }
+            fun go() {
+                if (spin.isStarted || current() !== spin) return
+                spin.start()
+                spin.currentPlayTime = android.os.SystemClock.uptimeMillis() % SPIN_MS
+            }
+            arc.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(v: View) = go()
+                override fun onViewDetachedFromWindow(v: View) = spin.cancel()
+            })
+            if (arc.isAttachedToWindow) arc.post { go() }
+            return spin
+        }
         const val ALL_TAG = "box-all"
         const val DONE_TAG = "box-done"
         const val DELETE_TAG = "box-delete"

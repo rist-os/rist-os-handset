@@ -1878,6 +1878,7 @@ class MainActivity : AppCompatActivity() {
             if (creating != null) BoxCreate.turnEnded(
                 applicationContext, creating, replied = reply != null,
                 carriedBoxes = reply?.hasBoxes() == true, expectsReply = reply?.expectsReply == true,
+                mayHaveHappened = uploader.lastFailure == Uploader.MAY_HAVE_HAPPENED,
             )
             if (reply == null) announceFailure(uploader.lastFailure)
             if (entryId != 0L) runCatching {
