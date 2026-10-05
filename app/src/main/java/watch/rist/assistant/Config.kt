@@ -104,12 +104,19 @@ object Config {
 
     @Volatile private var cached: SharedPreferences? = null
 
-    /** Robolectric has no AndroidKeyStore; this lets a test hold the secret keys in plain prefs. */
+    /**
+     * Robolectric has no AndroidKeyStore; this lets a test hold the secret keys in plain prefs.
+     * Refuses to run anywhere but Robolectric, so no code path can put secrets in plain prefs on a phone.
+     */
     internal fun usePlainPrefsForTest(ctx: Context) {
+        check(isRobolectric()) { "plain prefs are for Robolectric tests only" }
         cached = ctx.applicationContext.getSharedPreferences("$PREFS.test", Context.MODE_PRIVATE)
     }
 
     internal fun forgetPrefsForTest() { cached = null }
+
+    internal fun isRobolectric(fingerprint: String? = android.os.Build.FINGERPRINT): Boolean =
+        fingerprint == "robolectric"
 
     private fun prefs(ctx: Context): SharedPreferences {
         cached?.let { return it }

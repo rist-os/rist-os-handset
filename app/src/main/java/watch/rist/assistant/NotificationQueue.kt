@@ -25,6 +25,11 @@ data class Notice(
     val acked: Boolean,
     /** Swiped or closed off the home screen. Display state only: the ack is untouched by it. */
     val dismissed: Boolean = false,
+    /**
+     * Opened, tapped or cleared. Kept here and not only in [Config.seenCommsIds]: that list is
+     * capped, and a read notice whose id fell off it would come back as NEW and never age out.
+     */
+    val read: Boolean = false,
 )
 
 /**
@@ -75,6 +80,10 @@ object NotificationQueue {
                 acked = false,
                 // A redelivery (our lost ack) must not bring back a card the person put away.
                 dismissed = prior?.dismissed ?: false,
+                read = prior?.read ?: false,
+                // A dismissed record keeps no text: it is never drawn again, and 64 full notices
+                // of up to ~4000 chars each would be rewritten on every ack.
+                title = if (prior?.dismissed == true) "" else n.title,
             )
         }
         return out.values.toList()
@@ -97,8 +106,16 @@ object NotificationQueue {
     internal fun dismiss(held: List<Notice>, ids: Collection<String>): List<Notice> {
         if (ids.isEmpty()) return held
         val set = ids.toHashSet()
-        return held.map { if (it.id in set) it.copy(dismissed = true) else it }
+        return held.map { if (it.id in set) it.copy(dismissed = true, title = "") else it }
     }
+
+    internal fun markRead(held: List<Notice>, ids: Collection<String>): List<Notice> {
+        if (ids.isEmpty()) return held
+        val set = ids.toHashSet()
+        return held.map { if (it.id in set) it.copy(read = true) else it }
+    }
+
+    private fun isRead(n: Notice, seen: Set<String>): Boolean = n.read || feedId(n.id) in seen
 
     // Selection order only; the feed draws newest-first. [seen] is keyed by [feedId].
     internal fun renderable(
@@ -111,9 +128,9 @@ object NotificationQueue {
         // looked is the one failure this feed must not have; [MAX_HELD] bounds the store instead.
         // A read one stays [READ_KEEP_MS] so a daily briefing does not pile up day after day.
         .filter { it.title.isNotBlank() && !it.dismissed }
-        .filter { feedId(it.id) !in seen || nowMs - atMs(it) < READ_KEEP_MS }
+        .filter { !isRead(it, seen) || nowMs - atMs(it) < READ_KEEP_MS }
         .sortedWith(
-            compareByDescending<Notice> { feedId(it.id) !in seen }.thenByDescending { atMs(it) }
+            compareByDescending<Notice> { !isRead(it, seen) }.thenByDescending { atMs(it) }
         )
         .take(limit.coerceAtLeast(0))
 
@@ -128,7 +145,7 @@ object NotificationQueue {
                 contactName = null,
                 body = "",
                 atMs = atMs(it),
-                unread = fid !in seen,
+                unread = !isRead(it, seen),
                 title = it.title.trim(),
                 noticeKind = it.kind.trim().lowercase(),
                 urgency = it.urgency.trim().lowercase(),
@@ -172,6 +189,7 @@ object NotificationQueue {
             receivedAtMs = o.optLong("rx"),
             acked = o.optBoolean("acked"),
             dismissed = o.optBoolean("dismissed"),
+            read = o.optBoolean("read"),
         )
     }
 
@@ -183,6 +201,7 @@ object NotificationQueue {
                 put("urgency", it.urgency); put("at", it.createdAtEpochS)
                 put("rx", it.receivedAtMs); put("acked", it.acked)
                 if (it.dismissed) put("dismissed", true)
+                if (it.read) put("read", true)
             })
         }
         return arr.toString()
@@ -235,6 +254,17 @@ object NotificationQueue {
         if (noticeIds.isEmpty()) return
         synchronized(lock) { save(ctx, dismiss(load(ctx), noticeIds)) }
         Log.i(TAG, "dismissed ${noticeIds.size} notification(s)")
+    }
+
+    /** Records notices as read; writes only when one was not already, as the ledger is commit()ed. */
+    fun markRead(ctx: Context, noticeIds: Collection<String>) {
+        if (noticeIds.isEmpty()) return
+        synchronized(lock) {
+            val held = load(ctx)
+            val set = noticeIds.toHashSet()
+            if (held.none { it.id in set && !it.read }) return
+            save(ctx, markRead(held, set))
+        }
     }
 
     // Called on every response, including zeros; the repaint is gated on the value changing.

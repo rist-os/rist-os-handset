@@ -115,6 +115,7 @@ object CommsFeedView {
     private fun markSeen(ctx: Context, ids: Collection<String>) = runCatching {
         if (ids.isEmpty()) return@runCatching
         Config.setSeenCommsIds(ctx, CommsFeed.seenIdsAfterAdding(Config.seenCommsIds(ctx), ids))
+        NotificationQueue.markRead(ctx, ids.mapNotNull { NotificationQueue.noticeIdOf(it) })
     }.let { }
 
     // Return type must be declared: render() is recursive via the mail row's dismiss.
@@ -518,7 +519,7 @@ object CommsFeedView {
                 isAllCaps = true
                 letterSpacing = 0.10f
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-                setPadding(0, 0, (4 * d).toInt(), 0)
+                setPaddingRelative(0, 0, (4 * d).toInt(), 0)
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             })
             addView(ImageView(activity).apply {
@@ -539,9 +540,10 @@ object CommsFeedView {
             })
         })
 
+        val rendered = Markdown.render(text)
         val body = TextView(activity).apply {
             tag = NOTICE_BODY_TAG
-            this.text = Markdown.render(text)
+            this.text = rendered
             setTextColor(t.ink); typeface = tf
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
             setPadding(0, 0, 0, (2 * d).toInt())
@@ -563,7 +565,7 @@ object CommsFeedView {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             gravity = Gravity.CENTER_VERTICAL
             minHeight = (48 * d).toInt()
-            setPadding(0, 0, (16 * d).toInt(), 0)
+            setPaddingRelative(0, 0, (16 * d).toInt(), 0)
             // An open card always offers to close; a closed one only once its text is seen to overflow.
             visibility = if (isOpen) View.VISIBLE else View.GONE
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -573,12 +575,12 @@ object CommsFeedView {
         val bar = View(activity).apply {
             tag = NOTICE_BAR_TAG
             layoutParams = LinearLayout.LayoutParams((5 * d).toInt(), LinearLayout.LayoutParams.MATCH_PARENT)
-                .apply { rightMargin = (12 * d).toInt() }
+                .apply { marginEnd = (12 * d).toInt() }
             setBackgroundColor(noticeBarColor(t))
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
 
-        val spokenText = Markdown.render(text).toString()
+        val spokenText = rendered.toString()
         return LinearLayout(activity).apply {
             tag = NOTICE_CARD_TAG
             orientation = LinearLayout.HORIZONTAL
@@ -629,7 +631,11 @@ object CommsFeedView {
     internal fun noticeOverflows(body: TextView): Boolean {
         val l = body.layout ?: return false
         if (l.lineCount == 0) return false
-        return l.lineCount > NOTICE_PREVIEW_LINES || l.getEllipsisCount(l.lineCount - 1) > 0
+        val last = l.lineCount - 1
+        // The last laid-out line ending short of the text catches a cut at a line break, where
+        // there is nothing to ellipsize.
+        return l.lineCount > NOTICE_PREVIEW_LINES || l.getEllipsisCount(last) > 0 ||
+            l.getLineEnd(last) < (body.text?.length ?: 0)
     }
 
     internal const val BILLING_ROW_TAG = "billing-lapse"

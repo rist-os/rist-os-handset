@@ -227,4 +227,32 @@ class NotificationCardTest {
         assertTrue(labels.toString(), "Dismiss this notification" in labels)
         assertTrue(labels.toString(), "Show more" in labels)
     }
+
+    @Test
+    fun `a preview cut at a line break still offers show more`() {
+        NotificationQueue.store(app, listOf(wire("lines-1", "One.\nTwo.\nThree.\nFour.\nFive is hidden.")))
+        val a = home(); paint(a)
+        assertTrue(CommsFeedView.noticeOverflows(body(card(a))))
+        assertEquals(View.VISIBLE, toggle(card(a)).visibility)
+    }
+
+    @Test
+    fun `a tapped notice stays read when the seen list forgets it`() {
+        NotificationQueue.store(app, listOf(wire("r-1", "Your package was delivered.")))
+        val a = home(); paint(a)
+        card(a).performClick(); settle(a)
+        Config.setSeenCommsIds(app, emptyList())
+        paint(a)
+        assertFalse("no NEW again", card(a).contentDescription.toString().endsWith("New."))
+    }
+
+    @Test
+    fun `the bar's gap follows the reading direction`() {
+        NotificationQueue.store(app, listOf(wire("rtl-1", "Short.")))
+        val a = home(); paint(a)
+        val lp = card(a).findViewWithTag<View>(CommsFeedView.NOTICE_BAR_TAG).layoutParams
+            as ViewGroup.MarginLayoutParams
+        assertTrue(lp.marginEnd > 0)
+        assertTrue(lp.isMarginRelative)
+    }
 }

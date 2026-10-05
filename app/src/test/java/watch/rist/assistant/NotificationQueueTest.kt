@@ -475,4 +475,40 @@ class NotificationQueueTest {
         assertEquals("abc", NotificationQueue.noticeIdOf(NotificationQueue.feedId("abc")))
         assertEquals(null, NotificationQueue.noticeIdOf("sms:12"))
     }
+
+    @Test
+    fun `a read notice stays read after its id falls off the capped seen list`() {
+        val disk = FakeDisk()
+        disk.store(listOf(notice("n-1", atMs = T0 - 2 * NotificationQueue.READ_KEEP_MS)))
+        disk.save(NotificationQueue.markRead(disk.load(), listOf("n-1")))
+        val after = disk.reboot()
+        assertEquals("aged out as read, not back as NEW", 0,
+            NotificationQueue.renderable(after.load(), T0, seen = emptySet()).size)
+
+        disk.store(listOf(notice("n-2")))
+        disk.save(NotificationQueue.markRead(disk.load(), listOf("n-2")))
+        disk.store(listOf(notice("n-2")))
+        val row = NotificationQueue.toFeedItems(NotificationQueue.renderable(disk.load(), T0), emptySet())
+            .single { it.id == NotificationQueue.feedId("n-2") }
+        assertFalse("a redelivery keeps it read", row.unread)
+    }
+
+    @Test
+    fun `a dismissed notice keeps no text in the ledger, even after a redelivery`() {
+        val disk = FakeDisk()
+        val long = "x".repeat(4000)
+        disk.store(listOf(notice("n-1", title = long)))
+        disk.save(NotificationQueue.dismiss(disk.load(), listOf("n-1")))
+        assertFalse(disk.json.contains(long))
+        disk.store(listOf(notice("n-1", title = long)))
+        assertFalse("a redelivery does not refill it", disk.json.contains(long))
+        assertTrue(disk.load().single().dismissed)
+    }
+
+    @Test
+    fun `the plain-prefs test hook only recognises Robolectric`() {
+        assertTrue(Config.isRobolectric("robolectric"))
+        assertFalse(Config.isRobolectric("google/stallion/stallion:15/AP4A/1:user/release-keys"))
+        assertFalse(Config.isRobolectric(null))
+    }
 }
