@@ -528,7 +528,8 @@ class DesignSyncTest {
         val url = WakeLoop.wakeUrlFor(ctx, emptyList())!!.toHttpUrl()
         assertEquals("3", url.queryParameter("design"))
         assertEquals("2", url.queryParameter("settings"))
-        assertEquals("home_boxes,design_v1", url.queryParameter("components"))
+        assertEquals(listOf("home_boxes", "design_v1"),
+            url.queryParameter("components")!!.split(",").filter { it != Checklists.COMPONENT })
 
         WakeLoop.apply(ctx, WakeSignal.newBuilder()
             .setDesign(spec(4, "color.ground" to "#14284B", "color.ink" to "#F5F1E8"))

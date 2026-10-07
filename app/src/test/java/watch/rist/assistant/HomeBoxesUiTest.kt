@@ -55,7 +55,7 @@ class HomeBoxesUiTest {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val body = request.body.readByteArray()
-                return if (request.path == "/v1/device/boxes") {
+                return if (request.requestUrl?.encodedPath == "/v1/device/boxes") {
                     edits += BoxEdit.parseFrom(body)
                     MockResponse().setResponseCode(503)
                 } else {
