@@ -68,7 +68,7 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
 
     private lateinit var titleText: View
     private lateinit var talkButton: View
@@ -1826,6 +1826,11 @@ class MainActivity : AppCompatActivity() {
         }
         renderBoxes()
     }.onFailure { Log.w(TAG, "home boxes wiring failed", it) }.let { }
+
+    /** The feed was drawn: the Notifications tile shows the same count, without asking again. */
+    override fun onFeedWaiting(waiting: Int) {
+        if (::boxBoard.isInitialized) boxBoard.showWaiting(waiting)
+    }
 
     internal fun openAllBoxes() {
         if (::boxBoard.isInitialized) boxBoard.setEditMode(false)

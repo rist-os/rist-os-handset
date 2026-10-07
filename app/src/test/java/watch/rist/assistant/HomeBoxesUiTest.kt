@@ -97,8 +97,15 @@ class HomeBoxesUiTest {
     private fun home(): MainActivity =
         Robolectric.buildActivity(MainActivity::class.java).setup().get().also { settle() }
 
-    private fun tile(a: android.app.Activity, id: String): ViewGroup =
-        requireNotNull(a.window.decorView.findViewWithTag<ViewGroup>(BoxBoard.TILE_TAG_PREFIX + id)) { "no tile for $id" }
+    private fun tile(a: android.app.Activity, id: String): ViewGroup {
+        val root = a.window.decorView
+        root.findViewWithTag<ViewGroup>(BoxBoard.TILE_TAG_PREFIX + id)?.let { return it }
+        // The row scrolls sideways: bring the box on screen. The Notifications tile is first.
+        val at = HomeBoxes.boxes(app).indexOfFirst { it.id == id }
+        val row = a.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.boxList)
+        if (at >= 0 && row != null) { row.scrollToPosition(at + 1); settle() }
+        return requireNotNull(root.findViewWithTag<ViewGroup>(BoxBoard.TILE_TAG_PREFIX + id)) { "no tile for $id" }
+    }
 
     private fun text(v: View, tag: String) = v.findViewWithTag<TextView>(tag)?.text?.toString()
 
@@ -188,7 +195,7 @@ class HomeBoxesUiTest {
         assertEquals("Couldn't update", text(tile(a, "e"), BoxBoard.DETAIL_TAG))
         assertEquals("Not on yet", text(tile(a, "o"), BoxBoard.DETAIL_TAG))
         // The row scrolls: the last tiles are drawn once it is scrolled to them.
-        a.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.boxList).scrollToPosition(5)
+        a.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.boxList).scrollToPosition(6)
         settle()
         assertEquals("Check my email", text(tile(a, "c"), BoxBoard.VALUE_TAG))
         assertEquals("Command box: Check my email. Double tap to send.", tile(a, "c").contentDescription)
@@ -457,7 +464,9 @@ class HomeBoxesUiTest {
         tile(a, "a").performLongClick()
         settle()
         assertTrue(a.boxBoard.editMode)
-        val list = a.findViewById<View>(R.id.boxList)
+        val list = a.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.boxList)
+        list.scrollToPosition(list.adapter!!.itemCount - 1)
+        settle()
         assertNotNull(list.findViewWithTag<View>(BoxBoard.DONE_TAG))
         assertNull(list.findViewWithTag<View>(BoxBoard.ADD_TAG))
         assertNotNull(tile(a, "b").findViewWithTag<View>(BoxBoard.DELETE_TAG))

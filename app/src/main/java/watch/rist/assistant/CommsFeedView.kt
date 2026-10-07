@@ -118,8 +118,19 @@ object CommsFeedView {
         NotificationQueue.markRead(ctx, ids.mapNotNull { NotificationQueue.noticeIdOf(it) })
     }.let { }
 
+    /** Told how many are waiting each time the feed is drawn, so a count elsewhere never lags it. */
+    fun interface Watcher {
+        fun onFeedWaiting(waiting: Int)
+    }
+
     // Return type must be declared: render() is recursive via the mail row's dismiss.
-    fun render(activity: Activity): Unit = runCatching {
+    fun render(activity: Activity) {
+        var counted: Int? = null
+        draw(activity) { counted = it }
+        counted?.let { n -> runCatching { (activity as? Watcher)?.onFeedWaiting(n) } }
+    }
+
+    private fun draw(activity: Activity, count: (Int) -> Unit): Unit = runCatching {
         val host = activity.findViewById<LinearLayout>(R.id.commsFeed) ?: return@runCatching
         host.removeAllViews()
 
@@ -137,6 +148,8 @@ object CommsFeedView {
 
         val mailUnread = pendingMail(activity)
         val unbadgedMail = CommsFeed.unbadgedMail(all, mailUnread)
+        val waiting = CommsFeed.waitingCount(all, vmWaiting, mailUnread)
+        count(waiting)
 
         if (shown.isEmpty() && !vmWaiting && !textsUnreadable && !unconnected && lapsed == null &&
             unbadgedMail <= 0
@@ -149,7 +162,6 @@ object CommsFeedView {
         val tf = ThemePaint.typefaceOf(activity, t)
         val muted = Themes.readableMuted(t)
         val d = activity.resources.displayMetrics.density
-        val waiting = CommsFeed.waitingCount(all, vmWaiting, mailUnread)
 
         var drawn = 0
         // Carries its own rule underneath, so what follows is laid out as if it were not there.
@@ -262,7 +274,7 @@ object CommsFeedView {
             setPadding(0, 0, 0, (4 * d).toInt())
         }
         bar.addView(TextView(activity).apply {
-            text = if (waiting > 0) "$waiting NEW" else "CALLS & TEXTS"
+            text = if (waiting > 0) "$waiting NEW" else activity.getString(R.string.notifications_title)
             setTextColor(if (waiting > 0) t.accent else muted)
             typeface = tf
             isAllCaps = true

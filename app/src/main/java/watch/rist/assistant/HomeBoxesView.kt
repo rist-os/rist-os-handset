@@ -32,6 +32,11 @@ import rist.v1.HomeBox
  * Every colour and font comes from the active theme. A long press enters edit mode: boxes can
  * then be dragged, removed (with a five-second undo) or edited. Each box also carries move,
  * edit and delete as accessibility actions, so nothing needs a drag.
+ *
+ * The first tile is always Notifications: built into the phone, not one of the backend's boxes.
+ * It shows how many calls, texts and notices are waiting, the same count the feed's heading
+ * shows, and opens the feed full screen. It cannot be moved, edited or deleted, and since it is
+ * never in the held list it is never part of an edit sent to the backend.
  */
 internal class BoxBoard(
     private val activity: AppCompatActivity,
@@ -85,6 +90,7 @@ internal class BoxBoard(
         BoxCreate.observe(boxes)
         val creating = BoxCreate.waiting()
         adapter.items = buildList {
+            add(Item.Notifications(waitingNow()))
             boxes.forEach { add(Item.Box(it)) }
             creating.forEach { add(Item.Creating(it)) }
             when {
@@ -103,6 +109,21 @@ internal class BoxBoard(
     }
 
     private fun theme(): RistTheme = Themes.current(activity)
+
+    private fun waitingNow(): Int = runCatching { CommsFeedView.waitingCount(activity) }.getOrDefault(0)
+
+    /** The feed was just drawn with [waiting] new: the Notifications tile follows it at once. */
+    fun showWaiting(waiting: Int) {
+        val first = adapter.items.firstOrNull() as? Item.Notifications ?: return
+        if (first.count == waiting) return
+        adapter.items = listOf(Item.Notifications(waiting)) + adapter.items.drop(1)
+        adapter.notifyItemChanged(0)
+    }
+
+    fun openNotifications() {
+        if (editMode) return
+        activity.startActivity(NotificationsActivity.intent(activity))
+    }
 
     // ---- what a touch does ----
 
@@ -180,6 +201,7 @@ internal class BoxBoard(
     // ---- items ----
 
     private sealed class Item {
+        data class Notifications(val count: Int) : Item()
         data class Box(val box: HomeBox) : Item()
         data class Creating(val pending: BoxCreate.Pending) : Item()
         object Add : Item()
@@ -224,10 +246,9 @@ internal class BoxBoard(
             h.actions.clear()
             h.boxId = ""
             val item = items[position]
-            val wide = item is Item.Empty
             frame.layoutParams = RecyclerView.LayoutParams(
                 when {
-                    grid || wide -> ViewGroup.LayoutParams.MATCH_PARENT
+                    grid -> ViewGroup.LayoutParams.MATCH_PARENT
                     item is Item.All -> px(ALL_W_DP)
                     else -> px(TILE_DP)
                 },
@@ -237,6 +258,7 @@ internal class BoxBoard(
                 else marginEnd = px(10f)
             }
             when (item) {
+                is Item.Notifications -> bindNotifications(frame, item.count)
                 is Item.Box -> bindBox(h, item.box)
                 is Item.Creating -> bindCreating(h, item.pending)
                 Item.Add -> bindAdd(frame)
@@ -461,6 +483,25 @@ internal class BoxBoard(
         frame.addView(corner(R.drawable.ic_box_edit, R.string.boxes_edit, EDIT_TAG, Gravity.TOP or Gravity.END) { openEditSheet(b) })
     }
 
+    /** Drawn like a display box: label, the count large, and a word under it. */
+    private fun bindNotifications(frame: FrameLayout, count: Int) {
+        val t = theme()
+        val tf = ThemePaint.typefaceOf(activity, t)
+        val muted = Themes.readableMuted(t)
+        frame.tag = NOTIFICATIONS_TAG
+        frame.background = tileBackground(t.tileFill, if (count > 0) t.accent else t.tileBorder, 1.5f)
+        val col = column()
+        col.addView(label(activity.getString(R.string.notifications_title), muted).apply { tag = LABEL_TAG })
+        col.addView(value(count.toString(), valueSp(count.toString()), if (count > 0) t.ink else muted, tf, 1,
+            Gravity.CENTER_VERTICAL or Gravity.START))
+        col.addView(small(activity.getString(if (count > 0) R.string.notifications_new else R.string.notifications_none_new),
+            muted, tf).apply { tag = DETAIL_TAG; maxLines = 1 })
+        frame.addView(col)
+        frame.contentDescription = activity.resources.getQuantityString(R.plurals.notifications_tile_desc, count, count)
+        frame.isClickable = true; frame.isFocusable = true
+        frame.setOnClickListener { openNotifications() }
+    }
+
     private fun bindAdd(frame: FrameLayout) {
         val t = theme()
         frame.tag = ADD_TAG
@@ -526,13 +567,10 @@ internal class BoxBoard(
         frame.setOnClickListener { setEditMode(false) }
     }
 
+    /** No boxes yet: the Add square, beside the Notifications tile, with a hint for a screen reader. */
     private fun bindEmpty(frame: FrameLayout) {
-        val square = FrameLayout(activity).apply {
-            layoutParams = FrameLayout.LayoutParams(px(TILE_DP), px(TILE_DP), Gravity.END or Gravity.TOP)
-        }
-        frame.addView(square)
-        bindAdd(square)
-        square.contentDescription = activity.getString(R.string.boxes_add) + ". " +
+        bindAdd(frame)
+        frame.contentDescription = activity.getString(R.string.boxes_add) + ". " +
             activity.getString(R.string.boxes_empty_hint)
     }
 
@@ -590,6 +628,7 @@ internal class BoxBoard(
         const val LARGE_TEXT = 1.3f
 
         const val TILE_TAG_PREFIX = "box:"
+        const val NOTIFICATIONS_TAG = "box-notifications"
         const val LABEL_TAG = "box-label"
         const val VALUE_TAG = "box-value"
         const val DETAIL_TAG = "box-detail"

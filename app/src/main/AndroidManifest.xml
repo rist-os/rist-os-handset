@@ -137,6 +137,14 @@
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.RistAssistant" />
 
+        <!-- Every notification, full screen: what the Notifications tile opens. -->
+        <activity
+            android:name=".NotificationsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:lockTaskMode="if_whitelisted"
+            android:theme="@style/Theme.RistAssistant" />
+
         <activity
             android:name=".BoxExpandedActivity"
             android:exported="false"
