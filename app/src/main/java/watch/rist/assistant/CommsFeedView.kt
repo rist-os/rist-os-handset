@@ -3,10 +3,14 @@ package watch.rist.assistant
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.SystemClock
 import android.telecom.TelecomManager
+import android.text.Spanned
+import android.text.TextPaint
+import android.text.style.StyleSpan
 import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
@@ -298,7 +302,8 @@ object CommsFeedView {
         })
         if (acknowledgeable > 0) bar.addView(TextView(activity).apply {
             text = "CLEAR ALL"
-            contentDescription = "Clear $acknowledgeable new calls, messages and voicemail"
+            // It takes every notice off as well as the new calls, texts and voicemail; say so.
+            contentDescription = clearAllSpoken(acknowledgeable)
             setTextColor(t.ink); typeface = tf
             isAllCaps = true
             letterSpacing = 0.06f
@@ -491,6 +496,10 @@ object CommsFeedView {
     internal fun noticeAccentText(t: RistTheme): Int =
         if (contrast(t.accent, t.ground) >= 4.5) t.accent else t.ink
 
+    /** What CLEAR ALL says to a screen reader: everything goes, not only the new items. */
+    internal fun clearAllSpoken(newCount: Int): String =
+        if (newCount > 0) "Clear all notifications, $newCount new" else "Clear all notifications"
+
     /** For tests: forget which rows are open. */
     internal fun resetForTest() = expanded.clear()
 
@@ -561,7 +570,7 @@ object CommsFeedView {
             })
         })
 
-        val rendered = Markdown.render(text)
+        val rendered = noticeText(text)
         val body = TextView(activity).apply {
             tag = NOTICE_BODY_TAG
             this.text = rendered
@@ -647,6 +656,60 @@ object CommsFeedView {
             toggle.isClickable = true
         }
     }
+
+    /**
+     * A notice's text, styled. A first line of the form `**…**` is the person's own words (what
+     * they asked for): it is drawn bold exactly as written, with no markdown read inside it. The
+     * rest is markdown, as an answer is. Every bold run is a [StrongSpan], so it shows on a design
+     * whose body text is already bold.
+     */
+    internal fun noticeText(src: String): CharSequence {
+        val nl = src.indexOf('\n')
+        val first = (if (nl < 0) src else src.substring(0, nl)).trim()
+        if (first.length > 4 && first.startsWith("**") && first.endsWith("**")) {
+            val words = first.substring(2, first.length - 2)
+            if (words.isNotBlank()) {
+                val out = android.text.SpannableStringBuilder(words)
+                out.setSpan(StrongSpan(Typeface.BOLD), 0, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                val rest = if (nl < 0) "" else src.substring(nl + 1)
+                if (rest.isNotBlank()) out.append("\n").append(strong(Markdown.render(rest)))
+                return out
+            }
+        }
+        return strong(Markdown.render(src))
+    }
+
+    /** [text] with each bold [StyleSpan] swapped for a [StrongSpan] over the same run. */
+    private fun strong(text: CharSequence): CharSequence {
+        if (text !is Spanned) return text
+        val out = android.text.SpannableStringBuilder(text)
+        for (sp in out.getSpans(0, out.length, StyleSpan::class.java)) {
+            if (sp is StrongSpan || sp.style and Typeface.BOLD == 0) continue
+            val a = out.getSpanStart(sp); val b = out.getSpanEnd(sp); val f = out.getSpanFlags(sp)
+            out.removeSpan(sp)
+            out.setSpan(StrongSpan(sp.style), a, b, f)
+        }
+        return out
+    }
+
+    /**
+     * Bold that stays visible when the face under it is bold already (a design with bold body
+     * text), where a plain [StyleSpan] changes nothing: there the glyphs get an outline stroke on
+     * top, which thickens them whether the bold was a real weight or a synthetic one.
+     */
+    internal class StrongSpan(style: Int) : StyleSpan(style) {
+        override fun updateDrawState(ds: TextPaint) {
+            val alreadyBold = ds.typeface?.isBold == true || ds.isFakeBoldText
+            super.updateDrawState(ds)
+            if (alreadyBold) {
+                ds.style = android.graphics.Paint.Style.FILL_AND_STROKE
+                ds.strokeWidth = ds.textSize / STRONG_STROKE_DIVISOR
+            }
+        }
+    }
+
+    // Close to the weight a synthetic bold adds: one twenty-fourth of the text size, all round.
+    private const val STRONG_STROKE_DIVISOR = 24f
 
     /** True when the collapsed preview hides some of the text. */
     internal fun noticeOverflows(body: TextView): Boolean {

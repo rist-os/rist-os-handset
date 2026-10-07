@@ -255,4 +255,91 @@ class NotificationCardTest {
         assertTrue(lp.marginEnd > 0)
         assertTrue(lp.isMarginRelative)
     }
+
+    // ---- the person's words, bold ----
+
+    private val asked = "Tell me the weather and a summary of the news"
+
+    private fun strongRuns(v: TextView): List<String> {
+        val sp = v.text as android.text.Spanned
+        return sp.getSpans(0, sp.length, CommsFeedView.StrongSpan::class.java)
+            .sortedBy { sp.getSpanStart(it) }
+            .map { sp.subSequence(sp.getSpanStart(it), sp.getSpanEnd(it)).toString() }
+    }
+
+    @Test
+    fun `the person's words are bold, verbatim, collapsed and opened`() {
+        val title = "**$asked**\n\n$briefing"
+        NotificationQueue.store(app, listOf(wire("ask-1", title)))
+        val a = home(); paint(a)
+
+        val closed = body(card(a))
+        assertFalse("no markers on screen", closed.text.toString().contains("**"))
+        assertTrue(closed.text.toString().startsWith("$asked\n\nGood morning."))
+        assertEquals("the words are the first bold run", asked, strongRuns(closed).first())
+
+        toggle(card(a)).performClick(); settle(a)
+        val open = body(card(a))
+        assertEquals(CommsFeedView.NOTICE_SHOW_LESS, toggle(card(a)).text.toString())
+        assertEquals(asked, strongRuns(open).first())
+        assertTrue("the reply's own bold survives", "Weather:" in strongRuns(open))
+        assertTrue(open.text.toString().endsWith("END-OF-BRIEFING"))
+    }
+
+    @Test
+    fun `markdown inside the person's words is shown as they said it`() {
+        val words = "is 2*3*4 = 24 and what is [this](that) _really_"
+        val t = CommsFeedView.noticeText("**$words**\n\nYes.") as android.text.Spanned
+        assertEquals("$words\n\nYes.", t.toString())
+        val runs = t.getSpans(0, t.length, CommsFeedView.StrongSpan::class.java)
+        assertEquals(1, runs.size)
+        assertEquals(0, t.getSpanStart(runs[0]))
+        assertEquals(words.length, t.getSpanEnd(runs[0]))
+    }
+
+    @Test
+    fun `a notice with no leading bold line is markdown as before`() {
+        val t = CommsFeedView.noticeText("Your **package** was delivered.") as android.text.Spanned
+        assertEquals("Your package was delivered.", t.toString())
+        val run = t.getSpans(0, t.length, CommsFeedView.StrongSpan::class.java).single()
+        assertEquals("package", t.subSequence(t.getSpanStart(run), t.getSpanEnd(run)).toString())
+        assertEquals("****", CommsFeedView.noticeText("****").toString())
+    }
+
+    /** Dark pixels when [text] is drawn in [tf], at the card's size. */
+    private fun ink(tf: android.graphics.Typeface, text: CharSequence): Int {
+        val tv = TextView(app).apply {
+            typeface = tf; this.text = text; textSize = 17f
+            setTextColor(android.graphics.Color.BLACK); setBackgroundColor(android.graphics.Color.WHITE)
+        }
+        tv.measure(
+            View.MeasureSpec.makeMeasureSpec(2000, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+        )
+        tv.layout(0, 0, 2000, tv.measuredHeight)
+        val b = android.graphics.Bitmap.createBitmap(2000, tv.measuredHeight, android.graphics.Bitmap.Config.ARGB_8888)
+        tv.draw(android.graphics.Canvas(b))
+        var n = 0
+        for (x in 0 until b.width) for (y in 0 until b.height) {
+            if (android.graphics.Color.red(b.getPixel(x, y)) < 128) n++
+        }
+        return n
+    }
+
+    @Test
+    fun `the words stand out on a regular face and on a design whose text is already bold`() {
+        val words = CommsFeedView.noticeText("**$asked**")
+        for (id in listOf(Fonts.SANS, "inter", "anton", Fonts.PIXEL)) {
+            val face = Fonts.typeface(app, id)
+            assertTrue("$id: heavier than plain", ink(face, words) > ink(face, asked) * 1.1)
+            val boldFace = android.graphics.Typeface.create(face, android.graphics.Typeface.BOLD)
+            val plainSpan = android.text.SpannableString(asked).apply {
+                setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, length, 0)
+            }
+            assertEquals("$id: a plain bold span is lost on a bold design (why StrongSpan exists)",
+                ink(boldFace, asked), ink(boldFace, plainSpan))
+            assertTrue("$id: on a bold design the words still stand out",
+                ink(boldFace, words) > ink(boldFace, asked))
+        }
+    }
 }
