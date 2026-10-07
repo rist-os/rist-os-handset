@@ -7,7 +7,9 @@ import android.graphics.Typeface
 import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -46,11 +48,39 @@ object ChecklistView {
             setPadding((4 * d).toInt(), 0, 0, 0)
             isChecked = checked
             look(this, checked, rt.ink, muted)
+            onlyTapsToggle(this)
             setOnCheckedChangeListener { box, now ->
                 look(this, now, rt.ink, muted)
                 if (box.getTag(R.id.checklist_quiet) != true) onTap(this, now)
             }
             synchronized(live) { live[this] = item.id }
+        }
+    }
+
+    /**
+     * A row ticks on a tap and on nothing else. Once the finger has moved past the touch slop
+     * the press is cancelled, so a swipe or a drag that happens to start on a row, and ends
+     * still over it, never changes the owner's list.
+     */
+    private fun onlyTapsToggle(box: CheckBox) {
+        val slop = ViewConfiguration.get(box.context).scaledTouchSlop
+        var downX = 0f
+        var downY = 0f
+        var moved = false
+        box.setOnTouchListener { v, ev ->
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { downX = ev.rawX; downY = ev.rawY; moved = false; false }
+                MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP -> {
+                    if (!moved && Math.hypot((ev.rawX - downX).toDouble(), (ev.rawY - downY).toDouble()) > slop) {
+                        moved = true
+                        val cancel = MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL }
+                        v.onTouchEvent(cancel)
+                        cancel.recycle()
+                    }
+                    moved
+                }
+                else -> moved
+            }
         }
     }
 

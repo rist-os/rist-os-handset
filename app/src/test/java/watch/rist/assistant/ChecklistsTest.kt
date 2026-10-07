@@ -287,6 +287,71 @@ class ChecklistsTest {
         assertTrue(cardItems().first { it.id == "m1" }.checked)
     }
 
+    /**
+     * A finger put down on [v] at [fromX] across its width, moved by [dx] and [dy] in ten steps
+     * and lifted, all sent through the window as the screen would send it.
+     */
+    private fun drag(root: View, v: View, fromX: Float, dx: Float, dy: Float = 0f) {
+        val at = IntArray(2).also { v.getLocationInWindow(it) }
+        val x0 = at[0] + v.width * fromX
+        val y0 = at[1] + v.height / 2f
+        val t0 = android.os.SystemClock.uptimeMillis()
+        fun ev(action: Int, x: Float, y: Float, t: Long) = android.view.MotionEvent.obtain(t0, t, action, x, y, 0)
+        root.dispatchTouchEvent(ev(android.view.MotionEvent.ACTION_DOWN, x0, y0, t0))
+        for (i in 1..10) root.dispatchTouchEvent(ev(android.view.MotionEvent.ACTION_MOVE, x0 + dx * i / 10, y0 + dy * i / 10, t0 + i * 30L))
+        root.dispatchTouchEvent(ev(android.view.MotionEvent.ACTION_UP, x0 + dx, y0 + dy, t0 + 330L))
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(500))
+    }
+
+    @Test
+    @org.robolectric.annotation.Config(qualifiers = "w411dp-h891dp-xxhdpi")
+    fun `a swipe that starts on a card's row clears the card and ticks nothing`() {
+        answeredCard(list("shopping", item("f1", "2 tablespoons flour"), item("s1", "sugar")))
+        val home = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        settle()
+        val root = home.window.decorView
+        val row = boxesIn(root).first { it.text == "2 tablespoons flour" }
+        assertTrue("the row is on screen", row.width > 0 && row.height > 0)
+        drag(root, row, fromX = 0.15f, dx = row.width * 0.75f)
+        Checklists.awaitFlushForTest()
+        assertFalse("the row was not ticked", row.isChecked)
+        assertTrue("nothing was sent", batches.isEmpty())
+        assertTrue("the card was cleared", Transcript.all(ctx).isEmpty())
+        assertTrue("and is gone from the screen", boxesIn(root).isEmpty())
+    }
+
+    @Test
+    @org.robolectric.annotation.Config(qualifiers = "w411dp-h891dp-xxhdpi")
+    fun `a drag that moves past the slop but is not a swipe ticks nothing either`() {
+        answeredCard(list("shopping", item("f1", "2 tablespoons flour")))
+        val home = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        settle()
+        val root = home.window.decorView
+        val row = boxesIn(root).single()
+        val slop = android.view.ViewConfiguration.get(home).scaledTouchSlop
+        // Sideways enough to pass the slop, too steep to be a swipe, too short to scroll.
+        drag(root, row, fromX = 0.3f, dx = slop * 1.5f, dy = slop * 0.9f)
+        Checklists.awaitFlushForTest()
+        assertFalse(row.isChecked)
+        assertTrue(batches.isEmpty())
+        assertEquals("the card stays", 1, Transcript.all(ctx).size)
+    }
+
+    @Test
+    @org.robolectric.annotation.Config(qualifiers = "w411dp-h891dp-xxhdpi")
+    fun `a tap on a card's row ticks it`() {
+        answeredCard(list("shopping", item("f1", "2 tablespoons flour")))
+        val home = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        settle()
+        val root = home.window.decorView
+        val row = boxesIn(root).single()
+        drag(root, row, fromX = 0.3f, dx = 0f)
+        Checklists.awaitFlushForTest()
+        assertTrue("ticked", row.isChecked)
+        assertEquals("f1", batches.single().checksList.single().itemId)
+        assertEquals("the card stays", 1, Transcript.all(ctx).size)
+    }
+
     // ---- the expanded tile ----
 
     private fun tileWith(vararg lists: Checklist) = HomeBoxes.apply(ctx, BoxSet.newBuilder().setVersion(2)

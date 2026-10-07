@@ -82,3 +82,16 @@ class SwipeDismiss(ctx: Context, private val onDismiss: () -> Unit) {
         }
     }
 }
+
+/**
+ * A column whose children can be tapped but not swiped: [intercept] sees every touch on its
+ * way to a child, and once it returns true the column takes the gesture over and the child
+ * hears a cancel. Without it a sideways swipe that began on a clickable child, a checklist row
+ * say, never reached the swipe and ended as a click on the child.
+ */
+class SwipeColumn(ctx: Context) : android.widget.LinearLayout(ctx) {
+    var intercept: ((MotionEvent) -> Boolean)? = null
+
+    override fun onInterceptTouchEvent(ev: MotionEvent): Boolean =
+        intercept?.invoke(ev) == true || super.onInterceptTouchEvent(ev)
+}

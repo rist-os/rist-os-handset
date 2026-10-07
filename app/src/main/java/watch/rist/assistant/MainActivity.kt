@@ -2240,11 +2240,14 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                     ViewCompat.addAccessibilityAction(this, "Clear this answer") { _, _ -> clear(); true }
                 }
             }
-            val col = LinearLayout(this).apply {
+            val col = SwipeColumn(this).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 isFocusable = true
                 contentDescription = (if (e.pinned) "Pinned. " else "") + e.prompt
+                // A swipe that starts on a checklist row, a picture or a button is still a
+                // swipe: the column takes it from the child, which hears a cancel, not a click.
+                if (swipe != null) intercept = { ev -> swipe.onTouch(entryRow, ev) }
                 val taps = android.view.GestureDetector(this@MainActivity,
                     object : android.view.GestureDetector.SimpleOnGestureListener() {
                         // Claiming the down is what delivers the second tap; the scroll view
