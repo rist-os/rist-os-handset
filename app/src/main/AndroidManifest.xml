@@ -56,6 +56,9 @@
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.WRITE_CONTACTS" />
+    <uses-permission android:name="android.permission.READ_SYNC_SETTINGS" />
+    <uses-permission android:name="android.permission.WRITE_SYNC_SETTINGS" />
     <uses-permission android:name="com.android.voicemail.permission.ADD_VOICEMAIL" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
@@ -119,6 +122,37 @@
             android:theme="@style/Theme.RistAssistant" />
 
         <activity
+            android:name=".RemovedActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:lockTaskMode="if_whitelisted"
+            android:theme="@style/Theme.RistAssistant" />
+
+        <!-- Home boxes: every box as a grid, and one display box opened full screen. -->
+        <activity
+            android:name=".AllBoxesActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:lockTaskMode="if_whitelisted"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.RistAssistant" />
+
+        <!-- Every notification, full screen: what the Notifications tile opens. -->
+        <activity
+            android:name=".NotificationsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:lockTaskMode="if_whitelisted"
+            android:theme="@style/Theme.RistAssistant" />
+
+        <activity
+            android:name=".BoxExpandedActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:lockTaskMode="if_whitelisted"
+            android:theme="@style/Theme.RistAssistant" />
+
+        <activity
             android:name=".BackgroundLocationPromptActivity"
             android:exported="false"
             android:screenOrientation="portrait"
@@ -131,8 +165,9 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.RistAssistant" />
 
-        <!-- The site a scanned QR code points at, and nowhere else. Never exported: the only way
-             in is LinkActivity, with a link the camera's QR scanner has just handed over. -->
+        <!-- The site a scanned QR code points at, and nowhere else. Never exported: the only ways
+             in are LinkActivity, with a link the camera's QR scanner has just handed over, and the
+             Update payment button, with a billing.stripe.com link the backend has just issued. -->
         <activity
             android:name=".LockedBrowserActivity"
             android:exported="false"
@@ -258,6 +293,34 @@
             </intent-filter>
         </receiver>
 
+        <!-- Contact sync: the Rist account that owns the mirrored backend contacts. -->
+        <service
+            android:name=".RistAuthenticatorService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accounts.AccountAuthenticator" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accounts.AccountAuthenticator"
+                android:resource="@xml/authenticator" />
+        </service>
+
+        <service
+            android:name=".RistSyncService"
+            android:exported="true"
+            android:permission="android.permission.BIND_SYNC_ADAPTER">
+            <intent-filter>
+                <action android:name="android.content.SyncAdapter" />
+            </intent-filter>
+            <meta-data
+                android:name="android.content.SyncAdapter"
+                android:resource="@xml/syncadapter" />
+        </service>
+
+        <receiver
+            android:name=".ContactsDailyReceiver"
+            android:exported="false" />
+
         <receiver
             android:name=".BootReceiver"
             android:exported="true"
@@ -346,6 +409,7 @@
         <receiver android:name=".AlarmReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
         </receiver>
 

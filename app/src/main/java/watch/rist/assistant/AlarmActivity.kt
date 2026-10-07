@@ -42,7 +42,7 @@ class AlarmActivity : Activity() {
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        val t = Themes.byId(Config.themeId(this))
+        val t = Themes.current(this)
         val label = intent?.getStringExtra(EXTRA_LABEL).orEmpty().ifBlank { "Time's up" }
 
         setContentView(LinearLayout(this).apply {

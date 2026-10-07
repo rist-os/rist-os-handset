@@ -124,7 +124,8 @@ class CommsFeedTest {
     @Test
     fun assemble_emptyInputIsEmpty_andDoesNotThrowOnZeroCaps() {
         assertTrue(CommsFeed.assemble(emptyList(), now).isEmpty())
-        assertTrue(CommsFeed.assemble(listOf(item("a", now)), now, hardCap = 0).isEmpty())
+        assertTrue(CommsFeed.assemble(listOf(item("a", now, unread = false)), now, hardCap = 0).isEmpty())
+        assertEquals(1, CommsFeed.assemble(listOf(item("a", now)), now, hardCap = 0).size)
         assertEquals(1, CommsFeed.assemble(listOf(item("a", now)), now, maxRead = 0).size)
     }
 
@@ -132,7 +133,15 @@ class CommsFeedTest {
     fun unreadCount_countsCandidates_notWhatFitOnScreen() {
         val many = (1..30).map { item("new$it", now - minutes(it.toLong()), unread = true) }
         assertEquals(30, CommsFeed.unreadCount(many))
-        assertTrue(CommsFeed.assemble(many, now).size <= CommsFeed.HARD_CAP)
+    }
+
+    @Test
+    fun assemble_neverTrimsAnUnreadItem_evenPastTheHardCap() {
+        val unread = (1..40).map { item("new$it", now - minutes(it.toLong()), unread = true) }
+        val seen = (1..5).map { item("seen$it", now - hours(it.toLong()), unread = false) }
+        val out = CommsFeed.assemble(unread + seen, now)
+        assertEquals(40, out.count { it.unread })
+        assertEquals(0, out.count { !it.unread })
     }
 
     @Test

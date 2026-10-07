@@ -12,6 +12,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import java.util.Locale
 
@@ -41,13 +42,21 @@ object AttachmentView {
         var at = if (insertAfter < 0) -1 else (insertAfter + 1).coerceIn(0, container.childCount)
 
         val ctx = container.context
-        val t = Themes.byId(Config.themeId(ctx))
+        val t = Themes.current(ctx)
         val tf = ThemePaint.typefaceOf(ctx, t)
         val d = ctx.resources.displayMetrics.density
         val muted = readableOn(t.inkMuted, t.ink, t.tileFill)
         val inflater = LayoutInflater.from(ctx)
 
         for (item in items) {
+            if (item.remote) {
+                // No fallback card: a loaded picture that cannot be drawn leaves no trace.
+                val pic = runCatching { remoteCard(ctx, t, tf, d, item) }
+                    .onFailure { Log.w(TAG, "loaded picture failed to draw", it) }
+                    .getOrNull() ?: continue
+                if (at < 0) container.addView(pic) else container.addView(pic, at++)
+                continue
+            }
             val card = runCatching { buildCard(inflater, container, t, tf, muted, d, item) }
                 .onFailure { Log.w(TAG, "attachment card failed to build", it) }
                 .getOrElse {
@@ -179,6 +188,99 @@ object AttachmentView {
         image.contentDescription =
             if (item.title.isNotBlank()) item.title.trim()
             else res.getString(R.string.attach_image_desc)
+    }
+
+    /**
+     * A picture loaded from a url (Brave image search): the image, then its credit under it as
+     * plain text, and nothing else. No kind label, no error line, nothing tappable, no
+     * announcement. Null when the picture is not here in full; the caption never shows alone.
+     */
+    internal fun remoteCard(
+        ctx: Context,
+        t: RistTheme,
+        tf: android.graphics.Typeface?,
+        d: Float,
+        item: RistAttachment,
+    ): View? {
+        if (!item.remote || item.error != null || item.kind != "image") return null
+        val credit = shortCredit(item.title)
+        if (credit.isEmpty()) return null
+        val reqW = ctx.resources.displayMetrics.widthPixels.coerceAtLeast(1)
+        val reqH = (MAX_IMAGE_HEIGHT_DP * d).toInt().coerceAtLeast(1)
+        val bmp = item.bitmap
+            ?: item.bytes?.takeIf { it.isNotEmpty() }?.let { decodeBounded(it, reqW, reqH) }
+            ?: return null
+
+        val image = ImageView(ctx).apply {
+            setImageBitmap(bmp)
+            adjustViewBounds = true
+            maxHeight = reqH
+            scaleType = ImageView.ScaleType.FIT_START
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            // The caption under it says what it is; the picture itself is never read out.
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            untappable(this)
+        }
+        val caption = TextView(ctx).apply {
+            // A site name, not a link: plain String, link detection off, never underlined.
+            autoLinkMask = 0
+            linksClickable = false
+            movementMethod = null
+            setTextIsSelectable(false)
+            text = credit
+            paintFlags = paintFlags and android.graphics.Paint.UNDERLINE_TEXT_FLAG.inv()
+            setTextColor(t.ink)
+            typeface = tf
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(0, (3 * d).toInt(), 0, 0)
+            untappable(this)
+        }
+        return LinearLayout(ctx).apply {
+            id = R.id.attachmentCard
+            orientation = LinearLayout.VERTICAL
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            setPadding(0, (8 * d).toInt(), 0, (10 * d).toInt())
+            untappable(this)
+            addView(image)
+            addView(caption)
+        }
+    }
+
+    /**
+     * A picture's credit as one short line: "Photo: <site>", or for a licensed picture
+     * "Photo: <site> · <author> · <licence>". The backend's long form,
+     * "<title> by <author> (<site>, <licence>)", is cut down to that; anything else, including a
+     * credit already starting "Photo:", is kept as it came, whitespace folded.
+     */
+    internal fun shortCredit(raw: String): String {
+        val s = raw.trim().replace(Regex("\\s+"), " ")
+        if (s.startsWith("Photo:", ignoreCase = true) || !s.endsWith(")")) return s
+        val open = s.lastIndexOf(" (")
+        if (open < 0) return s
+        val tail = s.substring(open + 2, s.length - 1).trim()
+        if (tail.isEmpty() || '(' in tail || ')' in tail) return s
+        val head = s.substring(0, open)
+        val source = tail.substringBefore(", ").trim()
+        val licence = tail.substringAfter(", ", "").trim()
+        val author = head.substringAfterLast(" by ", "").trim()
+        // A title that merely ends in brackets, "Tower (Paris)", is not a credit.
+        if (author.isEmpty() && licence.isEmpty()) return s
+        return "Photo: " + listOf(source, author, licence).filter { it.isNotEmpty() }.joinToString(" · ")
+    }
+
+    // Flags only: setOnClickListener(null) would itself make the view clickable again.
+    private fun untappable(v: View) {
+        v.isClickable = false
+        v.isLongClickable = false
+        v.isFocusable = false
+        v.isFocusableInTouchMode = false
+        v.isContextClickable = false
     }
 
     private fun renderText(

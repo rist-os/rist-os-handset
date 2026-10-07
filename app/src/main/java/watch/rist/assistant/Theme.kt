@@ -21,7 +21,11 @@ internal fun blend(a: Int, b: Int, f: Float): Int = Color.rgb(
 )
 internal fun withAlpha(c: Int, a: Int): Int = (c and 0x00FFFFFF) or (a shl 24)
 
-/** font: pixel|mono|grot|serif; knob: ring|pixel|dome. */
+/**
+ * font / displayFont: a [Fonts] id ("grot" is the system sans); knob: ring|pixel|dome.
+ * clockSize: sm|md|lg. typeScale multiplies Rist's own text sizes (see [ThemePaint.scaledSp]).
+ * density, feed and boxes are carried for a later build and not drawn yet.
+ */
 data class RistTheme(
     val id: String,
     val name: String,
@@ -48,8 +52,19 @@ data class RistTheme(
     val fieldFill: Int? = null,
     val holdOnAccent: Boolean = false,
     val displayFont: String = font,
+    val clock: Int? = null,
+    val clockSize: String = "md",
+    val labelCaps: Boolean = false,
+    val dateShort: Boolean = false,
+    val typeScale: Float = 1f,
+    val bold: Boolean = false,
+    val density: String = "normal",
+    val feed: String = "plain",
+    val boxes: String = "tile",
 ) {
     val lineIcons: Boolean get() = font != "pixel"
+    val clockColor: Int get() = clock ?: ink
+    val clockSp: Float get() = when (clockSize) { "sm" -> 45f; "lg" -> 54f; else -> 48f }
 }
 
 class KnobDrawable(
@@ -210,7 +225,15 @@ object Themes {
         c("#0B0C0A"), c("#C9D4C2"), c("#5D6A57"), c("#0B0C0A"), c("#232B20"),
         6f, 1.75f, c("#E3B23C"), c("#232B20"), 6f, false, true, font="mono", knob="ring",
         knobGlow=false, floodOnPress=false, tile=false, inkFaint=c("#4E5A49"),
-        holdOnAccent=true, displayFont="pixel")
+        holdOnAccent=true, displayFont="pixel",
+        clock=c("#E9EFE4"), clockSize="sm", labelCaps=true, dateShort=true)
+
+    /**
+     * The phone's one built-in look: drawn before the first design arrives, when a design cannot
+     * be drawn, and after "Reset to default". With [DesignSync] shipped it is the only look the
+     * phone has of its own; every other look comes from the backend.
+     */
+    val FACTORY: RistTheme get() = LEDGER
 
     /** byId() resolves against ALL; a theme must also be in CATEGORIES to show in the picker. */
     val ALL = listOf(
@@ -224,4 +247,11 @@ object Themes {
     )
 
     fun byId(id: String?): RistTheme = ALL.firstOrNull { it.id == id } ?: LEDGER
+
+    /**
+     * The look every screen draws in. Before [DesignSync] ships it is the theme picked in
+     * Settings; after, it is the design the backend sent, or the factory look.
+     */
+    fun current(ctx: android.content.Context): RistTheme =
+        if (DesignSync.declared()) DesignSync.theme(ctx) else byId(Config.themeId(ctx))
 }

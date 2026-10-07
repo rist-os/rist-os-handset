@@ -20,6 +20,13 @@ class AlarmReceiver : BroadcastReceiver() {
             return
         }
 
+        // The clock moved to another zone: repeating alarms follow it to the same local time.
+        if (intent.action == Intent.ACTION_TIMEZONE_CHANGED) {
+            runCatching { Alarms.reschedule(context.applicationContext) }
+                .onFailure { Log.w(TAG, "could not move alarms to the new time zone", it) }
+            return
+        }
+
         val label = intent.getStringExtra(EXTRA_LABEL).orEmpty()
         val id = intent.getStringExtra(EXTRA_ALARM_ID).orEmpty()
         val isTimer = intent.action == ACTION_TIMER

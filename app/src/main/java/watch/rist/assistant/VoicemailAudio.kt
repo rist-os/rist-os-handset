@@ -51,6 +51,11 @@ object VoicemailAudio {
                     resp.code == 404 -> { Log.i(TAG, "no audio for $id"); Result.NotFound }
                     resp.code == 401 -> { Enrolment.onCredentialDead(ctx); Result.Failed("not authorised") }
                     resp.code == 403 -> { Enrolment.onRevoked(ctx); Result.Failed("access turned off") }
+                    resp.code == Billing.PAYMENT_REQUIRED -> {
+                        val lapse = Billing.lapseWithLine(resp)
+                        Billing.onLapsed(ctx, lapse)
+                        Result.Failed(Billing.lineFor(lapse))
+                    }
                     else -> Result.Failed("couldn't fetch it (${resp.code})")
                 }
             }

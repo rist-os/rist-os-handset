@@ -216,4 +216,19 @@ class UploaderContractTest {
         assertEquals(ByteString.copyFrom(raw), audio.samples)
         assertEquals(0, audio.durationMs)
     }
+
+    @Test
+    fun `every request names its utterance, and a new request gets a new one`() {
+        fun build() = Uploader.buildPhotosRequest(
+            deviceId = "d", sessionId = "s", timestamp = 1L, authToken = "",
+            caps = DeviceProfile.capabilities(1080, 2400),
+            images = listOf(photo(1_024, 800, 600)), caption = "same words",
+        )
+        val a = build()
+        val b = build()
+        assertTrue(a.utteranceId.isNotBlank())
+        assertTrue("the same words twice are two turns", a.utteranceId != b.utteranceId)
+        assertTrue("an utterance is not an attempt", a.utteranceId != a.requestId)
+        assertEquals(18, a.caps.schemaVersion)
+    }
 }

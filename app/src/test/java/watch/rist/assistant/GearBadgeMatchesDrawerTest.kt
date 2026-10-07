@@ -285,7 +285,7 @@ class GearBadgeMatchesDrawerTest {
         val a = open()
         assertTrue("the notice must be there to begin with", feedText(a).contains("email"))
 
-        requireNotNull(findMailDismiss(a)) { "the mail notice has no dismiss control" }.performClick()
+        assertTrue("the mail notice cannot be dismissed", CommsFeedView.dismissRow(requireNotNull(findMailDismiss(a))))
 
         assertTrue(
             "after dismissing, the feed must no longer announce unread email",
@@ -298,7 +298,7 @@ class GearBadgeMatchesDrawerTest {
         seed()
         Config.setMailUnread(ctx(), 3)
         val a = open()
-        requireNotNull(findMailDismiss(a)).performClick()
+        CommsFeedView.dismissRow(requireNotNull(findMailDismiss(a)))
         assertTrue("dismissed", !feedText(a).contains("email"))
 
         Config.setMailUnread(ctx(), 4)
@@ -311,7 +311,7 @@ class GearBadgeMatchesDrawerTest {
         seed()
         Config.setMailUnread(ctx(), 2)
         val a = open()
-        requireNotNull(findMailDismiss(a)).performClick()
+        CommsFeedView.dismissRow(requireNotNull(findMailDismiss(a)))
 
         Config.setMailUnread(ctx(), 0)
         CommsFeedView.render(a)
@@ -323,6 +323,45 @@ class GearBadgeMatchesDrawerTest {
             "one new email after the mailbox emptied must be announced",
             feedText(a).contains("email"),
         )
+    }
+
+    private fun drag(v: View, dx: Float, dy: Float) {
+        val t0 = android.os.SystemClock.uptimeMillis()
+        fun ev(action: Int, x: Float, y: Float, t: Long) =
+            android.view.MotionEvent.obtain(t0, t, action, x, y, 0)
+        v.dispatchTouchEvent(ev(android.view.MotionEvent.ACTION_DOWN, 20f, 20f, t0))
+        for (i in 1..10) {
+            v.dispatchTouchEvent(ev(android.view.MotionEvent.ACTION_MOVE, 20f + dx * i / 10, 20f + dy * i / 10, t0 + i * 30L))
+        }
+        v.dispatchTouchEvent(ev(android.view.MotionEvent.ACTION_UP, 20f + dx, 20f + dy, t0 + 330L))
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(500))
+    }
+
+    @Test
+    fun `a sideways swipe dismisses a notice, and scrolling past it does not`() {
+        seed()
+        Config.setMailUnread(ctx(), 3)
+        val a = open()
+        val row = requireNotNull(findMailDismiss(a)) { "the mail notice is not swipeable" }
+
+        drag(row, dx = 0f, dy = 600f)
+        assertTrue("an up-and-down drag is a scroll, not a dismissal", feedText(a).contains("email"))
+
+        drag(requireNotNull(findMailDismiss(a)), dx = 700f, dy = 15f)
+        assertTrue("a sideways swipe dismisses it", !feedText(a).contains("email"))
+    }
+
+    @Test
+    fun `there is no x on a notice any more, but a screen reader can still dismiss it`() {
+        seed()
+        Config.setMailUnread(ctx(), 3)
+        val a = open()
+        assertTrue("no \u00d7 left on the feed", !feedText(a).contains("\u00d7"))
+        val row = requireNotNull(findMailDismiss(a))
+        val info = android.view.accessibility.AccessibilityNodeInfo.obtain()
+        row.onInitializeAccessibilityNodeInfo(info)
+        assertTrue("a Dismiss action for screen readers",
+            info.actionList.any { it.label?.toString() == "Dismiss the unread email notice" })
     }
 
     private fun feedText(a: MainActivity): String {
@@ -338,12 +377,6 @@ class GearBadgeMatchesDrawerTest {
 
     private fun findMailDismiss(a: MainActivity): View? {
         val host = a.findViewById<LinearLayout>(R.id.commsFeed) ?: return null
-        var hit: View? = null
-        fun walk(v: View) {
-            if (v.contentDescription == "Dismiss the unread email notice") hit = v
-            if (v is ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i))
-        }
-        walk(host)
-        return hit
+        return CommsFeedView.rowFor(host, "the unread email notice")
     }
 }

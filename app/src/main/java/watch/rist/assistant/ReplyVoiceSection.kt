@@ -17,7 +17,7 @@ internal object ReplyVoiceSection {
         host.findViewWithTag<View>(TAG)?.let { host.removeView(it) }
         val idx = (anchor?.let { host.indexOfChild(it) } ?: -1).coerceAtLeast(0)
 
-        val t = Themes.byId(Config.themeId(a))
+        val t = Themes.current(a)
         val ink = t.ink
         val muted = Themes.readableMuted(t)
         // Typeface must be set explicitly: this section is built after ThemePaint.retint() has run.
@@ -61,6 +61,7 @@ internal object ReplyVoiceSection {
 
     private fun set(a: Activity, host: LinearLayout?, anchor: View?, enable: Boolean) {
         Config.setReplyVoiceEnabled(a, enable)
+        SettingsApply.reportLocal(a, "assistant.voice_playback")
         android.widget.Toast.makeText(
             a,
             if (enable) "On — Rist will read replies aloud" else "Off — replies show as text",

@@ -38,6 +38,7 @@ android_app {
         "androidx-constraintlayout_constraintlayout",
         "androidx.activity_activity-ktx",
         "com.google.android.material_material",
+        "androidx.recyclerview_recyclerview", // HomeBoxesView.kt; Material pulls it in too
 
         "rist-okhttp3-prebuilt",          // pulls okio3
         "rist-webkit",                    // CallBrowserActivity.kt

@@ -62,9 +62,10 @@ object CommsFeed {
         // other phone behaves and what the backend already does with the same records.
         val read = ordered.filter { !it.unread }.take(maxRead.coerceAtLeast(0))
 
-        val keptUnread = unread.take(hardCap.coerceAtLeast(0))
-        val keptRead = read.take((hardCap - keptUnread.size).coerceAtLeast(0))
-        return (keptUnread + keptRead).sortedByDescending { it.atMs }
+        // Every unread item is kept: trimming one would hide it silently. The sources bound
+        // them (HARD_CAP calls, HARD_CAP texts, MAX_NOTIFICATIONS notices); hardCap trims read ones.
+        val keptRead = read.take((hardCap - unread.size).coerceAtLeast(0))
+        return (unread + keptRead).sortedByDescending { it.atMs }
     }
 
     fun unreadCount(items: List<FeedItem>): Int = items.count { it.unread }
@@ -141,6 +142,28 @@ object CommsFeed {
             "time_sensitive" -> "$base · TIME SENSITIVE"
             else -> base
         }
+    }
+
+    /** A notice card's label: the kind, then the time, as an answer carries its time. */
+    fun noticeCardLabel(item: FeedItem, nowMs: Long): String {
+        val base = if (item.noticeKind == KIND_MAIL) "NEW MAIL" else "NOTIFICATION"
+        val kind = when (item.urgency) {
+            "critical" -> "$base · URGENT"
+            "time_sensitive" -> "$base · TIME SENSITIVE"
+            else -> base
+        }
+        return "$kind · " + entryStamp(item.atMs, nowMs)
+    }
+
+    /** What a screen reader says for a notice card; [text] is the whole notice, never the preview. */
+    fun noticeSpoken(item: FeedItem, nowMs: Long, text: String): String = buildString {
+        append("Notification from Rist, ").append(entryStamp(item.atMs, nowMs)).append(". ")
+        when (item.urgency) {
+            "critical" -> append("Urgent. ")
+            "time_sensitive" -> append("Time sensitive. ")
+        }
+        append(text.trim())
+        if (item.unread) append(". New.")
     }
 
     fun voicemailKindLine(): String = "VOICEMAIL"

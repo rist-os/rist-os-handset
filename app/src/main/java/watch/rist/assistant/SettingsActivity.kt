@@ -100,7 +100,7 @@ class SettingsActivity : AppCompatActivity() {
         if (Config.isEndpointEditable(this)) {
             val backendInput = findViewById<android.widget.EditText>(R.id.backendUrlInput)
             backendInput.setText(Config.backendUrl(this))
-            val bt = Themes.byId(Config.themeId(this))
+            val bt = Themes.current(this)
             asButton(findViewById(R.id.backendSave), bt, primary = true)
             asButton(findViewById(R.id.backendReset), bt, primary = false)
 
@@ -149,7 +149,7 @@ class SettingsActivity : AppCompatActivity() {
             runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "?")
 
         findViewById<TextView>(R.id.openPhoneSettings)?.apply {
-            val t = Themes.byId(Config.themeId(this@SettingsActivity))
+            val t = Themes.current(this@SettingsActivity)
             asButton(this, t, primary = true)
             setOnClickListener { AppLauncher.launchSettings(this@SettingsActivity); finish() }
         }
@@ -166,8 +166,95 @@ class SettingsActivity : AppCompatActivity() {
         applySettingsTheme()
 
         val picker = findViewById<LinearLayout>(R.id.themePicker)
-        runCatching { buildThemePicker(picker, Config.themeId(this)) }
-            .onFailure { android.util.Log.e("RistSettings", "theme picker build failed", it) }
+        if (DesignSync.declared()) {
+            runCatching { buildLookSection(picker) }
+                .onFailure { android.util.Log.e("RistSettings", "look section build failed", it) }
+        } else {
+            runCatching { buildThemePicker(picker, Config.themeId(this)) }
+                .onFailure { android.util.Log.e("RistSettings", "theme picker build failed", it) }
+        }
+    }
+
+    // A new look while Settings is open: draw Settings again in it.
+    private val designReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context, intent: Intent) {
+            if (!isFinishing && !isDestroyed) recreate()
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this)
+            .registerReceiver(designReceiver, android.content.IntentFilter(DesignSync.ACTION_CHANGED))
+    }
+
+    override fun onStop() {
+        androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this)
+            .unregisterReceiver(designReceiver)
+        super.onStop()
+    }
+
+    /**
+     * Settings > Look once looks come from the assistant: who set it, and an offline "Reset to
+     * default". The reset button is drawn in the factory look, never the current design, so it
+     * can always be read and found.
+     */
+    private fun buildLookSection(root: LinearLayout) {
+        root.removeAllViews()
+        findViewById<TextView>(R.id.themesHeading)?.text = getString(R.string.look_heading)
+        val t = Themes.current(this)
+        val f = Themes.FACTORY
+        val name = DesignSync.name(this)
+        root.addView(TextView(this).apply {
+            tag = LOOK_SOURCE_TAG
+            text = when {
+                !DesignSync.custom(this@SettingsActivity) -> getString(R.string.look_factory)
+                name.isNotBlank() -> getString(R.string.look_set_by_assistant_named, name)
+                else -> getString(R.string.look_set_by_assistant)
+            }
+            setTextColor(t.ink)
+            textSize = 16f
+            typeface = ThemePaint.typefaceOf(this@SettingsActivity, t)
+            setPadding(0, px(6f), 0, px(4f))
+        })
+        root.addView(TextView(this).apply {
+            text = getString(R.string.look_hint)
+            setTextColor(Themes.readableMuted(t))
+            textSize = 14f
+            typeface = ThemePaint.typefaceOf(this@SettingsActivity, t)
+            setPadding(0, 0, 0, px(10f))
+        })
+        root.addView(TextView(this).apply {
+            tag = LOOK_RESET_TAG
+            text = getString(R.string.look_reset)
+            gravity = Gravity.CENTER
+            textSize = 16f
+            minHeight = px(48f)
+            setPadding(px(16f), px(10f), px(16f), px(10f))
+            setTextColor(f.ink)
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            background = GradientDrawable().apply {
+                setColor(f.tileFill)
+                setStroke(px(1.5f), f.accent)
+                cornerRadius = px(14f).toFloat()
+            }
+            isClickable = true; isFocusable = true
+            ViewCompat.setAccessibilityDelegate(this, object : androidx.core.view.AccessibilityDelegateCompat() {
+                override fun onInitializeAccessibilityNodeInfo(
+                    host: View, info: androidx.core.view.accessibility.AccessibilityNodeInfoCompat,
+                ) {
+                    super.onInitializeAccessibilityNodeInfo(host, info)
+                    info.roleDescription = "button"
+                }
+            })
+            setOnClickListener {
+                DesignSync.reset(this@SettingsActivity)
+                android.widget.Toast.makeText(this@SettingsActivity, R.string.look_reset_done,
+                    android.widget.Toast.LENGTH_SHORT).show()
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        })
     }
 
     private fun buildThemePicker(root: LinearLayout, currentId: String) {
@@ -231,7 +318,7 @@ class SettingsActivity : AppCompatActivity() {
         val anchor = findViewById<View>(R.id.themesHeading) ?: picker
         val idx = parent.indexOfChild(anchor).coerceAtLeast(0)
 
-        val vmTheme = Themes.byId(Config.themeId(this))
+        val vmTheme = Themes.current(this)
         val ink = ContextCompat.getColor(this, R.color.ink)
         val muted = Themes.readableMuted(vmTheme)
         // Built in onResume, outside ThemePaint.retint(), so the body typeface must be set explicitly.
@@ -261,7 +348,7 @@ class SettingsActivity : AppCompatActivity() {
             text = "Listen now"
             isAllCaps = true
             textSize = 12f; typeface = pixelTf
-            asButton(this, Themes.byId(Config.themeId(this@SettingsActivity)), primary = true)
+            asButton(this, Themes.current(this@SettingsActivity), primary = true)
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
             )
@@ -298,7 +385,7 @@ class SettingsActivity : AppCompatActivity() {
         val anchor = findViewById<View>(R.id.themesHeading) ?: picker
         val idx = parent.indexOfChild(anchor).coerceAtLeast(0)
 
-        val theme = Themes.byId(Config.themeId(this))
+        val theme = Themes.current(this)
         val ink = ContextCompat.getColor(this, R.color.ink)
         val muted = Themes.readableMuted(theme)
         val bodyTf: Typeface? = ThemePaint.typefaceOf(this, theme)
@@ -347,6 +434,7 @@ class SettingsActivity : AppCompatActivity() {
                 ) { picked ->
                     Retention.CHOICES.getOrNull(picked)?.let {
                         Config.setTranscriptMaxAgeMs(this, it.ms)
+                        SettingsApply.reportLocal(this, "assistant.message_history")
                         paint()
                     }
                 }
@@ -372,7 +460,7 @@ class SettingsActivity : AppCompatActivity() {
         val anchor = findViewById<View>(R.id.themesHeading) ?: picker
         val idx = parent.indexOfChild(anchor).coerceAtLeast(0)
 
-        val theme = Themes.byId(Config.themeId(this))
+        val theme = Themes.current(this)
         val ink = ContextCompat.getColor(this, R.color.ink)
         val muted = Themes.readableMuted(theme)
         val bodyTf: Typeface? = ThemePaint.typefaceOf(this, theme)
@@ -423,6 +511,7 @@ class SettingsActivity : AppCompatActivity() {
                     options = options,
                 ) { which ->
                     AutoTimeZone.setEnabled(this, which == 0)
+                    SettingsApply.reportLocal(this, SettingsApply.KEY_AUTO_ZONE)
                     paint()
                     // The check runs in the background; show its result once it has had time to land.
                     value.postDelayed({ if (!isFinishing) paint() }, 6_000)
@@ -445,7 +534,7 @@ class SettingsActivity : AppCompatActivity() {
         confirmLabel: String,
         onConfirm: () -> Unit,
     ): android.app.AlertDialog {
-        val t = Themes.byId(Config.themeId(this))
+        val t = Themes.current(this)
         return RistDialog.ask(
             this,
             t,
@@ -471,7 +560,7 @@ class SettingsActivity : AppCompatActivity() {
         val input = findViewById<android.widget.EditText>(R.id.pairCodeInput) ?: return
         val submit = findViewById<TextView>(R.id.pairSubmit) ?: return
 
-        asButton(submit, Themes.byId(Config.themeId(this)), primary = true)
+        asButton(submit, Themes.current(this), primary = true)
 
         input.setText("")
 
@@ -483,19 +572,13 @@ class SettingsActivity : AppCompatActivity() {
             submit.visibility = vis
         }
 
-        if (Config.enrolRevoked(this)) {
-            status.text = getString(R.string.pair_revoked)
-            offerPairing(false)
-            return
-        }
-
-        if (!Enrolment.needed(this)) {
+        if (!Enrolment.canPair(this)) {
             status.text = getString(R.string.pair_connected)
             offerPairing(false)
             return
         }
 
-        status.text = getString(R.string.pair_prompt)
+        status.text = getString(if (Config.enrolRevoked(this)) R.string.pair_revoked else R.string.pair_prompt)
         offerPairing(true)
 
         input.setOnEditorActionListener { _, actionId, _ ->
@@ -722,6 +805,13 @@ class SettingsActivity : AppCompatActivity() {
                 findViewById(R.id.sectionsAnchor),
             )
         }.onFailure { Log.e("RistSettings", "location section build failed", it) }
+        runCatching {
+            ContactsSection.build(
+                this,
+                findViewById<LinearLayout>(R.id.themePicker)?.parent as? LinearLayout,
+                findViewById(R.id.sectionsAnchor),
+            )
+        }.onFailure { Log.e("RistSettings", "contacts section build failed", it) }
         runCatching { OtaSection.checkOnOpen(this) }
             .onFailure { Log.e("RistSettings", "ota check-on-open failed", it) }
 
@@ -761,7 +851,7 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun applySettingsTheme() = runCatching {
-        val t = Themes.byId(Config.themeId(this))
+        val t = Themes.current(this)
         val faint = ThemePaint.faintOf(t)
         val tf = ThemePaint.typefaceOf(this, t)
         findViewById<View>(R.id.settingsScroll)?.setBackgroundColor(t.ground)
@@ -786,6 +876,9 @@ class SettingsActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_HIDE_APPS = "watch.rist.assistant.HIDE_APPS"
+
+        const val LOOK_SOURCE_TAG = "look-source"
+        const val LOOK_RESET_TAG = "look-reset"
 
         const val EXTRA_SHOW_BACKEND = "watch.rist.assistant.SHOW_BACKEND"
 

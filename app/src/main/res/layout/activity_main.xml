@@ -70,7 +70,7 @@
         android:layout_marginTop="@dimen/gap"
         android:layout_marginBottom="@dimen/gap"
         android:clipToPadding="false"
-        app:layout_constraintTop_toBottomOf="@id/commandStrip"
+        app:layout_constraintTop_toBottomOf="@id/boxRow"
         app:layout_goneMarginTop="0dp"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
@@ -340,7 +340,7 @@
         app:layout_constraintTop_toBottomOf="@id/glance"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toStartOf="@id/settingsGear"
-        app:layout_constraintBottom_toTopOf="@id/replyScroll"
+        app:layout_constraintBottom_toTopOf="@id/boxRow"
         app:layout_constraintVertical_bias="0">
 
         <TextView
@@ -354,6 +354,57 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical" />
+    </LinearLayout>
+
+    <!-- Home boxes: one row that scrolls sideways, under the clock and above the answers. It
+         takes no space at all when the account has no boxes feature. -->
+    <LinearLayout
+        android:id="@+id/boxRow"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginTop="12dp"
+        android:visibility="gone"
+        app:layout_constraintTop_toBottomOf="@id/commandStrip"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/replyScroll">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/boxList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="24dp"
+            android:paddingEnd="14dp"
+            android:clipToPadding="false"
+            android:overScrollMode="never" />
+
+        <FrameLayout
+            android:id="@+id/boxHandle"
+            android:layout_width="match_parent"
+            android:layout_height="20dp"
+            android:contentDescription="@string/boxes_handle_desc"
+            android:clickable="true"
+            android:focusable="false"
+            android:importantForAccessibility="no">
+
+            <View
+                android:tag="box-handle-bar"
+                android:layout_width="36dp"
+                android:layout_height="4dp"
+                android:layout_gravity="center" />
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/boxUndo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="48dp"
+            android:gravity="center"
+            android:textSize="14sp"
+            android:clickable="true"
+            android:focusable="true"
+            android:visibility="gone" />
     </LinearLayout>
 
     <!-- The talk section, kept short so the answers get the screen: about 90dp tall. -->

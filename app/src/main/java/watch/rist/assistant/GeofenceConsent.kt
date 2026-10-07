@@ -171,7 +171,7 @@ object GeofenceConsent {
 
 class BackgroundLocationPromptActivity : AppCompatActivity() {
 
-    private val rt by lazy { Themes.byId(Config.themeId(this)) }
+    private val rt by lazy { Themes.current(this) }
     private val tf: Typeface? by lazy { ThemePaint.typefaceOf(this, rt) }
     private val pixelTf: Typeface? by lazy {
         runCatching { androidx.core.content.res.ResourcesCompat.getFont(this, R.font.pixel) }.getOrNull()
@@ -251,6 +251,7 @@ class BackgroundLocationPromptActivity : AppCompatActivity() {
 
     private fun choose(enable: Boolean) {
         val outcome = GeofenceConsent.apply(this, enable)
+        SettingsApply.reportLocal(this, SettingsApply.KEY_PLACE_TRIGGERS)
         if (enable && outcome == GeofenceConsent.Outcome.REFUSED) {
             showRefused()
             return

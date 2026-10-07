@@ -1,0 +1,198 @@
+package watch.rist.assistant
+
+import android.Manifest
+import android.app.Activity
+import android.os.Looper
+import android.util.TypedValue
+import android.view.View
+import android.view.ViewGroup
+import android.widget.LinearLayout
+import android.widget.TextView
+import androidx.recyclerview.widget.RecyclerView
+import androidx.test.core.app.ApplicationProvider
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.Robolectric
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config as RConfig
+import org.robolectric.annotation.GraphicsMode
+import rist.v1.BoxSet
+import rist.v1.HomeBox
+
+/** Tile labels shrink or wrap to fit instead of being cut to "WEATH…"; CLEAR ALL says what it clears. */
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@RConfig(qualifiers = "w411dp-h891dp-xxhdpi")
+class TileLabelFitTest {
+
+    private val app: android.app.Application = ApplicationProvider.getApplicationContext()
+
+    @Before fun setUp() {
+        shadowOf(app).grantPermissions(Manifest.permission.READ_SMS)
+        Config.usePlainPrefsForTest(app)
+        Config.setNotifications(app, "[]")
+        Config.setSeenCommsIds(app, emptyList())
+        CommsFeedView.resetForTest()
+        HomeBoxes.resetForTest(app)
+        HomeBoxes.shippedForTest = true
+        Config.setDeployDefaultsForTest("", "")
+    }
+
+    @After fun tidy() {
+        HomeBoxes.awaitFlushForTest()
+        HomeBoxes.resetForTest(app)
+        Config.setNotifications(app, "[]")
+        CommsFeedView.resetForTest()
+        Config.forgetPrefsForTest()
+    }
+
+    private fun settle() = repeat(3) { shadowOf(Looper.getMainLooper()).idle() }
+
+    private fun box(id: String, title: String) = HomeBox.newBuilder().setId(id).setTitle(title).setKind("display")
+        .setState("ok").setValue("52°").setUpdatedAtEpochS(System.currentTimeMillis() / 1000).build()
+
+    private fun label(a: Activity, id: String): TextView {
+        val list = a.findViewById<RecyclerView>(R.id.boxList)
+        val tile = requireNotNull(list.findViewWithTag<ViewGroup>(BoxBoard.TILE_TAG_PREFIX + id)) { "no tile $id" }
+        return tile.findViewWithTag(BoxBoard.LABEL_TAG)
+    }
+
+    private fun tile(a: Activity, id: String): ViewGroup =
+        requireNotNull(a.findViewById<RecyclerView>(R.id.boxList).findViewWithTag(BoxBoard.TILE_TAG_PREFIX + id)) { "no tile $id" }
+
+    @Test
+    fun `box labels shrink to fit rather than being cut`() {
+        HomeBoxes.apply(app, BoxSet.newBuilder().setVersion(3)
+            .addBoxes(box("w", "Weather")).addBoxes(box("t", "Test tile")).addBoxes(box("c", "Calendar")).build())
+        val a = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        settle()
+        val sp = app.resources.displayMetrics.scaledDensity
+        for (id in listOf("w", "t", "c")) {
+            val v = label(a, id)
+            assertEquals(0f, v.letterSpacing)
+            val l = requireNotNull(v.layout) { "label $id not laid out" }
+            assertEquals("${v.text} is whole on one line", 1, l.lineCount)
+            assertEquals("${v.text} is not ellipsized", 0, l.getEllipsisCount(0))
+            assertTrue("${v.text} stays legible (${v.textSize / sp} sp)", v.textSize / sp >= BoxBoard.LABEL_MIN_SP)
+        }
+    }
+
+    @Test
+    fun `long labels wrap to two legible lines, whole, and the value and detail still fit the square`() {
+        // With an icon beside each, as the owner's tiles have, the label has least room.
+        val titles = mapOf("w" to "Weather for Bellevue", "c" to "Today's Calendar", "n" to "Latin America News")
+        val icons = mapOf("w" to "partly_cloudy_day", "c" to "calendar_today", "n" to "public")
+        HomeBoxes.apply(app, BoxSet.newBuilder().setVersion(3).apply {
+            titles.forEach { (id, t) ->
+                addBoxes(box(id, t).toBuilder().setIcon(icons[id]).setDetail("Updated just now with more").build())
+            }
+        }.build())
+        val a = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        settle()
+        val sp = app.resources.displayMetrics.scaledDensity
+        val d = app.resources.displayMetrics.density
+        val list = a.findViewById<RecyclerView>(R.id.boxList)
+        for ((id, title) in titles) {
+            list.scrollToPosition(titles.keys.indexOf(id) + 1); settle()
+            val v = label(a, id)
+            val l = requireNotNull(v.layout) { "label $id not laid out" }
+            assertTrue("$title takes at most two lines (${l.lineCount})", l.lineCount in 1..2)
+            for (i in 0 until l.lineCount) assertEquals("$title is not ellipsized", 0, l.getEllipsisCount(i))
+            val drawn = (0 until l.lineCount).joinToString(" ") { l.text.subSequence(l.getLineStart(it), l.getLineEnd(it)).trim() }
+            assertEquals("$title is drawn whole", title.uppercase(), drawn)
+            assertTrue("$title stays legible (${v.textSize / sp} sp)", v.textSize / sp >= BoxBoard.LABEL_MIN_SP - 0.01f)
+            assertTrue("$title's lines fit its height", l.height <= v.height - v.paddingTop - v.paddingBottom)
+
+            assertTrue("$id has its icon", tile(a, id).findViewWithTag<View>(BoxBoard.ICON_TAG) != null)
+            val drawnText = l.text as android.text.Spanned
+            assertTrue("$title's first line is set past the icon",
+                drawnText.getSpans(0, drawnText.length, android.text.style.LeadingMarginSpan::class.java).isNotEmpty())
+            val t = tile(a, id)
+            assertEquals("square", (BoxBoard.TILE_DP * d).toInt(), t.height)
+            assertEquals("square", t.height, t.width)
+            val col = t.getChildAt(0) as ViewGroup
+            for (tag in listOf(BoxBoard.VALUE_TAG, BoxBoard.DETAIL_TAG)) {
+                val x = requireNotNull(t.findViewWithTag<TextView>(tag)) { "$title has no $tag" }
+                val y = x.top
+                assertTrue("$title: $tag is inside the square", y >= col.paddingTop && x.bottom <= col.height - col.paddingBottom)
+                assertTrue("$title: $tag has room", x.height > 0 && x.layout.height <= x.height - x.paddingTop - x.paddingBottom)
+            }
+        }
+    }
+
+    @Test
+    fun `a wrapped label's second line starts below the icon, never under it`() {
+        val titles = mapOf("w" to "Weather Forecast", "c" to "Today's Calendar", "n" to "Latin American News", "l" to "My to-do list")
+        val icons = mapOf("w" to "partly_cloudy_day", "c" to "calendar_today", "n" to "search", "l" to "checklist")
+        HomeBoxes.apply(app, BoxSet.newBuilder().setVersion(3).apply {
+            titles.forEach { (id, t) -> addBoxes(box(id, t).toBuilder().setIcon(icons[id]).setDetail("3 items").build()) }
+        }.build())
+        val a = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        settle()
+        val sp = app.resources.displayMetrics.scaledDensity
+        val list = a.findViewById<RecyclerView>(R.id.boxList)
+        for ((id, title) in titles) {
+            list.scrollToPosition(titles.keys.indexOf(id) + 1); settle()
+            val t = tile(a, id)
+            val v = label(a, id)
+            val icon = requireNotNull(t.findViewWithTag<View>(BoxBoard.ICON_TAG)) { "$title has no icon" }
+            val l = requireNotNull(v.layout) { "label $id not laid out" }
+            assertEquals("$title wraps to two lines", 2, l.lineCount)
+            assertTrue("$title stays legible (${v.textSize / sp} sp)", v.textSize / sp >= BoxBoard.LABEL_MIN_SP - 0.01f)
+            val iconBottom = yIn(t, icon) + icon.height
+            val secondTop = yIn(t, v) + v.totalPaddingTop + l.getLineTop(1)
+            assertTrue("$title: icon bottom $iconBottom <= second line top $secondTop", iconBottom <= secondTop)
+            val col = t.getChildAt(0) as ViewGroup
+            for (tag in listOf(BoxBoard.VALUE_TAG, BoxBoard.DETAIL_TAG)) {
+                val x = requireNotNull(t.findViewWithTag<TextView>(tag)) { "$title has no $tag" }
+                assertTrue("$title: $tag is inside the square", x.top >= col.paddingTop && x.bottom <= col.height - col.paddingBottom)
+                assertTrue("$title: $tag has room", x.height > 0 && x.layout.height <= x.height - x.paddingTop - x.paddingBottom)
+            }
+            assertEquals("square", t.height, t.width)
+        }
+    }
+
+    /** [v]'s top in [root]'s coordinates. */
+    private fun yIn(root: View, v: View): Int {
+        var y = 0
+        var c: View = v
+        while (c !== root) { y += c.top; c = c.parent as View }
+        return y
+    }
+
+    @Test
+    fun `a label too long even at the smallest size is ellipsized after two lines, not clipped`() {
+        HomeBoxes.apply(app, BoxSet.newBuilder().setVersion(3)
+            .addBoxes(box("x", "Extraordinarily long tile name that cannot possibly fit")).build())
+        val a = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        settle()
+        val v = label(a, "x")
+        assertEquals(android.text.TextUtils.TruncateAt.END, v.ellipsize)
+        assertEquals(2, v.maxLines)
+        val l = v.layout
+        assertTrue("at most two lines (${l.lineCount})", l.lineCount in 1..2)
+        assertEquals(BoxBoard.LABEL_MIN_SP, v.textSize / app.resources.displayMetrics.scaledDensity, 0.01f)
+    }
+
+    @Test
+    fun `CLEAR ALL tells a screen reader it clears every notification`() {
+        NotificationQueue.store(app, listOf(rist.v1.Notification.newBuilder().setId("n1").setKind("scheduled")
+            .setTitle("Reminder").setUrgency("passive").setCreatedAtEpochS(System.currentTimeMillis() / 1000).build()))
+        val a = Robolectric.buildActivity(Activity::class.java).setup().get()
+        a.setContentView(LinearLayout(a).apply { id = R.id.commsFeed; orientation = LinearLayout.VERTICAL })
+        CommsFeedView.render(a)
+        fun find(v: View): TextView? {
+            if (v is TextView && v.text.toString().equals("CLEAR ALL", ignoreCase = true)) return v
+            if (v is ViewGroup) for (i in 0 until v.childCount) find(v.getChildAt(i))?.let { return it }
+            return null
+        }
+        val clear = requireNotNull(find(a.findViewById(R.id.commsFeed)))
+        assertEquals("Clear all notifications, 1 new", clear.contentDescription.toString())
+        assertEquals("Clear all notifications", CommsFeedView.clearAllSpoken(0))
+    }
+}

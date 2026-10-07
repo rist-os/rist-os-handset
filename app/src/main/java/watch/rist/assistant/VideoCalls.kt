@@ -29,7 +29,6 @@ object VideoCalls {
     const val SHIPPED = true
 
     const val COMPONENT = "video_call"
-    const val SCHEMA_VERSION = 15
 
     const val ACTION_JOIN = "join"
     const val ACTION_END = "end"
