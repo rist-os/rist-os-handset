@@ -68,7 +68,11 @@ class NotificationsTileTest {
         HomeBoxes.awaitFlushForTest()
         server.shutdown()
         HomeBoxes.resetForTest(app)
+        HomeBoxes.shippedForTest = null
         Config.setFeatures(app, "")
+        Config.setMailUnread(app, 0)
+        Config.setMailAcknowledged(app, 0)
+        Config.setCarrierVoicemailWaiting(app, false)
         Config.setNotifications(app, "[]")
         Config.setSeenCommsIds(app, emptyList())
         CommsFeedView.resetForTest()
@@ -154,25 +158,85 @@ class NotificationsTileTest {
         assertEquals(BoxBoard.NOTIFICATIONS_TAG, grid.getChildAt(0).tag)
     }
 
+    private fun homeFeed(a: Activity): ViewGroup = a.findViewById(R.id.commsFeed)
+
+    private fun texts(v: View): List<String> = when (v) {
+        is TextView -> listOf(v.text.toString())
+        is ViewGroup -> (0 until v.childCount).flatMap { texts(v.getChildAt(it)) }
+        else -> emptyList()
+    }
+
+    private fun page(a: Activity): NotificationsActivity {
+        tile(a).performClick()
+        val started = shadowOf(a).nextStartedActivity
+        return Robolectric.buildActivity(NotificationsActivity::class.java, started).setup().get().also { settle() }
+    }
+
     @Test
-    fun `the count is the feed's own and follows notices arriving and being cleared`() {
+    fun `with the tile row, home lists no notifications and no feed heading, only the tile counts them`() {
         NotificationQueue.store(app, listOf(notice("n1"), notice("n2")))
+        Config.setMailUnread(app, 2)
         val a = home()
+        val feed = homeFeed(a)
+        assertEquals(null, feed.findViewWithTag<View>(CommsFeedView.NOTICE_CARD_TAG))
+        val said = texts(feed)
+        assertTrue(said.toString(), said.none { it.contains("NEW", ignoreCase = true) || it == "CLEAR ALL" })
+        assertTrue(said.toString(), said.none { it.contains("email") })
+        assertEquals(0, feed.childCount)
+        // Two notices and the mail line: the page's rows, counted on the tile.
+        assertEquals(3, CommsFeedView.listedCount(app))
+        assertEquals("3", shownCount(a))
+    }
+
+    @Test
+    fun `the count is the feed's own and follows notices arriving and being cleared on the page`() {
+        NotificationQueue.store(app, listOf(notice("n1"), notice("n2")))
+        val c = Robolectric.buildActivity(MainActivity::class.java).setup().also { settle() }
+        val a = c.get()
         assertEquals(2, CommsFeedView.waitingCount(app))
         assertEquals("2", shownCount(a))
-        assertEquals("2 NEW", feedHeading(a).uppercase())
         assertEquals("Notifications, 2 new. Double tap to open.", tile(a).contentDescription)
 
+        // A notice arrives while home is up, with nothing drawn on home: the tile follows.
         NotificationQueue.store(app, listOf(notice("n3")))
         settle()
         assertEquals("3", shownCount(a))
+        assertEquals(null, homeFeed(a).findViewWithTag<View>(CommsFeedView.NOTICE_CARD_TAG))
 
-        // The feed's CLEAR ALL: the tile goes to nothing new at once.
-        val bar = a.findViewById<ViewGroup>(R.id.commsFeed).getChildAt(0) as ViewGroup
+        // CLEAR ALL on the tile's page: the tile goes to nothing at once.
+        val list = page(a)
+        assertNotNull(list.findViewById<ViewGroup>(R.id.commsFeed).findViewWithTag<View>(CommsFeedView.NOTICE_CARD_TAG))
+        val bar = list.findViewById<ViewGroup>(R.id.commsFeed).getChildAt(0) as ViewGroup
+        assertEquals("3 NEW", (bar.getChildAt(0) as TextView).text.toString().uppercase())
         bar.getChildAt(1).performClick()
         settle()
         assertEquals(0, CommsFeedView.waitingCount(app))
+        // Back on the home screen, the tile reads the cleared count.
+        c.pause().resume(); settle()
         assertEquals("0", shownCount(a))
+    }
+
+    @Test
+    fun `without the tile row, home keeps the feed so nothing is out of sight`() {
+        HomeBoxes.shippedForTest = false
+        NotificationQueue.store(app, listOf(notice("n1", "Pick up the dry cleaning")))
+        val a = home()
+        val feed = homeFeed(a)
+        assertEquals(View.VISIBLE, feed.visibility)
+        assertNotNull(feed.findViewWithTag<View>(CommsFeedView.NOTICE_CARD_TAG))
+        assertEquals("1 NEW", feedHeading(a).uppercase())
+    }
+
+    @Test
+    fun `with the tile row, a lapsed subscription is still told on home`() {
+        Billing.onLapsed(app, Billing.lapseFrom("ended", "ristmobile.com", null))
+        NotificationQueue.store(app, listOf(notice("n1")))
+        val a = home()
+        val feed = homeFeed(a)
+        assertEquals(View.VISIBLE, feed.visibility)
+        assertNotNull(feed.findViewWithTag<View>(CommsFeedView.BILLING_ROW_TAG))
+        assertEquals(null, feed.findViewWithTag<View>(CommsFeedView.NOTICE_CARD_TAG))
+        assertEquals(1, feed.childCount)
     }
 
     @Test

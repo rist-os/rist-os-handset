@@ -39,6 +39,9 @@ Build numbers are `YYYYMMDDNN`. The log starts with 2026083110, the first publis
   dialled or texted for you: the dialer or the message screen opens and you press the button
   yourself. There is a daily limit on calls and texts placed for you.
 - **The SOS button is gone from the home screen.** Dial emergency numbers from the dialer.
+- **Notifications are listed only behind the Notifications tile**, not above your answers. Account
+  problems (a lapsed subscription, a lost connection, texts the phone cannot read) stay on the home
+  screen.
 
 ### Security
 

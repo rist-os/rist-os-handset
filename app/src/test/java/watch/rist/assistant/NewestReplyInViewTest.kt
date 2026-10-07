@@ -38,9 +38,12 @@ class NewestReplyInViewTest {
         Config.setSeenCommsIds(app, emptyList())
         Transcript.clearForTest(app)
         CommsFeedView.resetForTest()
+        // Notices sit above the answers only when there is no tile row to hold them.
+        HomeBoxes.shippedForTest = false
     }
 
     @After fun tidy() {
+        HomeBoxes.shippedForTest = null
         Config.setNotifications(app, "[]")
         Transcript.clearForTest(app)
         CommsFeedView.resetForTest()

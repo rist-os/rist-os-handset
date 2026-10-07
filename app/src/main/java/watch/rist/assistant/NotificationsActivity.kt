@@ -21,9 +21,10 @@ import androidx.core.view.updatePadding
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 
 /**
- * Every notification, full screen: what the Notifications tile opens. It is the home screen's
- * feed, drawn by [CommsFeedView] into a host of its own, so a row here behaves exactly as it does
- * at home and clearing one here clears it there.
+ * Every notification, full screen: what the Notifications tile opens. While the tile row is
+ * shown this is the only place notifications are listed (see [CommsFeedView.leftToTile]); the
+ * feed is drawn by [CommsFeedView] into a host of its own, and clearing a row here updates the
+ * tile's count.
  */
 class NotificationsActivity : AppCompatActivity(), CommsFeedView.Watcher {
 

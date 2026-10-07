@@ -147,18 +147,31 @@ object CommsFeedView {
         counted?.let { (w, l) -> runCatching { (activity as? Watcher)?.onFeedWaiting(w, l) } }
     }
 
+    /**
+     * True when the home screen leaves notifications to the Notifications tile: the tile row is
+     * on for this account, so calls, texts, voicemail, mail and notices are listed only on the
+     * page it opens. Without the row they stay on the home screen, so they are never out of sight.
+     * Account and permission problems (billing, not connected, texts unreadable) stay either way.
+     */
+    internal fun leftToTile(activity: Activity): Boolean =
+        activity is MainActivity && HomeBoxes.shown(activity)
+
     private fun draw(activity: Activity, count: (Int, Int) -> Unit): Unit = runCatching {
         val host = activity.findViewById<LinearLayout>(R.id.commsFeed) ?: return@runCatching
         host.removeAllViews()
 
         val all = candidates(activity)
-        val shown = CommsFeed.assemble(
+        val toTile = leftToTile(activity)
+        val assembled = CommsFeed.assemble(
             // `it.id in expanded` is load-bearing: a tap marks seen AND expands, so an open row stays until closed.
             // A notice stays read or unread: NotificationQueue.renderable already chose which to keep.
             all.filter { it.kind == FeedKind.NOTIFICATION || it.unread || it.id in expanded },
             System.currentTimeMillis(),
         )
         val vmWaiting = CarrierVoicemail.showing(activity)
+        // The counts below are taken from everything, drawn or not: the tile shows them.
+        val shown = if (toTile) emptyList() else assembled
+        val vmRow = vmWaiting && !toTile
         val textsUnreadable = !SmsInbox.canRead(activity)
         val unconnected = Config.credentialRejected(activity) || Config.enrolRevoked(activity)
         val lapsed = if (unconnected) null else Billing.notice(activity)
@@ -167,10 +180,9 @@ object CommsFeedView {
         val unbadgedMail = CommsFeed.unbadgedMail(all, mailUnread)
         val waiting = CommsFeed.waitingCount(all, vmWaiting, mailUnread)
         count(waiting, listed(all, vmWaiting, unbadgedMail))
+        val mailRow = unbadgedMail > 0 && !toTile
 
-        if (shown.isEmpty() && !vmWaiting && !textsUnreadable && !unconnected && lapsed == null &&
-            unbadgedMail <= 0
-        ) {
+        if (shown.isEmpty() && !vmRow && !textsUnreadable && !unconnected && lapsed == null && !mailRow) {
             host.visibility = View.GONE; return@runCatching
         }
         host.visibility = View.VISIBLE
@@ -184,7 +196,7 @@ object CommsFeedView {
         // Carries its own rule underneath, so what follows is laid out as if it were not there.
         if (lapsed != null) host.addView(billingRow(activity, t, tf, d, lapsed))
         // On the Notifications page with nothing new, the page's own title already says it.
-        val headerDrawn = !unconnected && !(activity is NotificationsActivity && waiting == 0)
+        val headerDrawn = !toTile && !unconnected && !(activity is NotificationsActivity && waiting == 0)
         if (headerDrawn) host.addView(header(activity, t, tf, muted, d, waiting, all, vmWaiting))
 
         fun divider() = host.addView(View(activity).apply {
@@ -217,7 +229,7 @@ object CommsFeedView {
                 }
             })
             drawn++
-            if (shown.isNotEmpty() || vmWaiting || textsUnreadable) {
+            if (!toTile && (shown.isNotEmpty() || vmRow || textsUnreadable)) {
                 divider()
                 host.addView(header(activity, t, tf, muted, d, waiting, all, vmWaiting))
                 drawn++
@@ -237,11 +249,11 @@ object CommsFeedView {
             })
             drawn++
         }
-        if (vmWaiting) {
+        if (vmRow) {
             if (drawn > 0) divider()
             host.addView(voicemailRow(activity, t, tf, muted, d)); drawn++
         }
-        if (unbadgedMail > 0) {
+        if (mailRow) {
             if (drawn > 0) divider()
             val mailText = TextView(activity)
             mailText.text = if (unbadgedMail == 1) activity.getString(R.string.mail_unread_one)

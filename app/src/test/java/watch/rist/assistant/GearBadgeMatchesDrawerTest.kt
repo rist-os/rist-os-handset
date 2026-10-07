@@ -33,11 +33,12 @@ class GearBadgeMatchesDrawerTest {
 
     private fun ctx() = ApplicationProvider.getApplicationContext<android.content.Context>()
 
+    // These cases read the feed on the home screen, which is drawn there only without the tile row.
     @Before
-    fun clean() = reset()
+    fun clean() { HomeBoxes.shippedForTest = false; reset() }
 
     @After
-    fun tearDown() = reset()
+    fun tearDown() { reset(); HomeBoxes.shippedForTest = null }
 
     private fun reset() {
         shadowOf(ApplicationProvider.getApplicationContext<android.app.Application>())

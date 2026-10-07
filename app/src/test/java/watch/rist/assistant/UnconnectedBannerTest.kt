@@ -38,6 +38,7 @@ class UnconnectedBannerTest {
 
     @After
     fun tidy() {
+        HomeBoxes.shippedForTest = null
         Config.setCredentialRejected(ctx(), false)
         Config.setSetupComplete(ctx(), false)
         Config.setCarrierVoicemailWaiting(ctx(), false)
@@ -112,6 +113,8 @@ class UnconnectedBannerTest {
 
     @Test
     fun `the banner is drawn above every other row in the feed`() {
+        // Without the tile row, so the voicemail row is drawn on the home screen too.
+        HomeBoxes.shippedForTest = false
         shadowOf(ApplicationProvider.getApplicationContext<android.app.Application>())
             .denyPermissions(Manifest.permission.READ_SMS)
         Config.setCarrierVoicemailWaiting(ctx(), true)
@@ -152,6 +155,21 @@ class UnconnectedBannerTest {
             "something is drawn above the banner — children above it are ${kids.take(bannerIndex)}",
             0, bannerIndex
         )
+    }
+
+    @Test
+    fun `with the tile row the banner and the unreadable-texts row stay, the voicemail row goes`() {
+        HomeBoxes.shippedForTest = true
+        shadowOf(ApplicationProvider.getApplicationContext<android.app.Application>())
+            .denyPermissions(Manifest.permission.READ_SMS)
+        Config.setCarrierVoicemailWaiting(ctx(), true)
+        val a = homeWithFeedPainted()
+        val kids = children(feed(a))
+        assertEquals(0, kids.indexOf(requireNotNull(banner(a, feed(a))) { "no banner" }))
+        assertTrue("the unreadable-texts row is an account problem and stays",
+            kids.any { it is TextView && it.text.toString().startsWith("Texts are not shown") })
+        assertFalse("the voicemail row is a notification: only in the tile's page",
+            kids.any { it is ViewGroup && describes(it, "VOICEMAIL") })
     }
 
     private fun describes(v: View, needle: String): Boolean =
