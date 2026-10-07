@@ -17,7 +17,7 @@ import org.robolectric.RobolectricTestRunner
 import rist.v1.DeviceResponse
 import rist.v1.Speech
 
-/** 403 is still "revoked", but a revoked phone can come back without a factory reset. */
+/** A 403 with the revoked header is still "revoked", but a revoked phone can come back without a factory reset. */
 @RunWith(RobolectricTestRunner::class)
 class RevokeRecoveryTest {
 
@@ -45,12 +45,21 @@ class RevokeRecoveryTest {
     }
 
     @Test
-    fun `a 403 turn still revokes, and says how to come back`() {
-        server.enqueue(MockResponse().setResponseCode(403))
+    fun `a revoked 403 turn still revokes, and says how to come back`() {
+        server.enqueue(MockResponse().setResponseCode(403).setHeader(Enrolment.REVOKED_HEADER, "1"))
         val up = Uploader(ctx)
         up.sendText("hello")
         assertTrue(Config.enrolRevoked(ctx))
         assertTrue("the failure must point at re-pairing: ${up.lastFailure}", up.lastFailure.contains("pair it again"))
+    }
+
+    @Test
+    fun `a bare 403 turn never revokes`() {
+        server.enqueue(MockResponse().setResponseCode(403))
+        val up = Uploader(ctx)
+        up.sendText("hello")
+        assertFalse("a 403 without the revoked header must not latch", Config.enrolRevoked(ctx))
+        assertFalse(up.lastFailure.contains("pair it again"))
     }
 
     @Test
