@@ -102,7 +102,7 @@ MANIFEST="$MTMP/manifest.json"
 # Gate the package here, not only in sign_public.sh. That script gates the OTA it generated, but
 # anything published by hand -- a regenerated payload, a repacked zip, an incremental produced
 # outside the release script -- reached this point with nothing having examined its partitions,
-# vbmeta consistency, otacert or SPL. Build 2026092200 was published exactly that way.
+# vbmeta consistency, otacert or SPL.
 GATE="$HERE/check_partial_ota.py"
 if [ "${RIST_OTA_SKIP_GATE:-}" = "1" ]; then
   # On stderr, not stdout. An exported variable persists for the rest of the shell session, so the
@@ -110,8 +110,8 @@ if [ "${RIST_OTA_SKIP_GATE:-}" = "1" ]; then
   # redirected build log.
   echo "!! RIST_OTA_SKIP_GATE=1: publishing $NAME WITHOUT the OTA gate." >&2
   echo "!! Nothing has checked its partitions, vbmeta, otacert or security patch level." >&2
-  echo "!! This is how 2026092200 was published. Unset it unless you have a reason you could" >&2
-  echo "!! defend afterwards, and record that reason with the release." >&2
+  echo "!! Unset it unless you have a reason you could defend afterwards, and record that" >&2
+  echo "!! reason with the release." >&2
 elif [ ! -f "$GATE" ] || ! command -v python3 >/dev/null 2>&1; then
   echo "the OTA gate could not run (need python3 and $GATE). Nothing published." >&2
   echo "An unchecked OTA package is not a publishable one. Set RIST_OTA_SKIP_GATE=1 to override." >&2

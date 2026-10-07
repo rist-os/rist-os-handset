@@ -153,7 +153,7 @@ object WakeLoop {
         withTimeoutOrNull(ms) { kicks.receive() }
     }
 
-    /** The whole client (§3 "Your loop"). Runs until its coroutine is cancelled. */
+    /** The whole client loop. Runs until its coroutine is cancelled. */
     suspend fun run(ctx: Context) {
         var backoff = BACKOFF_MIN_MS
         var refusedToken: String? = null

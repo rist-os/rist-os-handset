@@ -269,8 +269,7 @@ if [ -s "$TMP/from_imgzip" ]; then
   echo "==> took $(grep -c . "$TMP/from_imgzip") partition image(s) out of $(basename "$IMG_ZIP")"
   echo "    NOTE: that zip also carries Google's firmware as PARTITION images (abl, bl1, bl2,"
   echo "    bl31, gcf, gsa, gsa_bl1, ldfw, modem, pbl, tzsw). Only the partitions our vbmeta"
-  echo "    pins were taken out of it; the zip itself is still in the artefact and is still a"
-  echo "    redistribution question."
+  echo "    pins were taken out of it; the zip itself is still in the artefact."
 fi
 
 SUPER_REMOVED=""

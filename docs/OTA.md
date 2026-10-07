@@ -6,8 +6,7 @@ and the detached signature beside it (`stable.minisig`), verifies the signature 
 minisign public key published in [SECURITY.md](../SECURITY.md), and compares the manifest's build
 timestamp with its own. Only a strictly newer build is offered. When one is found the phone posts a
 "System update" notification; nothing downloads until you accept it, and the phone never reboots on
-its own initiative. The same directory also carries `alpha`, `beta` and `testing` channel pointer
-files; the shipped image is offered only the `stable` channel.
+its own initiative.
 
 **Rollback protection.** The device refuses any package whose build timestamp is not newer than
 its own, including an equal timestamp.

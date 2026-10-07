@@ -125,7 +125,7 @@ message DeviceResponse {
   // The reply ends on a question; a cue only — never opens the microphone.
   bool expects_reply = 17;
 
-  // Expect an inbound call the backend placed; must be sent before leg A rings.
+  // Correlates an inbound call the server placed.
   BridgeCorrelation bridge = 18;
 
   // Ids from `inbound_sms` the backend durably holds.
@@ -153,7 +153,7 @@ message DeviceResponse {
   // Unread mail count for the badge; sent every turn including zero.
   uint32 mail_unread = 29;
 
-  // 30 is the contacts cursor (v14), which this handset does not read yet.
+  // Unused by this client.
   reserved 30;
 
   // Open or leave a video call (v15). Sent only to a device listing the `video_call` component.
@@ -188,7 +188,7 @@ message Notification {
   uint64 created_at_epoch_s = 5;
 }
 
-// Reserved for a future transport; not used by this client.
+// Body of a 200 reply to the wake long-poll.
 message WakeSignal {
   uint32 status = 1;
 
@@ -219,12 +219,12 @@ message InboundSms {
   int64  sent_at_ms = 4;
 }
 
-// Tells the device that a specific inbound call is one the backend placed on its behalf.
+// Correlates an inbound call the server placed.
 message BridgeCorrelation {
-  // Single-use; consumed before answering.
+  // Single-use.
   string correlation_id = 1;
-  string expect_from    = 2;   // E.164 of the leg-A caller — necessary, NOT sufficient, to match
-  uint32 valid_for_ms   = 3;   // window in ms; keep tight
+  string expect_from    = 2;   // E.164 of the expected caller
+  uint32 valid_for_ms   = 3;   // validity window in ms
 }
 
 // Backend -> device telephony; `number` must come from a resolved contact record.
@@ -248,17 +248,17 @@ message CommsResult {
   string error          = 4;   // short reason when performed is false; empty otherwise
 }
 
-// A voicemail the assistant took; same shape for screened and direct callers.
+// A voicemail the assistant took.
 message Voicemail {
   string id             = 1;   // opaque and stable; the device dedups and acks on it
-  string from_number    = 2;   // E.164. The forwarded leg carries the ORIGINAL caller, not the SIM
+  string from_number    = 2;   // E.164 of the caller
   string display_name   = 3;   // resolved contact name, empty when nobody matches
   int64  received_at_ms = 4;
   uint32 duration_s     = 5;
   string transcript     = 6;
   // Fetched through the backend's authenticated endpoint; empty when no audio is available.
   string audio_url      = 7;
-  bool   screened       = 8;   // Rist declined them, vs the user simply missed it
+  bool   screened       = 8;   // declined by Rist rather than missed
   // Backend-owned read state.
   bool   heard          = 9;
 

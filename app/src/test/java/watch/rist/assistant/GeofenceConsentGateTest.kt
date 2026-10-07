@@ -18,7 +18,7 @@ class GeofenceConsentGateTest {
             bytes.references("watch/rist/assistant/LocationProvider")
         )
         assertTrue(
-            "GeofenceWatcher no longer calls hasPermission. §10 ties the whole feature to the OS " +
+            "GeofenceWatcher no longer calls hasPermission. The whole feature is tied to the OS " +
                 "grant; a fence watching nothing is worse than no fence, because nothing tells the " +
                 "user the instruction cannot run.",
             bytes.references("hasPermission")

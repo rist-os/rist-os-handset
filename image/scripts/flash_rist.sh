@@ -251,9 +251,8 @@ while [ "$i" -lt "${#P_NAME[@]}" ]; do
     die "REFUSING: PARTITIONS.txt asks to flash '$pn'.
 
 That partition is Google's firmware, or is the whole 'super' container. Neither is ours to
-write here: the firmware is verified against a key fused into the chip and is not redistributable,
-and flashing 'super' wholesale would overwrite the vendor partitions this install flow exists to
-leave in place.
+write here: the firmware is verified against a key fused into the chip, and flashing 'super'
+wholesale would overwrite the vendor partitions this install flow exists to leave in place.
 
 This release is not safe to publish or to flash. Report it before using it."
   fi
@@ -378,8 +377,7 @@ fi
 if [ "$blob_warn" -eq 1 ]; then
   info ""
   say "NOTE: this release still flashes a vendor partition, which contains Google's files."
-  say "      It is safe to flash on your own phone; it is not"
-  say "      the fully de-blobbed artefact, and it should not be redistributed."
+  say "      It is not the fully de-blobbed artefact."
 fi
 
 SERIAL=""

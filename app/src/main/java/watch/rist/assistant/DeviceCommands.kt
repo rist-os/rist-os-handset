@@ -315,7 +315,7 @@ object DeviceCommands {
                 // user starts from the feed. Without this a call the assistant places on the user's
                 // behalf goes live with Rist still in front and the dialer never brought forward: the
                 // kiosk has no shade, no ongoing-call chip and no recents, so there is no way to reach
-                // End. One such call ran 3m14s and ended only when the far end hung up.
+                // End.
                 if (placed) {
                     runCatching {
                         ctx.getSystemService(TelecomManager::class.java)?.showInCallScreen(false)

@@ -11,9 +11,7 @@ import android.util.Log
  * The kiosk deliberately withholds `LOCK_TASK_FEATURE_NOTIFICATIONS`, so there is no shade, no
  * heads-up notification and no ongoing-call chip, and recents is off too. `LOCK_TASK_FEATURE_HOME`
  * is on, though, and Rist is HOME -- so one press leaves a live call and nothing brings it back. The
- * End button lives on the dialer's in-call screen, which is now unreachable. One outgoing call ran
- * 3m14s and stopped only when the far end hung up; there is no disconnect request for it in the log,
- * because there was no way to ask for one.
+ * End button lives on the dialer's in-call screen, which is then unreachable.
  *
  * The fix is not to open the shade for the sake of one chip. Rist already has everywhere it needs to
  * put a button; it only needed to know a call was live.

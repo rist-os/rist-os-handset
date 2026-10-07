@@ -36,7 +36,6 @@ aosp/adb_keys
 # Bundled Organic Maps APK — fetched at build time, not committed (60MB)
 aosp/prebuilts/apps/OrganicMaps/OrganicMaps.apk
 
-# Local scratch
 .claude/
 
 # Secrets by extension
@@ -60,5 +59,3 @@ window_dump.xml
 # Python bytecode caches
 __pycache__/
 *.pyc
-
-# Maintainer-local notes

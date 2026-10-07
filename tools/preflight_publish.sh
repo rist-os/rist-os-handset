@@ -134,7 +134,7 @@ else
           fi
         done < "$BINLIST"
         if [ -n "$(git log --all --oneline -S"$pat" --pickaxe-regex 2>/dev/null | head -1)" ]; then
-          fail "denylisted pattern in HISTORY (publish from an orphan commit): /$pat/"
+          fail "denylisted pattern in HISTORY (history contains the pattern; rewrite history before publishing): /$pat/"
           git log --all --oneline -S"$pat" --pickaxe-regex 2>/dev/null | sed 's/^/      /' | head -5
           HITS=1
         fi
