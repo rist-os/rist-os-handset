@@ -291,6 +291,11 @@ nothing on it can be opened, shared or saved, and it is held in memory only, nev
 storage. A load that fails for any reason shows nothing at all, caption included, and is not
 retried. Pictures sent as inline `data` are unaffected by any of this.
 
+**A picture's credit is shown short.** Under a picture on the feed, `title` is drawn on at most
+two lines. A credit of the form `<title> by <author> (<site>, <licence>)` is shown as
+`Photo: <site> · <author> · <licence>`; any other credit is shown as sent. The full `title` is
+shown in the full-screen view of an inline picture.
+
 ## Place triggers (`Geofence`, schema v11)
 
 Crossings are reported in `DeviceRequest.geofence_events` and resent until acked in

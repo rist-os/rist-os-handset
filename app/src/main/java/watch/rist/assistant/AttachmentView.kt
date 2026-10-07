@@ -203,7 +203,7 @@ object AttachmentView {
         item: RistAttachment,
     ): View? {
         if (!item.remote || item.error != null || item.kind != "image") return null
-        val credit = item.title.trim()
+        val credit = shortCredit(item.title)
         if (credit.isEmpty()) return null
         val reqW = ctx.resources.displayMetrics.widthPixels.coerceAtLeast(1)
         val reqH = (MAX_IMAGE_HEIGHT_DP * d).toInt().coerceAtLeast(1)
@@ -250,6 +250,28 @@ object AttachmentView {
             addView(image)
             addView(caption)
         }
+    }
+
+    /**
+     * A picture's credit as one short line: "Photo: <site>", or for a licensed picture
+     * "Photo: <site> · <author> · <licence>". The backend's long form,
+     * "<title> by <author> (<site>, <licence>)", is cut down to that; anything else, including a
+     * credit already starting "Photo:", is kept as it came, whitespace folded.
+     */
+    internal fun shortCredit(raw: String): String {
+        val s = raw.trim().replace(Regex("\\s+"), " ")
+        if (s.startsWith("Photo:", ignoreCase = true) || !s.endsWith(")")) return s
+        val open = s.lastIndexOf(" (")
+        if (open < 0) return s
+        val tail = s.substring(open + 2, s.length - 1).trim()
+        if (tail.isEmpty() || '(' in tail || ')' in tail) return s
+        val head = s.substring(0, open)
+        val source = tail.substringBefore(", ").trim()
+        val licence = tail.substringAfter(", ", "").trim()
+        val author = head.substringAfterLast(" by ", "").trim()
+        // A title that merely ends in brackets, "Tower (Paris)", is not a credit.
+        if (author.isEmpty() && licence.isEmpty()) return s
+        return "Photo: " + listOf(source, author, licence).filter { it.isNotEmpty() }.joinToString(" · ")
     }
 
     // Flags only: setOnClickListener(null) would itself make the view clickable again.
