@@ -38,6 +38,19 @@ object CommsFeedView {
 
     fun waitingCount(ctx: Context): Int = waiting(ctx).total
 
+    /** How many rows the feed lists now, read or not: the Notifications tile's number. */
+    fun listedCount(ctx: Context): Int {
+        val all = candidates(ctx)
+        val vm = CarrierVoicemail.showing(ctx)
+        return listed(all, vm, CommsFeed.unbadgedMail(all, pendingMail(ctx)))
+    }
+
+    private fun listed(all: List<FeedItem>, vmWaiting: Boolean, unbadgedMail: Int): Int =
+        CommsFeed.assemble(
+            all.filter { it.kind == FeedKind.NOTIFICATION || it.unread || it.id in expanded },
+            System.currentTimeMillis(),
+        ).size + (if (vmWaiting) 1 else 0) + (if (unbadgedMail > 0) 1 else 0)
+
     fun waiting(ctx: Context): CommsFeed.Waiting =
         CommsFeed.waiting(candidates(ctx), CarrierVoicemail.showing(ctx), pendingMail(ctx))
 
@@ -120,17 +133,17 @@ object CommsFeedView {
 
     /** Told how many are waiting each time the feed is drawn, so a count elsewhere never lags it. */
     fun interface Watcher {
-        fun onFeedWaiting(waiting: Int)
+        fun onFeedWaiting(waiting: Int, listed: Int)
     }
 
     // Return type must be declared: render() is recursive via the mail row's dismiss.
     fun render(activity: Activity) {
-        var counted: Int? = null
-        draw(activity) { counted = it }
-        counted?.let { n -> runCatching { (activity as? Watcher)?.onFeedWaiting(n) } }
+        var counted: Pair<Int, Int>? = null
+        draw(activity) { w, l -> counted = w to l }
+        counted?.let { (w, l) -> runCatching { (activity as? Watcher)?.onFeedWaiting(w, l) } }
     }
 
-    private fun draw(activity: Activity, count: (Int) -> Unit): Unit = runCatching {
+    private fun draw(activity: Activity, count: (Int, Int) -> Unit): Unit = runCatching {
         val host = activity.findViewById<LinearLayout>(R.id.commsFeed) ?: return@runCatching
         host.removeAllViews()
 
@@ -149,7 +162,7 @@ object CommsFeedView {
         val mailUnread = pendingMail(activity)
         val unbadgedMail = CommsFeed.unbadgedMail(all, mailUnread)
         val waiting = CommsFeed.waitingCount(all, vmWaiting, mailUnread)
-        count(waiting)
+        count(waiting, listed(all, vmWaiting, unbadgedMail))
 
         if (shown.isEmpty() && !vmWaiting && !textsUnreadable && !unconnected && lapsed == null &&
             unbadgedMail <= 0
@@ -166,7 +179,8 @@ object CommsFeedView {
         var drawn = 0
         // Carries its own rule underneath, so what follows is laid out as if it were not there.
         if (lapsed != null) host.addView(billingRow(activity, t, tf, d, lapsed))
-        val headerDrawn = !unconnected
+        // On the Notifications page with nothing new, the page's own title already says it.
+        val headerDrawn = !unconnected && !(activity is NotificationsActivity && waiting == 0)
         if (headerDrawn) host.addView(header(activity, t, tf, muted, d, waiting, all, vmWaiting))
 
         fun divider() = host.addView(View(activity).apply {

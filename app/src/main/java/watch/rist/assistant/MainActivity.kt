@@ -1828,8 +1828,8 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
     }.onFailure { Log.w(TAG, "home boxes wiring failed", it) }.let { }
 
     /** The feed was drawn: the Notifications tile shows the same count, without asking again. */
-    override fun onFeedWaiting(waiting: Int) {
-        if (::boxBoard.isInitialized) boxBoard.showWaiting(waiting)
+    override fun onFeedWaiting(waiting: Int, listed: Int) {
+        if (::boxBoard.isInitialized) boxBoard.showWaiting(waiting, listed)
     }
 
     internal fun openAllBoxes() {

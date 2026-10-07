@@ -130,6 +130,16 @@ class NotificationsTileTest {
     }
 
     @Test
+    fun `a notice already seen but still listed is counted, and not as new`() {
+        NotificationQueue.store(app, listOf(notice("n1")))
+        NotificationQueue.markRead(app, listOf("n1"))
+        hold("a")
+        val a = home()
+        assertEquals("1", shownCount(a))
+        assertEquals("None new", tile(a).findViewWithTag<TextView>(BoxBoard.DETAIL_TAG).text.toString())
+    }
+
+    @Test
     fun `with no boxes the row is the Notifications tile and Add`() {
         val a = home()
         assertEquals(listOf(BoxBoard.NOTIFICATIONS_TAG, BoxBoard.ADD_TAG), order(a))

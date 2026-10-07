@@ -90,7 +90,7 @@ internal class BoxBoard(
         BoxCreate.observe(boxes)
         val creating = BoxCreate.waiting()
         adapter.items = buildList {
-            add(Item.Notifications(waitingNow()))
+            add(Item.Notifications(listedNow(), waitingNow()))
             boxes.forEach { add(Item.Box(it)) }
             creating.forEach { add(Item.Creating(it)) }
             when {
@@ -112,11 +112,14 @@ internal class BoxBoard(
 
     private fun waitingNow(): Int = runCatching { CommsFeedView.waitingCount(activity) }.getOrDefault(0)
 
-    /** The feed was just drawn with [waiting] new: the Notifications tile follows it at once. */
-    fun showWaiting(waiting: Int) {
+    private fun listedNow(): Int = runCatching { CommsFeedView.listedCount(activity) }.getOrDefault(0)
+
+    /** The feed was just drawn listing [listed], [waiting] of them new: the tile follows at once. */
+    fun showWaiting(waiting: Int, listed: Int) {
         val first = adapter.items.firstOrNull() as? Item.Notifications ?: return
-        if (first.count == waiting) return
-        adapter.items = listOf(Item.Notifications(waiting)) + adapter.items.drop(1)
+        val now = Item.Notifications(listed, waiting)
+        if (first == now) return
+        adapter.items = listOf(now) + adapter.items.drop(1)
         adapter.notifyItemChanged(0)
     }
 
@@ -201,7 +204,7 @@ internal class BoxBoard(
     // ---- items ----
 
     private sealed class Item {
-        data class Notifications(val count: Int) : Item()
+        data class Notifications(val count: Int, val unread: Int) : Item()
         data class Box(val box: HomeBox) : Item()
         data class Creating(val pending: BoxCreate.Pending) : Item()
         object Add : Item()
@@ -258,7 +261,7 @@ internal class BoxBoard(
                 else marginEnd = px(10f)
             }
             when (item) {
-                is Item.Notifications -> bindNotifications(frame, item.count)
+                is Item.Notifications -> bindNotifications(frame, item.count, item.unread)
                 is Item.Box -> bindBox(h, item.box)
                 is Item.Creating -> bindCreating(h, item.pending)
                 Item.Add -> bindAdd(frame)
@@ -484,17 +487,24 @@ internal class BoxBoard(
     }
 
     /** Drawn like a display box: label, the count large, and a word under it. */
-    private fun bindNotifications(frame: FrameLayout, count: Int) {
+    private fun bindNotifications(frame: FrameLayout, count: Int, unread: Int) {
         val t = theme()
         val tf = ThemePaint.typefaceOf(activity, t)
         val muted = Themes.readableMuted(t)
         frame.tag = NOTIFICATIONS_TAG
-        frame.background = tileBackground(t.tileFill, if (count > 0) t.accent else t.tileBorder, 1.5f)
+        frame.background = tileBackground(t.tileFill, if (unread > 0) t.accent else t.tileBorder, 1.5f)
         val col = column()
-        col.addView(label(activity.getString(R.string.notifications_title), muted).apply { tag = LABEL_TAG })
+        // The longest built-in label: shrink it to fit rather than cut it to "NOTIFICATI…".
+        col.addView(label(activity.getString(R.string.notifications_title), muted).apply {
+            tag = LABEL_TAG
+            letterSpacing = 0f
+            ellipsize = null
+            setAutoSizeTextTypeUniformWithConfiguration(6, 10, 1, TypedValue.COMPLEX_UNIT_SP)
+        })
         col.addView(value(count.toString(), valueSp(count.toString()), if (count > 0) t.ink else muted, tf, 1,
             Gravity.CENTER_VERTICAL or Gravity.START))
-        col.addView(small(activity.getString(if (count > 0) R.string.notifications_new else R.string.notifications_none_new),
+        col.addView(small(if (unread > 0) activity.getString(R.string.notifications_new, unread)
+            else activity.getString(R.string.notifications_none_new),
             muted, tf).apply { tag = DETAIL_TAG; maxLines = 1 })
         frame.addView(col)
         frame.contentDescription = activity.resources.getQuantityString(R.plurals.notifications_tile_desc, count, count)

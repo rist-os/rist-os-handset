@@ -128,7 +128,7 @@ class NotificationsActivity : AppCompatActivity(), CommsFeedView.Watcher {
     private fun render() = CommsFeedView.render(this)
 
     /** Every draw of the feed, including one a row's own clear starts, ends here. */
-    override fun onFeedWaiting(waiting: Int) {
+    override fun onFeedWaiting(waiting: Int, listed: Int) {
         empty.visibility = if (feed.visibility == View.VISIBLE) View.GONE else View.VISIBLE
     }
 

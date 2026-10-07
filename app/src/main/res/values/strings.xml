@@ -321,7 +321,7 @@
     <!-- Notifications: the feed's heading, the built-in first tile and the screen it opens -->
     <string name="notifications_title">Notifications</string>
     <string name="notifications_none_new">None new</string>
-    <string name="notifications_new">New</string>
+    <string name="notifications_new">%1$d new</string>
     <string name="notifications_empty">No notifications.</string>
     <plurals name="notifications_tile_desc">
         <item quantity="one">Notifications, %d new. Double tap to open.</item>
