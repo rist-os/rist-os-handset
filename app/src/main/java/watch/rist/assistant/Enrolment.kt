@@ -325,8 +325,14 @@ object Enrolment {
         }
     }
 
-    // 403 only, never 402. The token is kept so the wake loop can notice a reinstatement, and
-    // pairing stays open so a new code can bring the phone back without a reset.
+    /** Sent by the backend with the 403 for a revoked device; a bare 403 (proxy, WAF, unknown user) never latches. */
+    const val REVOKED_HEADER = "X-Rist-Device-Revoked"
+
+    internal fun isExplicitRevocation(code: Int, header: String?): Boolean =
+        code == 403 && header?.trim()?.lowercase() in setOf("1", "true")
+
+    // An explicit-revocation 403 only, never 402. The token is kept so the wake loop can notice a
+    // reinstatement, and pairing stays open so a new code can bring the phone back without a reset.
     fun onRevoked(ctx: Context) {
         if (!Config.enrolRevoked(ctx)) {
             Log.w(TAG, "this device has been revoked; pairing is open again")

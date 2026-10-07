@@ -108,11 +108,15 @@ class WakeLoopTest {
     }
 
     @Test
-    fun `401 and 403 stop, 503 and transport failures retry`() {
+    fun `401 and a revoked 403 stop, a bare 403 is refused, 503 and transport failures retry`() {
         server.enqueue(MockResponse().setResponseCode(401))
         assertEquals(WakeLoop.Outcome.Unauthorised, exchange())
-        server.enqueue(MockResponse().setResponseCode(403))
+        server.enqueue(MockResponse().setResponseCode(403).setHeader(Enrolment.REVOKED_HEADER, "1"))
         assertEquals(WakeLoop.Outcome.Revoked, exchange())
+        server.enqueue(MockResponse().setResponseCode(403))
+        assertEquals(WakeLoop.Outcome.Refused, exchange())
+        server.enqueue(MockResponse().setResponseCode(403).setHeader(Enrolment.REVOKED_HEADER, "0"))
+        assertEquals(WakeLoop.Outcome.Refused, exchange())
         server.enqueue(MockResponse().setResponseCode(503))
         assertTrue(exchange() is WakeLoop.Outcome.Retry)
         server.enqueue(MockResponse().setResponseCode(200).setBody("not a proto \u0000\u00ff"))

@@ -23,6 +23,21 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import rist.v1.MediaCommand
 
+internal enum class ControllerTrust { FULL, TRANSPORT, REJECT }
+
+internal const val SYSTEM_UI_PACKAGE = "com.android.systemui"
+private const val SYSTEM_UID = 1000
+private const val BLUETOOTH_UID = 1002
+
+/** [uidPackages] is what the package manager says the uid holds; a claimed package name alone is not trusted. */
+internal fun trustFor(uid: Int, packageName: String, ownUid: Int, uidPackages: List<String>): ControllerTrust = when {
+    uid == ownUid -> ControllerTrust.FULL
+    uid == SYSTEM_UID || uid == BLUETOOTH_UID -> ControllerTrust.TRANSPORT
+    SYSTEM_UI_PACKAGE in uidPackages -> ControllerTrust.TRANSPORT
+    packageName == MediaSession.ControllerInfo.LEGACY_CONTROLLER_PACKAGE_NAME && uid <= 0 -> ControllerTrust.TRANSPORT
+    else -> ControllerTrust.REJECT
+}
+
 @UnstableApi
 class PlaybackService : MediaSessionService() {
 
@@ -158,12 +173,42 @@ class PlaybackService : MediaSessionService() {
         )
         mediaSession = MediaSession.Builder(this, exo)
             .setSessionActivity(sessionActivity)
+            .setCallback(controllerGate)
             .build()
 
         Log.i(TAG, "PlaybackService created")
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
+
+    /**
+     * The service is exported so media controls and Bluetooth can find it. Only this app may
+     * choose what plays; SystemUI, Bluetooth and the system get transport controls; anyone else
+     * is refused, so no other app can make this process open a URI of its choosing.
+     */
+    private val controllerGate = object : MediaSession.Callback {
+        override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+        ): MediaSession.ConnectionResult {
+            val pkgs = runCatching { packageManager.getPackagesForUid(controller.uid)?.toList() }
+                .getOrNull().orEmpty()
+            return when (trustFor(controller.uid, controller.packageName, android.os.Process.myUid(), pkgs)) {
+                ControllerTrust.FULL -> super.onConnect(session, controller)
+                ControllerTrust.TRANSPORT -> MediaSession.ConnectionResult.accept(
+                    MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS,
+                    MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
+                        .remove(Player.COMMAND_SET_MEDIA_ITEM)
+                        .remove(Player.COMMAND_CHANGE_MEDIA_ITEMS)
+                        .build(),
+                )
+                ControllerTrust.REJECT -> {
+                    Log.w(TAG, "refused a media controller from uid ${controller.uid}")
+                    MediaSession.ConnectionResult.reject()
+                }
+            }
+        }
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // onStartCommand runs on the main thread, which is the player's thread.

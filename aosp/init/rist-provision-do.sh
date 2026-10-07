@@ -3,7 +3,14 @@ TAG=rist-provision-do
 COMP="watch.rist.assistant/.RistDeviceAdminReceiver"
 PKG="watch.rist.assistant"
 
-if [ "$(settings get global rist_dev_access_initialised 2>/dev/null)" != "1" ]; then
+if [ -f /product/etc/rist/public-build ]; then
+    if [ "$(settings get global rist_public_debug_off 2>/dev/null)" != "1" ]; then
+        settings put global adb_enabled 0 2>/dev/null
+        settings put global development_settings_enabled 0 2>/dev/null
+        settings put global rist_public_debug_off 1 2>/dev/null
+        log -t "$TAG" "public build: developer options + adb turned off"
+    fi
+elif [ "$(settings get global rist_dev_access_initialised 2>/dev/null)" != "1" ]; then
     settings put global development_settings_enabled 1 2>/dev/null
     settings put global adb_enabled 1 2>/dev/null
     settings put global rist_dev_access_initialised 1 2>/dev/null

@@ -164,6 +164,15 @@ object OtaScheduler {
         return Nudge.Defer(NUDGE_MIN_GAP_SECONDS - since)
     }
 
+    /**
+     * A 204 or 404 carries no signature, so it is believed only while a signed manifest has been
+     * verified within the longest lifetime a manifest may have. Past that, a server that only ever
+     * answers "nothing new" is exactly the freeze the manifest expiry exists to catch.
+     */
+    internal fun unsignedReplyTrusted(lastVerifiedAtSeconds: Long, nowSeconds: Long): Boolean =
+        lastVerifiedAtSeconds > 0L && nowSeconds >= lastVerifiedAtSeconds &&
+            nowSeconds - lastVerifiedAtSeconds <= OtaSignature.MAX_LIFETIME_SECONDS
+
     // Blocking network call; never on the main thread. Every exit must reach schedule() in finally.
     fun runCheck(ctx: Context) {
         val app = ctx.applicationContext
@@ -210,7 +219,17 @@ object OtaScheduler {
         val channel = OtaState.channel(app)
         val client = OtaCheck.defaultClient()
 
-        val outcome = OtaCheck.fetchManifest(client, base, local.device, channel, local.build, now * 1000L)
+        var outcome = OtaCheck.fetchManifest(client, base, local.device, channel, local.build, now * 1000L)
+        // An unsigned 204 proves nothing; ask for the signed manifest itself and let it say so.
+        if (outcome is OtaRetry.Outcome.UpToDate) {
+            outcome = OtaCheck.fetchManifest(client, base, local.device, channel, "", now * 1000L)
+        }
+        val unsignedTrusted = unsignedReplyTrusted(OtaState.lastVerifiedAtSeconds(app), now)
+        if (!unsignedTrusted && (outcome is OtaRetry.Outcome.UpToDate || outcome is OtaRetry.Outcome.NoBuild)) {
+            OtaState.noteFailure(app)
+            OtaState.recordCheck(app, now, "cannot confirm updates: the server sent no signed manifest")
+            return OtaRetry.backoffSeconds(OtaState.failures(app), null, Math.random())
+        }
         when (outcome) {
             is OtaRetry.Outcome.UpToDate -> {
                 OtaState.noteSuccess(app, now)
@@ -254,12 +273,14 @@ object OtaScheduler {
                 OtaRetry.backoffSeconds(OtaState.failures(app), null, Math.random())
             }
             Step.UpToDate -> {
+                OtaState.noteVerified(app, now)
                 OtaState.noteSuccess(app, now)
                 forgetStaleConsent(app, stillOffered = "")
                 OtaState.recordCheck(app, now, "up to date (${local.build})")
                 POLL_INTERVAL_SECONDS
             }
             is Step.Apply -> {
+                OtaState.noteVerified(app, now)
                 OtaState.noteSuccess(app, now)
                 offer(app, client, step.manifest, now, unavailable)
             }

@@ -30,7 +30,7 @@ class AlarmReceiver : BroadcastReceiver() {
         val label = intent.getStringExtra(EXTRA_LABEL).orEmpty()
         val id = intent.getStringExtra(EXTRA_ALARM_ID).orEmpty()
         val isTimer = intent.action == ACTION_TIMER
-        Log.i(TAG, "${if (isTimer) "timer" else "alarm"} fired id='$id' label='$label'")
+        Log.i(TAG, "${if (isTimer) "timer" else "alarm"} fired id='$id'")
 
         if (isTimer) runCatching {
             DeviceCommands.clearTimer(context, intent.getStringExtra(EXTRA_TIMER_KEY).orEmpty())

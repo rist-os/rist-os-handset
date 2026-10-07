@@ -23,6 +23,12 @@ PRODUCT_COPY_FILES += \
     vendor/rist/pixel-phone/aosp/adb_keys:$(TARGET_COPY_OUT_PRODUCT)/etc/security/adb_keys
 endif
 
+# Read at runtime by rist-provision-do.sh and BuildVariant.kt: present = adb stays off and debugging is disallowed.
+ifeq ($(RIST_PUBLIC_BUILD),true)
+PRODUCT_COPY_FILES += \
+    vendor/rist/pixel-phone/aosp/variant/public-build:$(TARGET_COPY_OUT_PRODUCT)/etc/rist/public-build
+endif
+
 # Both names required: with ro.boot.theme=1 bootanimation looks up only bootanimation-dark.zip.
 PRODUCT_COPY_FILES += \
     vendor/rist/pixel-phone/aosp/bootanimation/bootanimation.zip:$(TARGET_COPY_OUT_PRODUCT)/media/bootanimation.zip \

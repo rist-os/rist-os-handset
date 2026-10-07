@@ -42,7 +42,24 @@ class ViewRenderer(
             OkHttpClient.Builder()
                 .connectTimeout(5, TimeUnit.SECONDS)
                 .readTimeout(15, TimeUnit.SECONDS)
+                .callTimeout(30, TimeUnit.SECONDS)
                 .build()
+        }
+
+        /** Past this on either side the image is refused rather than decoded, however small the file. */
+        internal const val MAX_IMAGE_SIDE = 16_384
+
+        /** Bounds first: the declared size is untrusted, and a small PNG can claim gigabytes of pixels. */
+        internal fun decodeScaled(bytes: ByteArray, reqW: Int, reqH: Int): Bitmap? {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            val w = bounds.outWidth
+            val h = bounds.outHeight
+            if (w <= 0 || h <= 0 || w > MAX_IMAGE_SIDE || h > MAX_IMAGE_SIDE) return null
+            val opts = BitmapFactory.Options().apply {
+                inSampleSize = AttachmentView.sampleSizeFor(w, h, reqW, reqH)
+            }
+            return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
         }
 
         fun toEink(src: Bitmap, levels: Int = ImageGray.GRAY_LEVELS): Bitmap {
@@ -129,7 +146,8 @@ class ViewRenderer(
                 runCatching {
                     val bytes = fetchBytes() ?: return@runCatching null
                     if (bytes.isEmpty() || bytes.size > maxImageBytes) return@runCatching null
-                    val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    val dm = context.resources.displayMetrics
+                    val decoded = decodeScaled(bytes, dm.widthPixels, dm.heightPixels)
                         ?: return@runCatching null
                     toEink(decoded)
                 }.getOrElse { Log.w(TAG, "image load failed", it); null }
@@ -153,8 +171,7 @@ class ViewRenderer(
             if (!resp.isSuccessful) return null
             val body = resp.body ?: return null
             if (body.contentLength() > maxImageBytes) return null
-            val bytes = body.bytes()
-            return if (bytes.size > maxImageBytes) null else bytes
+            return Attachments.readBounded(body.byteStream(), maxImageBytes)
         }
     }
 

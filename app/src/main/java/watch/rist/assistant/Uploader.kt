@@ -575,10 +575,8 @@ class Uploader(private val ctx: Context) {
             Log.w(TAG, "backend endpoint is not a valid http(s) URL; refusing to send")
             return null
         }
-        Log.i("RistAuthDbg", "OUT tokenChars=${req.authToken.length} bearerSent=${bearer(ctx) != null} deviceId=${req.deviceId}")
         Log.i("RistNavDbg", "OUT isResend=$isResend hasLocation=${req.hasLocation()} " +
-            (if (req.hasLocation() && req.location.lat != 0.0) "fix acc=${req.location.accuracyM}m age=${req.location.ageS}s" else "NO-FIX") +
-            " tz=${req.location.timezone}")
+            (if (req.hasLocation() && req.location.lat != 0.0) "fix acc=${req.location.accuracyM}m age=${req.location.ageS}s" else "NO-FIX"))
         val body = req.toByteArray().toRequestBody(PROTOBUF_MEDIA_TYPE)
         val httpRequest = runCatching {
             Request.Builder()
@@ -647,17 +645,20 @@ class Uploader(private val ctx: Context) {
                         return spoken
                     }
                     // 401 = removed from its account or credential dead (pair again with a code);
-                    // 403 = revoked (pair again). Both stay failures so the pairing screen opens.
+                    // 403 + revoked header = revoked (pair again). Both stay failures so the pairing
+                    // screen opens. A bare 403 (proxy, WAF) never latches.
                     lastFailure = when (httpResp.code) {
                         401 -> {
                             Enrolment.onCredentialDead(ctx)
                             spoken?.speech?.text?.trim()
                                 ?: "this phone is no longer connected to your account — pair it again with a code"
                         }
-                        403 -> {
+                        403 -> if (Enrolment.isExplicitRevocation(403, httpResp.header(Enrolment.REVOKED_HEADER))) {
                             Enrolment.onRevoked(ctx)
                             spoken?.speech?.text?.trim()
                                 ?: "this phone was removed from your account — pair it again in Settings"
+                        } else {
+                            spoken?.speech?.text?.trim() ?: "the assistant refused this request"
                         }
                         503 -> "the assistant can't be reached right now — try again in a moment"
                         404 -> "the assistant endpoint wasn't found"
@@ -768,7 +769,7 @@ class Uploader(private val ctx: Context) {
         if (resp.voicemailsCount > 0) {
             Voicemails.upsert(
                 ctx,
-                resp.voicemailsList.map {
+                resp.voicemailsList.filter { VoicemailAudio.safeId(it.id) }.map {
                     Voicemails.Voicemail(
                         id = it.id, fromNumber = it.fromNumber, displayName = it.displayName,
                         receivedAtMs = it.receivedAtMs, durationS = it.durationS,

@@ -50,8 +50,10 @@ object WakeLoop {
         data class Signal(val signal: WakeSignal, val acked: List<String>) : Outcome()
         /** 401: the credential is dead. Enrolment clears it; the loop waits for a new one. */
         object Unauthorised : Outcome()
-        /** 403: revoked. Asked again only every [REVOKED_RECHECK_MS]. */
+        /** 403 with the revoked header: revoked. Asked again only every [REVOKED_RECHECK_MS]. */
         object Revoked : Outcome()
+        /** 403 without it: refused for now, not revoked. Poll again much later. */
+        object Refused : Outcome()
         /** 402: the subscription lapsed. The token is fine; nothing is cleared. */
         data class Lapsed(val lapse: Billing.Lapse) : Outcome()
         /** 503 or a transport failure: back off and try again. */
@@ -146,7 +148,11 @@ object WakeLoop {
                 when (resp.code) {
                     200 -> Outcome.Signal(WakeSignal.parseFrom(resp.body?.bytes() ?: ByteArray(0)), acks)
                     401 -> Outcome.Unauthorised
-                    403 -> Outcome.Revoked
+                    403 -> if (Enrolment.isExplicitRevocation(403, resp.header(Enrolment.REVOKED_HEADER))) {
+                        Outcome.Revoked
+                    } else {
+                        Outcome.Refused
+                    }
                     Billing.PAYMENT_REQUIRED -> Outcome.Lapsed(Billing.lapseWithLine(resp))
                     else -> Outcome.Retry("HTTP ${resp.code}")
                 }
@@ -263,6 +269,10 @@ object WakeLoop {
                     runCatching { Billing.onLapsed(ctx, out.lapse) }
                     backoff = BACKOFF_MIN_MS
                     waitOrKick(LAPSED_RECHECK_MS)
+                }
+                Outcome.Refused -> {
+                    Log.w(TAG, "403 with no revocation signal; waiting before the next poll")
+                    waitOrKick(NO_TOKEN_RECHECK_MS)
                 }
                 is Outcome.Retry -> {
                     Log.i(TAG, "retry in ${backoff}ms (${out.why})")
