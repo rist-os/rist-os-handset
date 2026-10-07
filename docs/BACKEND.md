@@ -137,7 +137,8 @@ gate as the endpoint editor — a build with an endpoint compiled in hides both.
 
 Two other routes exist:
 
-- **Push a token file**, if you are scripting a fleet and not touching screens:
+- **Push a token file**, if you are scripting a fleet and not touching screens (dev images only:
+  a published image has adb turned off):
 
   ```sh
   echo -n 'choose-something' > rist-token.txt
