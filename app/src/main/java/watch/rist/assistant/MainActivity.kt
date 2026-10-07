@@ -646,6 +646,16 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         }
     }
 
+    /**
+     * The home screen is singleTask: a HOME press or a launch while it is already up comes here
+     * instead of stacking a second copy. Nothing is read from the launch intent, in onCreate or
+     * here; onResume redraws as for any return.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
+
     override fun onResume() {
         super.onResume()
         Config.importTokenFileIfPresent(applicationContext)

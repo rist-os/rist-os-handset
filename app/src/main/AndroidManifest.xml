@@ -89,6 +89,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:label="@string/app_name"
             android:theme="@style/Theme.RistAssistant"
             android:screenOrientation="portrait"
