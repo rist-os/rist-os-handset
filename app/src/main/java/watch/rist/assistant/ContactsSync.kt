@@ -77,9 +77,9 @@ object ContactsSync {
         when (classify(code)) {
             Refusal.FEATURE_OFF -> onFeatureOff(ctx)
             Refusal.CREDENTIAL_DEAD -> Enrolment.onCredentialDead(ctx)
-            Refusal.REVOKED -> Enrolment.onRevoked(ctx)
-            // The lapse itself is recorded where the 402 was read (it needs the headers).
-            Refusal.LAPSED, Refusal.RETRY, null -> Unit
+            // The lapse and an explicit revocation are recorded where the reply was read (they need
+            // the headers); a bare 403 changes nothing.
+            Refusal.REVOKED, Refusal.LAPSED, Refusal.RETRY, null -> Unit
         }
     }
 
@@ -214,6 +214,7 @@ object ContactsSync {
         device: String,
         since: String,
         onLapse: (Billing.Lapse) -> Unit = {},
+        onRevoked: () -> Unit = {},
     ): Pair<Pulled?, Int> {
         val records = LinkedHashMap<String, ContactRecord>()
         val deleted = LinkedHashSet<String>()
@@ -231,6 +232,8 @@ object ContactsSync {
             val page = try {
                 http.newCall(request).execute().use { resp ->
                     if (resp.code == Billing.PAYMENT_REQUIRED) runCatching { onLapse(Billing.lapseWithLine(resp)) }
+                    // Only the backend's explicit revocation latches; a bare 403 (proxy, WAF) does not.
+                    if (Enrolment.isExplicitRevocation(resp.code, resp.header(Enrolment.REVOKED_HEADER))) runCatching { onRevoked() }
                     if (resp.code != 200) return null to resp.code
                     ContactSync.parseFrom(resp.body?.bytes() ?: ByteArray(0))
                 }
@@ -278,7 +281,8 @@ object ContactsSync {
         val backend = Config.backendUrl(ctx).takeIf { it.isNotBlank() } ?: return Outcome.NotReady
         // Removing the account drops its rows, so a delta would leave the address book empty.
         val since = if (Config.contactsNeedsFull(ctx) || rebuildOwed(ctx)) "" else Config.contactsCursor(ctx)
-        val (pulled, code) = fetch(http, backend, bearer, Config.deviceId(ctx), since) { Billing.onLapsed(ctx, it) }
+        val (pulled, code) = fetch(http, backend, bearer, Config.deviceId(ctx), since,
+            onLapse = { Billing.onLapsed(ctx, it) }, onRevoked = { Enrolment.onRevoked(ctx) })
         if (pulled == null) {
             if (code != 0) {
                 Log.i(TAG, "contact pull refused: HTTP $code")

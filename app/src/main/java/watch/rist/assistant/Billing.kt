@@ -234,7 +234,12 @@ object Billing {
                 .header("Authorization", bearer)
                 .header("X-Rist-Device", Config.deviceId(ctx))
                 .build()
-            http.newCall(req).execute().use { resp -> classifyPortal(resp.code, resp.body?.string().orEmpty()) }
+            http.newCall(req).execute().use { resp ->
+                val p = classifyPortal(resp.code, resp.body?.string().orEmpty())
+                // Only the backend's explicit revocation counts; a bare 403 (proxy, WAF) is a failure to retry.
+                if (p == Portal.Revoked && !Enrolment.isExplicitRevocation(resp.code, resp.header(Enrolment.REVOKED_HEADER))) Portal.Unavailable
+                else p
+            }
         }.onFailure { Log.w(TAG, "portal request failed: ${it.javaClass.simpleName}") }
             .getOrDefault(Portal.Unavailable)
         when (out) {
