@@ -24,7 +24,7 @@ import org.robolectric.annotation.GraphicsMode
 import rist.v1.BoxSet
 import rist.v1.HomeBox
 
-/** Tile labels shrink to fit instead of being cut to "WEATH…"; CLEAR ALL says what it clears. */
+/** Tile labels shrink or wrap to fit instead of being cut to "WEATH…"; CLEAR ALL says what it clears. */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @RConfig(qualifiers = "w411dp-h891dp-xxhdpi")
@@ -62,6 +62,9 @@ class TileLabelFitTest {
         return tile.findViewWithTag(BoxBoard.LABEL_TAG)
     }
 
+    private fun tile(a: Activity, id: String): ViewGroup =
+        requireNotNull(a.findViewById<RecyclerView>(R.id.boxList).findViewWithTag(BoxBoard.TILE_TAG_PREFIX + id)) { "no tile $id" }
+
     @Test
     fun `box labels shrink to fit rather than being cut`() {
         HomeBoxes.apply(app, BoxSet.newBuilder().setVersion(3)
@@ -72,9 +75,6 @@ class TileLabelFitTest {
         for (id in listOf("w", "t", "c")) {
             val v = label(a, id)
             assertEquals(0f, v.letterSpacing)
-            assertEquals(TextView.AUTO_SIZE_TEXT_TYPE_UNIFORM, v.autoSizeTextType)
-            assertEquals(BoxBoard.LABEL_MIN_SP.toFloat(), v.autoSizeMinTextSize / sp, 0.01f)
-            assertEquals(10f, v.autoSizeMaxTextSize / sp, 0.01f)
             val l = requireNotNull(v.layout) { "label $id not laid out" }
             assertEquals("${v.text} is whole on one line", 1, l.lineCount)
             assertEquals("${v.text} is not ellipsized", 0, l.getEllipsisCount(0))
@@ -83,14 +83,60 @@ class TileLabelFitTest {
     }
 
     @Test
-    fun `a label too long even at the smallest size is ellipsized, not clipped`() {
+    fun `long labels wrap to two legible lines, whole, and the value and detail still fit the square`() {
+        // With an icon beside each, as the owner's tiles have, the label has least room.
+        val titles = mapOf("w" to "Weather for Bellevue", "c" to "Today's Calendar", "n" to "Latin America News")
+        val icons = mapOf("w" to "partly_cloudy_day", "c" to "calendar_today", "n" to "public")
+        HomeBoxes.apply(app, BoxSet.newBuilder().setVersion(3).apply {
+            titles.forEach { (id, t) ->
+                addBoxes(box(id, t).toBuilder().setIcon(icons[id]).setDetail("Updated just now with more").build())
+            }
+        }.build())
+        val a = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        settle()
+        val sp = app.resources.displayMetrics.scaledDensity
+        val d = app.resources.displayMetrics.density
+        val list = a.findViewById<RecyclerView>(R.id.boxList)
+        for ((id, title) in titles) {
+            list.scrollToPosition(titles.keys.indexOf(id) + 1); settle()
+            val v = label(a, id)
+            val l = requireNotNull(v.layout) { "label $id not laid out" }
+            assertTrue("$title takes at most two lines (${l.lineCount})", l.lineCount in 1..2)
+            for (i in 0 until l.lineCount) assertEquals("$title is not ellipsized", 0, l.getEllipsisCount(i))
+            val drawn = (0 until l.lineCount).joinToString(" ") { l.text.subSequence(l.getLineStart(it), l.getLineEnd(it)).trim() }
+            assertEquals("$title is drawn whole", title.uppercase(), drawn)
+            assertTrue("$title stays legible (${v.textSize / sp} sp)", v.textSize / sp >= BoxBoard.LABEL_MIN_SP - 0.01f)
+            assertTrue("$title's lines fit its height", l.height <= v.height - v.paddingTop - v.paddingBottom)
+
+            assertTrue("$id has its icon", tile(a, id).findViewWithTag<View>(BoxBoard.ICON_TAG) != null)
+            val drawnText = l.text as android.text.Spanned
+            assertTrue("$title's first line is set past the icon",
+                drawnText.getSpans(0, drawnText.length, android.text.style.LeadingMarginSpan::class.java).isNotEmpty())
+            val t = tile(a, id)
+            assertEquals("square", (BoxBoard.TILE_DP * d).toInt(), t.height)
+            assertEquals("square", t.height, t.width)
+            val col = t.getChildAt(0) as ViewGroup
+            for (tag in listOf(BoxBoard.VALUE_TAG, BoxBoard.DETAIL_TAG)) {
+                val x = requireNotNull(t.findViewWithTag<TextView>(tag)) { "$title has no $tag" }
+                val y = x.top
+                assertTrue("$title: $tag is inside the square", y >= col.paddingTop && x.bottom <= col.height - col.paddingBottom)
+                assertTrue("$title: $tag has room", x.height > 0 && x.layout.height <= x.height - x.paddingTop - x.paddingBottom)
+            }
+        }
+    }
+
+    @Test
+    fun `a label too long even at the smallest size is ellipsized after two lines, not clipped`() {
         HomeBoxes.apply(app, BoxSet.newBuilder().setVersion(3)
             .addBoxes(box("x", "Extraordinarily long tile name that cannot possibly fit")).build())
         val a = Robolectric.buildActivity(MainActivity::class.java).setup().get()
         settle()
         val v = label(a, "x")
         assertEquals(android.text.TextUtils.TruncateAt.END, v.ellipsize)
-        assertEquals(1, v.maxLines)
+        assertEquals(2, v.maxLines)
+        val l = v.layout
+        assertTrue("at most two lines (${l.lineCount})", l.lineCount in 1..2)
+        assertEquals(BoxBoard.LABEL_MIN_SP, v.textSize / app.resources.displayMetrics.scaledDensity, 0.01f)
     }
 
     @Test

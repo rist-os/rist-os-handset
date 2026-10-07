@@ -281,21 +281,21 @@ internal class BoxBoard(
         }
 
     /**
-     * A tile's label: one line that shrinks to fit (10 sp down to [LABEL_MIN_SP]) rather than
-     * being cut to "WEATH…". Only a label still too long at the smallest size is ellipsized.
-     * Shrinking needs a bounded width: in a row, the label takes the room left beside the icon.
+     * A tile's label: up to two lines (one with very large text), at the largest size from
+     * 10 sp down to [LABEL_MIN_SP] at which it is whole, so "WEATHER FOR BELLEVUE" wraps rather
+     * than being cut to "WEATHER FOR…". Only a label too long for that is ellipsized. [lead]
+     * indents the first line only, past an icon beside it; the second line has the full width.
      */
-    private fun label(text: String, colour: Int) = TextView(activity).apply {
-        this.text = text
-        isAllCaps = true
-        typeface = pixelTf
-        letterSpacing = 0f
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
-        setTextColor(colour)
-        maxLines = 1
-        ellipsize = TextUtils.TruncateAt.END
-        setAutoSizeTextTypeUniformWithConfiguration(LABEL_MIN_SP, 10, 1, TypedValue.COMPLEX_UNIT_SP)
-    }
+    private fun label(text: String, colour: Int, lead: Int = 0) =
+        LabelText(activity, sp(LABEL_MAX_SP), sp(LABEL_MIN_SP), labelLines()).apply {
+            setLabel(text, lead)
+            typeface = pixelTf
+            letterSpacing = 0f
+            setTextColor(colour)
+        }
+
+    /** Two label lines leave the value room at ordinary and large text; at the largest, one. */
+    private fun labelLines(): Int = if (activity.resources.configuration.fontScale >= HUGE_TEXT) 1 else 2
 
     private fun small(text: String, colour: Int, tf: Typeface?) = TextView(activity).apply {
         this.text = text
@@ -320,7 +320,7 @@ internal class BoxBoard(
             tag = ICON_TAG
             setImageDrawable(dr)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            layoutParams = LinearLayout.LayoutParams(px(ICON_DP), px(ICON_DP)).apply { marginEnd = px(6f) }
+            layoutParams = LinearLayout.LayoutParams(px(ICON_DP), px(ICON_DP)).apply { marginEnd = px(ICON_GAP_DP) }
         }
     }
 
@@ -383,15 +383,20 @@ internal class BoxBoard(
             if (face.detail.isNotBlank()) col.addView(small(face.detail, ink, tf).apply { tag = DETAIL_TAG; maxLines = detailLines() })
         } else {
             frame.background = tileBackground(t.tileFill, t.tileBorder, 1.5f)
-            val top = LinearLayout(activity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-            }
-            boxIcon(b, t.ink)?.let { top.addView(it) }
-            top.addView(label(face.label, muted).apply {
+            // The icon sits top left and the label's first line beside it; a second line runs
+            // under the icon, so a long label wraps at the tile's full width.
+            val top = FrameLayout(activity)
+            val icon = boxIcon(b, t.ink)
+            top.addView(label(face.label, muted, lead = if (icon != null) px(ICON_DP) + px(ICON_GAP_DP) else 0).apply {
                 tag = LABEL_TAG
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                if (icon != null) minHeight = px(ICON_DP)
+                layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             })
+            icon?.let {
+                it.layoutParams = FrameLayout.LayoutParams(px(ICON_DP), px(ICON_DP), Gravity.TOP or Gravity.START)
+                top.addView(it)
+            }
             col.addView(top)
             col.addView(value(face.value, valueSp(face.value), t.ink, tf, 2, Gravity.CENTER_VERTICAL or Gravity.START))
             if (face.detail.isNotBlank()) col.addView(small(face.detail, muted, tf).apply { tag = DETAIL_TAG; maxLines = detailLines() })
@@ -503,7 +508,7 @@ internal class BoxBoard(
         frame.tag = NOTIFICATIONS_TAG
         frame.background = tileBackground(t.tileFill, if (unread > 0) t.accent else t.tileBorder, 1.5f)
         val col = column()
-        // The longest built-in label: shrink it to fit rather than cut it to "NOTIFICATI…".
+        // The longest built-in label: shrunk or wrapped to fit rather than cut to "NOTIFICATI…".
         col.addView(label(activity.getString(R.string.notifications_title), muted).apply {
             tag = LABEL_TAG
         })
@@ -641,8 +646,10 @@ internal class BoxBoard(
         const val ALL_W_DP = 64f
         const val DIM_ALPHA = 0.62f
         const val MIN_VALUE_SP = 12f
-        // The smallest a tile label shrinks to; the pixel face is still legible there.
-        const val LABEL_MIN_SP = 6
+        // A tile label's size range; below 8 sp the pixel face is no longer readable.
+        const val LABEL_MAX_SP = 10f
+        const val LABEL_MIN_SP = 8f
+        const val HUGE_TEXT = 1.6f
         const val LARGE_TEXT = 1.3f
 
         const val TILE_TAG_PREFIX = "box:"
@@ -687,6 +694,7 @@ internal class BoxBoard(
 
         const val ICON_TAG = "box-icon"
         const val ICON_DP = 20f
+        const val ICON_GAP_DP = 6f
 
         /** A short glance value is drawn large; a longer one smaller, so it still fits. */
         fun valueSp(value: String): Float = when {
@@ -742,5 +750,71 @@ internal class FitText(
             .setHyphenationFrequency(hyphenationFrequency)
             .setLineSpacing(lineSpacingExtra, lineSpacingMultiplier)
             .build().lineCount
+    }
+}
+
+/**
+ * A tile label, in capitals. The largest size from [maxPx] down to [minPx] at which the whole
+ * label fits the width in at most [cap] lines without breaking a word; at the smallest, [cap]
+ * lines, ellipsized.
+ */
+internal class LabelText(
+    ctx: android.content.Context,
+    private val maxPx: Float,
+    private val minPx: Float,
+    private val cap: Int,
+) : TextView(ctx) {
+    init {
+        setTextSize(TypedValue.COMPLEX_UNIT_PX, maxPx)
+        maxLines = cap
+        ellipsize = TextUtils.TruncateAt.END
+    }
+
+    /** Sets [label], drawn in capitals, its first line indented by [lead] px. */
+    fun setLabel(label: String, lead: Int) {
+        isAllCaps = true
+        text = if (lead <= 0) label else android.text.SpannableString(label).apply {
+            setSpan(FirstLineIndent(lead), 0, length, android.text.Spanned.SPAN_INCLUSIVE_INCLUSIVE)
+        }
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val width = View.MeasureSpec.getSize(widthMeasureSpec) - paddingLeft - paddingRight
+        if (View.MeasureSpec.getMode(widthMeasureSpec) != View.MeasureSpec.UNSPECIFIED && width > 0) {
+            var size = maxPx
+            while (true) {
+                if (textSize != size) setTextSize(TypedValue.COMPLEX_UNIT_PX, size)
+                if (size <= minPx || fits(width)) break
+                size = (size - 1f).coerceAtLeast(minPx)
+            }
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+
+    /** Whole in [cap] lines at the current size, every line ending between words. */
+    private fun fits(width: Int): Boolean {
+        val raw = text ?: return true
+        val t = transformationMethod?.getTransformation(raw, this) ?: raw
+        val l = android.text.StaticLayout.Builder.obtain(t, 0, t.length, paint, width)
+            .setIncludePad(includeFontPadding)
+            .setBreakStrategy(breakStrategy)
+            .setHyphenationFrequency(hyphenationFrequency)
+            .setLineSpacing(lineSpacingExtra, lineSpacingMultiplier)
+            .build()
+        if (l.lineCount > cap) return false
+        return (0 until l.lineCount - 1).all { i ->
+            val end = l.getLineEnd(i)
+            t[end - 1].isWhitespace() || end < t.length && t[end].isWhitespace()
+        }
+    }
+
+    /** Indents only the first line, past the icon beside it. */
+    private class FirstLineIndent(private val px: Int) : android.text.style.LeadingMarginSpan.LeadingMarginSpan2 {
+        override fun getLeadingMargin(first: Boolean) = if (first) px else 0
+        override fun drawLeadingMargin(
+            c: android.graphics.Canvas, p: android.graphics.Paint, x: Int, dir: Int, top: Int, baseline: Int,
+            bottom: Int, text: CharSequence, start: Int, end: Int, first: Boolean, layout: android.text.Layout,
+        ) = Unit
+        override fun getLeadingMarginLineCount() = 1
     }
 }
