@@ -126,6 +126,46 @@ class TileLabelFitTest {
     }
 
     @Test
+    fun `a wrapped label's second line starts below the icon, never under it`() {
+        val titles = mapOf("w" to "Weather Forecast", "c" to "Today's Calendar", "n" to "Latin American News", "l" to "My to-do list")
+        val icons = mapOf("w" to "partly_cloudy_day", "c" to "calendar_today", "n" to "search", "l" to "checklist")
+        HomeBoxes.apply(app, BoxSet.newBuilder().setVersion(3).apply {
+            titles.forEach { (id, t) -> addBoxes(box(id, t).toBuilder().setIcon(icons[id]).setDetail("3 items").build()) }
+        }.build())
+        val a = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        settle()
+        val sp = app.resources.displayMetrics.scaledDensity
+        val list = a.findViewById<RecyclerView>(R.id.boxList)
+        for ((id, title) in titles) {
+            list.scrollToPosition(titles.keys.indexOf(id) + 1); settle()
+            val t = tile(a, id)
+            val v = label(a, id)
+            val icon = requireNotNull(t.findViewWithTag<View>(BoxBoard.ICON_TAG)) { "$title has no icon" }
+            val l = requireNotNull(v.layout) { "label $id not laid out" }
+            assertEquals("$title wraps to two lines", 2, l.lineCount)
+            assertTrue("$title stays legible (${v.textSize / sp} sp)", v.textSize / sp >= BoxBoard.LABEL_MIN_SP - 0.01f)
+            val iconBottom = yIn(t, icon) + icon.height
+            val secondTop = yIn(t, v) + v.totalPaddingTop + l.getLineTop(1)
+            assertTrue("$title: icon bottom $iconBottom <= second line top $secondTop", iconBottom <= secondTop)
+            val col = t.getChildAt(0) as ViewGroup
+            for (tag in listOf(BoxBoard.VALUE_TAG, BoxBoard.DETAIL_TAG)) {
+                val x = requireNotNull(t.findViewWithTag<TextView>(tag)) { "$title has no $tag" }
+                assertTrue("$title: $tag is inside the square", x.top >= col.paddingTop && x.bottom <= col.height - col.paddingBottom)
+                assertTrue("$title: $tag has room", x.height > 0 && x.layout.height <= x.height - x.paddingTop - x.paddingBottom)
+            }
+            assertEquals("square", t.height, t.width)
+        }
+    }
+
+    /** [v]'s top in [root]'s coordinates. */
+    private fun yIn(root: View, v: View): Int {
+        var y = 0
+        var c: View = v
+        while (c !== root) { y += c.top; c = c.parent as View }
+        return y
+    }
+
+    @Test
     fun `a label too long even at the smallest size is ellipsized after two lines, not clipped`() {
         HomeBoxes.apply(app, BoxSet.newBuilder().setVersion(3)
             .addBoxes(box("x", "Extraordinarily long tile name that cannot possibly fit")).build())

@@ -284,11 +284,12 @@ internal class BoxBoard(
      * A tile's label: up to two lines (one with very large text), at the largest size from
      * 10 sp down to [LABEL_MIN_SP] at which it is whole, so "WEATHER FOR BELLEVUE" wraps rather
      * than being cut to "WEATHER FOR…". Only a label too long for that is ellipsized. [lead]
-     * indents the first line only, past an icon beside it; the second line has the full width.
+     * indents the first line only, past an icon beside it, and [firstLine] makes that line at
+     * least as tall as the icon, so the second line, at the full width, starts below it.
      */
-    private fun label(text: String, colour: Int, lead: Int = 0) =
+    private fun label(text: String, colour: Int, lead: Int = 0, firstLine: Int = 0) =
         LabelText(activity, sp(LABEL_MAX_SP), sp(LABEL_MIN_SP), labelLines()).apply {
-            setLabel(text, lead)
+            setLabel(text, lead, firstLine)
             typeface = pixelTf
             letterSpacing = 0f
             setTextColor(colour)
@@ -383,11 +384,13 @@ internal class BoxBoard(
             if (face.detail.isNotBlank()) col.addView(small(face.detail, ink, tf).apply { tag = DETAIL_TAG; maxLines = detailLines() })
         } else {
             frame.background = tileBackground(t.tileFill, t.tileBorder, 1.5f)
-            // The icon sits top left and the label's first line beside it; a second line runs
-            // under the icon, so a long label wraps at the tile's full width.
+            // The icon sits top left and the label's first line beside it, as tall as the icon;
+            // a second line runs below the icon, so a long label wraps at the tile's full width.
             val top = FrameLayout(activity)
             val icon = boxIcon(b, t.ink)
-            top.addView(label(face.label, muted, lead = if (icon != null) px(ICON_DP) + px(ICON_GAP_DP) else 0).apply {
+            top.addView(label(face.label, muted,
+                lead = if (icon != null) px(ICON_DP) + px(ICON_GAP_DP) else 0,
+                firstLine = if (icon != null) px(ICON_DP) else 0).apply {
                 tag = LABEL_TAG
                 gravity = Gravity.CENTER_VERTICAL or Gravity.START
                 if (icon != null) minHeight = px(ICON_DP)
@@ -770,11 +773,32 @@ internal class LabelText(
         ellipsize = TextUtils.TruncateAt.END
     }
 
-    /** Sets [label], drawn in capitals, its first line indented by [lead] px. */
-    fun setLabel(label: String, lead: Int) {
+    /**
+     * Sets [label], drawn in capitals, its first line indented by [lead] px and at least
+     * [firstLine] px tall, its text centred in that height.
+     */
+    fun setLabel(label: String, lead: Int, firstLine: Int = 0) {
         isAllCaps = true
-        text = if (lead <= 0) label else android.text.SpannableString(label).apply {
-            setSpan(FirstLineIndent(lead), 0, length, android.text.Spanned.SPAN_INCLUSIVE_INCLUSIVE)
+        text = if (lead <= 0 && firstLine <= 0) label else android.text.SpannableString(label).apply {
+            if (lead > 0) setSpan(FirstLineIndent(lead), 0, length, android.text.Spanned.SPAN_INCLUSIVE_INCLUSIVE)
+            if (firstLine > 0) setSpan(FirstLineHeight(firstLine), 0, length, android.text.Spanned.SPAN_INCLUSIVE_INCLUSIVE)
+        }
+    }
+
+    /** Raises the first line to at least [px] tall, so the next line starts below an icon. */
+    private class FirstLineHeight(private val px: Int) : android.text.style.LineHeightSpan {
+        override fun chooseHeight(
+            text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int,
+            fm: android.graphics.Paint.FontMetricsInt,
+        ) {
+            if (start != 0) return
+            val h = fm.descent - fm.ascent
+            if (h >= px) return
+            val above = (px - h) / 2
+            fm.ascent -= above
+            fm.descent += px - h - above
+            fm.top = minOf(fm.top, fm.ascent)
+            fm.bottom = maxOf(fm.bottom, fm.descent)
         }
     }
 
