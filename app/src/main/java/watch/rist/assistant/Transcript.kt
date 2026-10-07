@@ -142,6 +142,8 @@ object Transcript {
         requestId?.let { e.requestId = it }
         error?.let { e.error = it }
         save(ctx)
+        // A reply's lists are the newest word on their items: older cards and open rows follow.
+        if (!checklists.isNullOrEmpty()) runCatching { Checklists.learn(ctx, checklists, exceptEntry = localId) }
     }
 
     @Synchronized
@@ -168,16 +170,23 @@ object Transcript {
     }
 
     /** Every reply card holding [itemId] now shows it as [checked]. */
+    fun setItemChecked(ctx: Context, itemId: String, checked: Boolean) =
+        setItemsChecked(ctx, mapOf(itemId to checked))
+
+    /** Every reply card (but [exceptEntry]'s) holding one of [states]' items now shows its state. */
     @Synchronized
-    fun setItemChecked(ctx: Context, itemId: String, checked: Boolean) {
+    fun setItemsChecked(ctx: Context, states: Map<String, Boolean>, exceptEntry: Long = 0L) {
+        if (states.isEmpty()) return
         ensureLoaded(ctx)
         var changed = false
         for (e in entries) {
-            if (e.checklists.none { cl -> cl.itemsList.any { it.id == itemId && it.checked != checked } }) continue
+            if (e.localId == exceptEntry) continue
+            if (e.checklists.none { cl -> cl.itemsList.any { states[it.id]?.let { c -> c != it.checked } == true } }) continue
             e.checklists = e.checklists.map { cl ->
                 val b = cl.toBuilder()
                 for (i in 0 until b.itemsCount) {
-                    if (b.getItems(i).id == itemId) b.setItems(i, b.getItems(i).toBuilder().setChecked(checked))
+                    val want = states[b.getItems(i).id] ?: continue
+                    if (b.getItems(i).checked != want) b.setItems(i, b.getItems(i).toBuilder().setChecked(want))
                 }
                 b.build()
             }

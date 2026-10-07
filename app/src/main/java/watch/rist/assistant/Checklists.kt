@@ -102,6 +102,7 @@ object Checklists {
             held.remove(itemId)
         }
         runCatching { Transcript.setItemChecked(ctx, itemId, checked) }
+        runCatching { ChecklistView.reflect(mapOf(itemId to checked)) }
         flushSoon(ctx, fromTap = true)
     }
 
@@ -130,6 +131,20 @@ object Checklists {
     fun observe(ctx: Context, boxes: List<HomeBox>) {
         if (declared() && !Config.checklistBoxesSeen(ctx)) Config.setChecklistBoxesSeen(ctx, true)
         observe(boxes)
+        learn(ctx, boxes.flatMap { it.checklistsList })
+    }
+
+    /**
+     * Lists newer than what older reply cards hold (a box list, or a reply just in): each item's
+     * state is written into every kept reply card holding it, and every row on screen holding it
+     * shows it, with a tick not yet accepted still laid over.
+     */
+    fun learn(ctx: Context, lists: List<rist.v1.Checklist>, exceptEntry: Long = 0L) {
+        val states = LinkedHashMap<String, Boolean>()
+        for (cl in lists) for (item in cl.itemsList) if (item.id.isNotBlank()) states[item.id] = item.checked
+        if (states.isEmpty()) return
+        runCatching { Transcript.setItemsChecked(ctx, states, exceptEntry) }
+        runCatching { ChecklistView.reflect(states.mapValues { (id, c) -> shown(ctx, id, c) }) }
     }
 
     @Synchronized

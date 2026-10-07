@@ -69,11 +69,19 @@ object ChecklistView {
     }
 
     /** A tick was refused: every row of [itemId] on screen goes back to [checked]. */
-    fun reverted(itemId: String, checked: Boolean) {
-        Handler(Looper.getMainLooper()).post {
-            val boxes = synchronized(live) { live.filterValues { it == itemId }.keys.toList() }
-            boxes.forEach { setQuietly(it, checked) }
+    fun reverted(itemId: String, checked: Boolean) = reflect(mapOf(itemId to checked))
+
+    /**
+     * The latest known state of some items (a tap, a newer reply, a newer box list): every row
+     * on screen holding one of them, on any card or tile, shows it. Nothing is sent.
+     */
+    fun reflect(states: Map<String, Boolean>) {
+        if (states.isEmpty()) return
+        val apply = {
+            val boxes = synchronized(live) { live.entries.filter { it.value in states }.map { it.key to it.value } }
+            boxes.forEach { (box, id) -> states[id]?.let { setQuietly(box, it) } }
         }
+        if (Looper.myLooper() == Looper.getMainLooper()) apply() else Handler(Looper.getMainLooper()).post(apply)
     }
 
     /** A list's heading, when it has one. */

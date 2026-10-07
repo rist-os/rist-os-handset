@@ -383,4 +383,72 @@ class ChecklistsTest {
         assertFalse(row.isChecked)
         assertTrue(Checklists.queued(ctx).isEmpty())
     }
+
+    // ---- one state per item, everywhere it is shown ----
+
+    private fun feedRows(home: MainActivity, id: String) =
+        boxesIn(home.window.decorView).filter { it.text.toString() == id }
+
+    @Test
+    fun `a tap on one card ticks the same item on an older card too`() {
+        val older = answeredCard(list("shopping", item("m1", "milk")))
+        answeredCard(list("shopping", item("m1", "milk"), item("e1", "eggs")))
+        val home = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        settle()
+        val rows = feedRows(home, "milk")
+        assertEquals(2, rows.size)
+
+        status = 204
+        rows[0].performClick()
+        Checklists.awaitFlushForTest()
+        settle()
+        assertTrue("the older card's row follows", rows[1].isChecked)
+        assertTrue(Transcript.all(ctx).first { it.localId == older }.checklists.single().itemsList.single().checked)
+        assertEquals("one tap sends one tick", 1, batches.single().checksCount)
+    }
+
+    @Test
+    fun `a newer reply's state reaches older cards, stored and on screen`() {
+        val older = answeredCard(list("shopping", item("m1", "milk")))
+        val home = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        settle()
+        val row = feedRows(home, "milk").single()
+        assertFalse(row.isChecked)
+
+        answeredCard(list("shopping", item("m1", "milk", checked = true)))
+        settle()
+        assertTrue("the row already on screen follows", row.isChecked)
+        assertTrue(Transcript.all(ctx).first { it.localId == older }.checklists.single().itemsList.single().checked)
+        assertTrue("nothing is sent for it", Checklists.queued(ctx).isEmpty())
+    }
+
+    @Test
+    fun `a newer box list reaches reply cards and an open tile`() {
+        val older = answeredCard(list("shopping", item("m1", "milk", checked = true)))
+        tileWith(list("shopping_all", item("m1", "milk", checked = true), item("e", "eggs", checked = true)))
+        val x = expanded()
+        val tileRow = boxesIn(x.window.decorView).first { it.text.toString() == "milk" }
+        assertTrue(tileRow.isChecked)
+
+        tileWith(list("shopping_all", item("m1", "milk"), item("e", "eggs", checked = true)))
+        settle()
+        assertFalse("the open tile row follows", tileRow.isChecked)
+        assertFalse("the reply card follows", Transcript.all(ctx).first { it.localId == older }
+            .checklists.single().itemsList.single().checked)
+    }
+
+    @Test
+    fun `a tick not yet accepted still wins over a newer list`() {
+        answeredCard(list("shopping", item("m1", "milk")))
+        val home = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        settle()
+        val row = feedRows(home, "milk").single()
+        tapOffline("m1", checked = true, shown = false)
+        settle()
+        assertTrue(row.isChecked)
+
+        tileWith(list("shopping", item("m1", "milk")))
+        settle()
+        assertTrue("the queued tick is laid over the stale list", row.isChecked)
+    }
 }
