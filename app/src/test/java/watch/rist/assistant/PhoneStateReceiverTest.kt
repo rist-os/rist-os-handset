@@ -17,14 +17,11 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 
 /**
- * The regression this guards: 2026090701 shipped a PhoneStateReceiver that put Rist's own
- * incoming-call screen up. It was compiled from BridgeAnswer.kt, which was withheld when the
- * repository was reduced, so the receiver went with it. From then on IncomingCall.show() had zero
- * callers, IncomingCallActivity was unreachable dead code, and an incoming call rang, vibrated and
- * showed nothing.
+ * PhoneStateReceiver is the only caller of IncomingCall.show(). Without it IncomingCallActivity is
+ * unreachable and an incoming call rings, vibrates and shows nothing.
  *
- * Nothing in the suite could catch it: ManifestComponentsExistTest only fails a manifest entry with
- * no class, and here the class and its declaration went together.
+ * ManifestComponentsExistTest only fails a manifest entry with no class; it cannot catch the class
+ * and its declaration going missing together.
  */
 @RunWith(RobolectricTestRunner::class)
 class PhoneStateReceiverTest {

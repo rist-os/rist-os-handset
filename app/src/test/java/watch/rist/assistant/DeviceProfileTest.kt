@@ -9,7 +9,7 @@ class DeviceProfileTest {
 
     @Test
     fun schemaVersion_isTheOneTheProtoCallsCurrent() {
-        // The proto is a sync target from the backend repo; the constant is typed by hand.
+        // The proto follows the server's schema; the constant is typed by hand.
         // When they drift, the backend is told the device speaks a version it does not.
         assertEquals(rist.v1.SchemaVersion.SCHEMA_VERSION_CURRENT_VALUE, DeviceProfile.RCS_SCHEMA_VERSION)
     }

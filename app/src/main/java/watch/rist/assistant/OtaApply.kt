@@ -123,10 +123,8 @@ object OtaApply {
         ErrorCode.PAYLOAD_TIMESTAMP_ERROR -> Outcome.Permanent("downgrade refused by update_engine")
 
         // The package itself is wrong or cannot be read. Retrying re-downloads it and fails the
-        // same way, so every one of these is permanent for this build. They were all landing in
-        // the `else` branch below: build 2026092200 shipped an OTA whose payload manifest the
-        // previous release's update_engine could not parse, and the handset reported
-        // "retry (unrecognised update_engine code 23)" on a six-hour loop, re-fetching each time.
+        // same way, so every one of these is permanent for this build. Left to the `else` branch
+        // below they would retry on every check, re-fetching the payload each time.
         ErrorCode.DOWNLOAD_MANIFEST_PARSE_ERROR ->
             Outcome.Permanent("update_engine cannot parse this payload's manifest")
         ErrorCode.DOWNLOAD_INVALID_METADATA_MAGIC_STRING ->

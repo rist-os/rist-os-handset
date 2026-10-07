@@ -10,16 +10,9 @@ import androidx.localbroadcastmanager.content.LocalBroadcastManager
 /**
  * Puts Rist's own incoming-call screen up when the phone rings.
  *
- * This is the caller [IncomingCall.show] lost. A receiver of this name shipped in 2026090701
- * (versionCode 471, class present in classes3.dex, compiled from BridgeAnswer.kt) and did not
- * survive into the public tree when the repository was reduced on 2026-09-08, because the file it
- * lived in also held the call-bridging policy that was deliberately withheld. The declaration went
- * with it, so from 2026092200 nothing told the app a call was ringing:
- * [IncomingCallActivity] was still in the image, and [IncomingCall.show] still had no callers.
- *
- * The visible result was that an incoming call rang and vibrated and showed nothing. Without a
- * screen of our own the job falls to the stock dialer, which surfaces a call as a notification
- * carrying a full-screen intent, and lock task suppresses exactly that:
+ * This is the only caller of [IncomingCall.show]. Without it an incoming call rings and vibrates
+ * and shows nothing: with no screen of our own the job falls to the stock dialer, which surfaces a
+ * call as a notification carrying a full-screen intent, and lock task suppresses exactly that:
  *
  *   VisualInterruptionDecisionProvider: FSI suppressed: no HUN or keyguard
  *

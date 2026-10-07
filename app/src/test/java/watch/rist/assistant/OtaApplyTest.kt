@@ -99,10 +99,9 @@ class OtaApplyTest {
 
     @Test
     fun aPayloadThisBuildCannotReadIsPermanentRatherThanRetriedForever() {
-        // 2026092200 shipped an OTA whose manifest the previous release's update_engine could not
-        // parse. Code 23 was unnamed, fell into the unknown-code branch, and the handset retried
-        // every six hours -- re-fetching the payload each time -- with no cap and no backoff.
-        // Every code here means "this package is wrong": another download produces the same bytes.
+        // An unnamed code falls into the unknown-code branch and is retried on every check,
+        // re-fetching the payload each time. Every code here means "this package is wrong": another
+        // download produces the same bytes.
         for (code in listOf(
             OtaApply.ErrorCode.DOWNLOAD_MANIFEST_PARSE_ERROR,
             OtaApply.ErrorCode.DOWNLOAD_INVALID_METADATA_MAGIC_STRING,

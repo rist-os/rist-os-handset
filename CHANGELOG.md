@@ -37,8 +37,8 @@ bootloader is concerned, and a handset on either can move to the other.
 
 ### What does not
 
-- **Emergency calling is not validated.** There is no E911 row in the bring-up checklist and no
-  verification step has been run. See `SAFETY.md`.
+- **Emergency calling is not validated.** No verification step has been run. See
+  `SAFETY.md`.
 - **Wireless Emergency Alert text may not display.** The siren, vibration and speech fire; whether
   the words render over the kiosk has not been confirmed on a handset.
 - **Location is GNSS-only by default.** The phone asks you once and you can change the answer.
@@ -93,8 +93,8 @@ verified-boot rollback index, and a handset that has booted this build cannot be
 - **Updating over the air does not work in this build.** The published package is refused by the
   phone before it installs anything, so the phone stays on the build it has. Install this build with
   `adb sideload`, which applies a signed package and does **not** wipe the phone.
-- **Emergency calling is not validated.** There is no E911 row in the bring-up checklist and no
-  verification step has been run. See `SAFETY.md`.
+- **Emergency calling is not validated.** No verification step has been run. See
+  `SAFETY.md`.
 - **Wireless Emergency Alert text may not display.** The siren, vibration and speech fire; whether
   the words render over the kiosk has not been confirmed on a handset.
 - **Location is GNSS-only by default.** The phone asks you once and you can change the answer.

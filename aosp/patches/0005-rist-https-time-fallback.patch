@@ -32,7 +32,7 @@ diff --git a/core/res/res/values/config.xml b/core/res/res/values/config.xml
 +         unreachable, because a handset that cannot set its clock cannot complete a TLS
 +         handshake and is useless for every network purpose. This is purely additive: when the
 +         first URL answers, the second is never contacted. Verified live 2026-08-30 (bare 204,
-+         correct Date header, valid chain). See vendor/rist/pixel-phone/docs/ENDPOINTS.md. -->
++         correct Date header, valid chain). -->
      <string-array translatable="false" name="config_httpsTimeUrls">
          <item>https://time.grapheneos.org/generate_204</item>
 +        <item>https://cp.cloudflare.com/generate_204</item>

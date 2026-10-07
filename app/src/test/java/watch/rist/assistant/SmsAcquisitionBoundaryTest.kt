@@ -23,7 +23,7 @@ class SmsAcquisitionBoundaryTest {
             "AndroidManifest.xml declares RECEIVE_SMS again. Nothing receives that broadcast any " +
                 "more, so holding the permission buys no behaviour at all -- it only makes a " +
                 "re-added receiver work silently. If some new feature genuinely needs it, that " +
-                "feature is an acquisition and needs legal review first.",
+                "feature is an acquisition and needs a consent design first.",
             xml.contains("android.permission.RECEIVE_SMS")
         )
 

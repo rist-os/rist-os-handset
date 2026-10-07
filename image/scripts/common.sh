@@ -37,18 +37,13 @@ if [ -n "${RIST_BUILD_DISPLAY_ID:-}" ]; then
   export BUILD_DISPLAY_ID="$RIST_BUILD_DISPLAY_ID"
 fi
 
-# ccache is deliberately NOT enabled here, and setting it here is what made that hard to see.
+# ccache is deliberately NOT enabled here.
 #
-# These two lines used to arm it: USE_CCACHE=1 with a cache directory under $HOME. soong only
-# actually runs ccache when CCACHE_EXEC also points at the binary, and nothing in this repository
-# sets that -- so the cache stayed inert and the lines looked harmless. They are not. On 2026-09-22
-# a CCACHE_EXEC in the build user's .bashrc completed the pair and a sandboxed compile action died
-# with "ccache: error: Failed to create directory <build user home>/.cache/ccache/tmp: Read-only file
-# system", which reads like a failing disk and is not one.
-#
-# The build box is destroyed after every release, so the cache is always cold -- measured 0 hits
-# across 27 lookups, 0.00 GB stored. There is nothing to win here and a confusing failure to lose.
-# Anything that unsets ccache before sourcing this file was also being silently undone.
+# soong only runs ccache when both USE_CCACHE and CCACHE_EXEC are set. With a cache directory under
+# $HOME, a CCACHE_EXEC from the build user's environment completes the pair and sandboxed compile
+# actions fail with "ccache: error: Failed to create directory ...: Read-only file system", which
+# reads like a failing disk and is not one. A fresh build machine starts with a cold cache, so there
+# is little to win. Anything that unsets ccache before sourcing this file was also being undone.
 #
 # To use ccache anyway, set CCACHE_DIR and CCACHE_EXEC yourself, and point CCACHE_DIR somewhere the
 # build sandbox can write -- not under $HOME.
@@ -120,8 +115,7 @@ rist_export_signing_password() {
     echo "signing: using passphrase from RIST_SIGNING_PASSWORD_FILE ($(wc -c < "$RIST_SIGNING_PASSWORD_FILE" | tr -d ' ') bytes)"
   else
     export password=""
-    echo "signing: WARNING -- no RIST_SIGNING_PASSWORD_FILE; assuming UNENCRYPTED keys."
-    echo "signing: an unencrypted platform key is a plain file that signs system code."
+    echo "signing: WARNING -- no RIST_SIGNING_PASSWORD_FILE; using an empty key passphrase."
   fi
 }
 

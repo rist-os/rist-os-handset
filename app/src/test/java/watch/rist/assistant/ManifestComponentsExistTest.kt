@@ -10,12 +10,6 @@ import org.junit.Test
  * This is not hypothetical tidiness. Android instantiates a declared component when its filter
  * fires, and a manifest name is only a string, so the app compiles perfectly with a name that
  * resolves to nothing and then throws ClassNotFoundException at the moment the event arrives.
- *
- * The example this repo learned it from was a `.PhoneStateReceiver` declaration left behind after
- * the class was withheld: a Gradle build of the reduced tree, pushed over the system app, crashed
- * whenever the phone rang. Note that the shipped image never had that defect -- it carried both the
- * declaration and the class -- and the receiver is deliberately declared again today. See the
- * companion test below, which pins the opposite invariant.
  */
 class ManifestComponentsExistTest {
 
@@ -57,18 +51,10 @@ class ManifestComponentsExistTest {
     }
 
     /**
-     * This test used to assert the opposite: that PhoneStateReceiver must NOT be declared, because
-     * "the class has never existed in this repo". That was true of this repo and false of the
-     * product. 2026090701 shipped a working PhoneStateReceiver compiled from BridgeAnswer.kt, and
-     * that file was withheld when the repository was reduced on 2026-09-08, taking the receiver with
-     * it. What crashed was never the shipped image -- it was Gradle builds of the reduced tree
-     * pushed over the system app, which had the declaration without the class.
-     *
-     * So the invariant is the reverse of what was written here: this receiver is the only thing that
-     * tells the app a call is ringing, and without it IncomingCall.show has no callers and the whole
-     * IncomingCallActivity answer screen is unreachable. An incoming call then rings, vibrates and
-     * shows nothing, because the stock dialer's alternative is a full-screen intent that lock task
-     * suppresses.
+     * This receiver is the only thing that tells the app a call is ringing. Without it
+     * IncomingCall.show has no callers and the IncomingCallActivity answer screen is unreachable. An
+     * incoming call then rings, vibrates and shows nothing, because the stock dialer's alternative is
+     * a full-screen intent that lock task suppresses.
      */
     @Test
     fun `the receiver that raises our own call screen is declared`() {
@@ -84,7 +70,7 @@ class ManifestComponentsExistTest {
      * the only one in the app that did not lock portrait. That is not cosmetic: in landscape the
      * column of title, caller, ANSWER and DECLINE is taller than the screen, DECLINE was pushed off
      * the bottom, and the lowest button a person could see and tap was ANSWER. A call meant to be
-     * rejected was answered instead. Observed on a handset on 2026-09-23.
+     * rejected was answered instead.
      */
     @Test
     fun `the call screen is locked to portrait`() {

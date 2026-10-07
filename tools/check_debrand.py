@@ -456,8 +456,7 @@ def check_flash_scripts(art):
             "device/common/generate-factory-images-common.sh, so a target_files",
             "package cannot answer this. Re-run this check against",
             "  <device>-factory-<build>.zip",
-            "before publishing. Build 2026090600 shipped the GrapheneOS banner",
-            "precisely because nothing looked at that artefact.",
+            "before publishing.",
         ])
 
     lines = []

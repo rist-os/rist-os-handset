@@ -323,14 +323,11 @@ def check_previous_retention(prev, override, rehash, rep, ack=None):
                  % prev.get("build", "?"))
         return
     path = override or rec["path"]
-    # A recorded path can be a remote URI: the 2026092200 entry reads
-    # s3://ristos-releases/target_files/.../stallion-target_files.zip, because that is where a 4.5 GB
-    # file actually lives once the build box is gone. os.path.isfile is False for any such string, so
-    # the next release would have failed with "the PREVIOUS release's target_files is gone", which is
-    # both false and alarming, and would have stopped build day at sign_public.sh rc=88. The file is
-    # not gone; it is off-box and cannot be hashed from here. Say that instead, and say how to fix it.
-    if not override and re.match(r'^[a-z][a-z0-9+.-]*://', str(path)):
-        rep.unknown("the previous release's target_files is recorded off-box at %s, so it cannot be "
+    # The ledger records a file name or a remote URI, not a local path. Neither can be checked
+    # from here without --previous-target-files.
+    if not override and (re.match(r'^[a-z][a-z0-9+.-]*://', str(path))
+                         or not os.path.isabs(str(path))):
+        rep.unknown("the previous release's target_files is recorded as %s, so it cannot be "
                     "verified from here." % path)
         rep.note("Fetch it and pass --previous-target-files <local path> to check it is the same")
         rep.note("file the ledger recorded. This is not a pass and not a failure: nothing is known.")
@@ -570,6 +567,8 @@ def record(args, led, tf_rec, spl, idx, rep):
     if build is None and tf_rec:
         m = re.search(r"(\d{8,})", os.path.basename(os.path.dirname(tf_rec["path"])))
         build = m.group(1) if m else None
+    if tf_rec:
+        tf_rec = dict(tf_rec, path=os.path.basename(tf_rec["path"]))
     entry = {
         "build": build,
         "variant": args.variant,
@@ -896,8 +895,9 @@ def selftest():
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             rc = main([rel, "--variant", "public", "--ledger", led_rec, "--record"])
-        n = len(json.load(open(led_rec))["releases"])
-        if rc == 0 and n == 2:
+        recs = json.load(open(led_rec))["releases"]
+        n = len(recs)
+        if rc == 0 and n == 2 and recs[-1]["target_files"]["path"] == "stallion-target_files.zip":
             print("SELFTEST ok    %-58s exit 0" % "--record appends on a pass")
         else:
             bad += 1
@@ -905,7 +905,8 @@ def selftest():
 
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            rc = main([rel2, "--variant", "public", "--ledger", led_rec, "--record"])
+            rc = main([rel2, "--variant", "public", "--ledger", led_rec, "--record",
+                       "--previous-target-files", tf_clean])
         n2 = len(json.load(open(led_rec))["releases"])
         if rc == 1 and n2 == 2 and "NOT recorded" in buf.getvalue():
             print("SELFTEST ok    %-58s exit 1" % "--record refuses on a failure")

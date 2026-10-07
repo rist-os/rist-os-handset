@@ -1,22 +1,18 @@
 #!/usr/bin/env python3
 """Build dl.ristos.org/index.html from a published release directory.
 
-Why this exists. The download page was a single hand-written HTML file, untracked and outside version
-control, with the build number typed into it twelve times. Nothing in any script or runbook touched it:
-`set_release.sh` rewrites README.md, image/INSTALL.md, CHANGELOG.md and releases/CURRENT_BUILD;
-`ota_publish.sh` writes only to the OTA bucket; `sign_public.sh` contains no upload at all. So
-2026092200 was built, signed, uploaded, promoted to stable -- and the index still advertised 2026090701,
-two releases behind. Anyone arriving at the site was handed the older build.
+Why this exists. A hand-written download page goes stale: nothing else in the release flow
+(`set_release.sh`, `ota_publish.sh`, `sign_public.sh`) touches it, so it can keep advertising an
+older build after a newer one is promoted to stable.
 
-That is worse than a stale number, because R2 serves no directory listing: `https://dl.ristos.org/<BN>/`
+That matters because R2 serves no directory listing: `https://dl.ristos.org/<BN>/`
 is a 404. The root index is the ONLY way to discover a release, which also makes it the only way to
 reach the kernel source, and NOTICE promises that source is "reachable from the same download index"
 under GPLv2 section 3(a).
 
 The list of files is not typed here either. SHA256SUMS is the signed record of what the release
 contains, so it is the authority: every name in it appears on the page, and sizes come from the bytes
-on disk rather than from a number someone updated by hand. The old page claimed 3.50 GiB for a factory
-zip that was 1.96 GiB.
+on disk rather than from a number someone updated by hand.
 
     python3 tools/make_download_index.py --dir <published dir> --build 2026092300 \\
         --spl 2026-09-01 --out index.html
