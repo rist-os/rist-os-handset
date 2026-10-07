@@ -1,5 +1,5 @@
-// The device <-> backend contract, schema v18, with the proposed v19 features fields and the
-// proposed home boxes fields.
+// The device <-> backend contract, schema v18, with the proposed v19 features fields, the
+// proposed home boxes fields and the v23 checklist messages.
 // Copied from the backend's canonical file; change it there first.
 
 syntax = "proto3";
@@ -180,6 +180,10 @@ message DeviceResponse {
 
   // Proposed (design and settings): this account's whole look.
   DesignSpec design = 34;
+
+  // v23 (checkable list items): lists shown with checkboxes under the answer, from the show_list
+  // tool only. Sent only to a phone that lists "checklist_v1" in caps.components.
+  repeated Checklist checklists = 35;
 }
 
 message Notification {
@@ -663,6 +667,10 @@ message HomeBox {
   // The user's own words that define the box ("the temperature here, every 30 minutes"); the
   // phone pre-fills the box's "Change this box" sheet with them.
   string source_words        = 15;
+  // v23 (checkable list items): empty = draw body. Otherwise the tile has at least one list
+  // section and this holds EVERY section of the tile, in order, for the expanded view. Sent only
+  // to a phone that lists "checklist_v1".
+  repeated Checklist checklists = 16;
 }
 
 // Proposed (home boxes): the whole list, in display order, every time it is sent.
@@ -724,4 +732,39 @@ message DesignState {
   repeated SettingsValue values = 2;
   // The user chose "Reset to default" on the phone.
   bool reset_on_device = 3;
+}
+
+// v23 (checkable list items): one item of a to-do or shopping list.
+message ChecklistItem {
+  // Opaque; what an ItemCheck names.
+  string id      = 1;
+  // The stored text, verbatim (plain text, not markdown).
+  string text    = 2;
+  bool   checked = 3;
+}
+
+message Checklist {
+  // "shopping" or "todo"; "" = this block is not a list (tile only): draw markdown.
+  string list     = 1;
+  // Reply card: "Shopping list"; tile: the section heading ("" = none).
+  string title    = 2;
+  repeated ChecklistItem items = 3;
+  // Tile only. list == "": the section's markdown. list != "" and no items: the section's empty
+  // line, plain text. Otherwise "".
+  string markdown = 4;
+}
+
+// v23: one tick, as the state wanted, never a toggle.
+message ItemCheck {
+  // Minted on the phone, for logs only.
+  string check_id    = 1;
+  string item_id     = 2;
+  bool   checked     = 3;
+  // When the finger tapped; the backend applies the latest tap by time.
+  uint64 at_epoch_ms = 4;
+}
+
+// The body of POST /v1/device/items, at most 50 checks. The phone reads only the HTTP status.
+message ItemCheckBatch {
+  repeated ItemCheck checks = 1;
 }
