@@ -2344,12 +2344,32 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         }
 
         if (pendingActionId.isNotBlank()) renderPendingConfirmation()
-        findViewById<android.widget.ScrollView>(R.id.replyScroll)?.post {
-            findViewById<android.widget.ScrollView>(R.id.replyScroll)?.fullScroll(View.FOCUS_UP)
-        }
+        keepNewestReplyInView()
         findViewById<View>(R.id.clearButton)?.visibility = View.GONE
         armStaleRepaint()
       }.onFailure { Log.w(TAG, "renderTranscript failed", it) }
+    }
+
+    /**
+     * The answers share one scroller with the notifications above them, so an opened notice (or
+     * a long list of calls) could push the newest answer below the screen. After each repaint the
+     * scroller goes to the top when the newest answer still fits there, and otherwise only as far
+     * down as it takes to show that answer, so as much of the feed as fits stays in sight.
+     * Measured just before the next frame, once the new rows are laid out.
+     */
+    private fun keepNewestReplyInView() {
+        val scroll = findViewById<android.widget.ScrollView>(R.id.replyScroll) ?: return
+        androidx.core.view.OneShotPreDrawListener.add(scroll) {
+            runCatching {
+                val newest = replyContainer.getChildAt(0)
+                val y = replyScrollTarget(
+                    replyTop = replyContainer.top + (newest?.top ?: 0),
+                    newestHeight = newest?.height ?: 0,
+                    viewport = scroll.height - scroll.paddingTop - scroll.paddingBottom,
+                )
+                if (scroll.scrollY != y) scroll.scrollTo(0, y)
+            }.onFailure { Log.w(TAG, "could not bring the newest answer into view", it) }
+        }
     }
 
     /**
@@ -2418,11 +2438,14 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
             ) { _, _ -> PhotoViewerActivity.offerSave(this@MainActivity, photo.file); true }
         }
         box.addView(image)
-        // The credit and licence the picture came with; for a searched image it is required.
+        // The credit and licence the picture came with; for a searched image it is required. The
+        // feed shows it short ("Photo: site · author · licence"); the full line is in the viewer.
         if (photo.title.isNotBlank()) box.addView(TextView(this).apply {
-            text = photo.title.trim()
+            text = AttachmentView.shortCredit(photo.title)
             setTextColor(muted); typeface = tf
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
             setPadding(0, (3 * d).toInt(), 0, 0)
         })
         return box
@@ -2907,6 +2930,16 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
     internal companion object {
         private const val PHOTO_OPEN_GUARD_MS = 1_000L
         private const val TAG = "RistMain"
+
+        /**
+         * Where the answers' scroller goes after a repaint: 0 (the feed in full) when the newest
+         * answer, starting [replyTop] px down, fits on screen there; else the least scroll that
+         * shows all of it, or its top when it is taller than the [viewport].
+         */
+        internal fun replyScrollTarget(replyTop: Int, newestHeight: Int, viewport: Int): Int {
+            if (viewport <= 0 || newestHeight <= 0) return 0
+            return (replyTop + minOf(newestHeight, viewport) - viewport).coerceIn(0, maxOf(0, replyTop))
+        }
 
         /** A backend sentence (the 402's renew line) is shown as it is; our own reasons get "Sorry — ". */
         internal fun failureLine(reason: String): String {
