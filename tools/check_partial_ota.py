@@ -466,8 +466,6 @@ def check(path, keep_set, vbmeta_path, target_files_arg, expect_otacert,
     else:
         rep.ok('full payload (every partition present), partial_update not required')
 
-    # The check that 2026092200 needed and nobody had.
-    #
     # Setting partial_update flips allow_empty_version to FALSE in
     # DeltaPerformer::CheckTimestampError, which makes PartitionUpdate.version mandatory on EVERY
     # partition in the payload. Only partitions carrying build props get a version, so a payload

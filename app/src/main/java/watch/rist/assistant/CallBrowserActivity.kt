@@ -153,7 +153,7 @@ class CallBrowserActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        theme = Themes.byId(Config.themeId(this))
+        theme = Themes.current(this)
         tf = ThemePaint.typefaceOf(this, theme)
         d = resources.displayMetrics.density
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)

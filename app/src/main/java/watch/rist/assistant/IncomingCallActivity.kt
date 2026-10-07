@@ -79,7 +79,7 @@ class IncomingCallActivity : Activity() {
 
     private fun render(number: String) {
         shown = number
-        val t = Themes.byId(Config.themeId(this))
+        val t = Themes.current(this)
         val name = CallerId.nameFor(this, number)
 
         // Wrapped in a scroller so the buttons cannot be pushed out of reach. The activity is locked

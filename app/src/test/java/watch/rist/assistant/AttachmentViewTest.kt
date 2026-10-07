@@ -35,7 +35,7 @@ class AttachmentViewTest {
 
     @Before
     fun clean() {
-        Config.setThemeId(ctx(), "ledger")
+        TestLooks.reset(ctx())
         // Font scale is shared state: two tests push it to 2x and nothing else resets it.
         setFontScale(1f)
     }
@@ -423,8 +423,8 @@ class AttachmentViewTest {
     fun `the expand control meets the touch target and text floor, and is themed, on every theme`() {
         val long = (1..400).joinToString(" ") { "line $it of a very long note" }
         for (t in Themes.ALL) {
-            Config.setThemeId(ctx(), t.id)
-            assertEquals("the theme did not stick", t.id, Config.themeId(ctx()))
+            TestLooks.use(ctx(), t)
+            assertEquals("the theme did not stick", t.ground, Themes.current(ctx()).ground)
             val (a, cards) = renderOnHome(attachment("text", title = "Long", text = long))
             val expand = tv(only(cards), R.id.attachmentExpand)
             val m = a.resources.displayMetrics
@@ -769,9 +769,9 @@ class AttachmentViewTest {
     @Test
     fun `every colour on the card comes from the active theme, on every theme`() {
         for (t in Themes.ALL) {
-            Config.setThemeId(ctx(), t.id)
+            TestLooks.use(ctx(), t)
             assertEquals(
-                "the theme did not stick, so this iteration proves nothing", t.id, Config.themeId(ctx())
+                "the theme did not stick, so this iteration proves nothing", t.ground, Themes.current(ctx()).ground
             )
             val (_, cards) = renderOnHome(
                 attachment("data", mime = "application/pdf", title = "Report", bytes = ByteArray(4096))
@@ -804,7 +804,7 @@ class AttachmentViewTest {
     @Test
     fun `the secondary text on a card is legible against the card, on every theme`() {
         for (t in Themes.ALL) {
-            Config.setThemeId(ctx(), t.id)
+            TestLooks.use(ctx(), t)
             val (_, cards) = renderOnHome(
                 attachment("data", mime = "application/pdf", bytes = ByteArray(1024))
             )
@@ -831,7 +831,7 @@ class AttachmentViewTest {
     @Test
     fun `the card is bounded by something a person can see, on every theme`() {
         for (t in Themes.ALL) {
-            Config.setThemeId(ctx(), t.id)
+            TestLooks.use(ctx(), t)
             val (_, cards) = renderOnHome(
                 attachment("data", mime = "application/pdf", bytes = ByteArray(1024))
             )
@@ -1100,5 +1100,131 @@ class AttachmentViewTest {
             ctx, listOf(attachment("image", mime = "image/png", bytes = truncatedPng()))
         )
         assertNull("undecodable bytes must yield no bitmap rather than throwing", out.single().bitmap)
+    }
+
+    // ---- pictures loaded from a url (Brave image search) ----------------------------------
+
+    private fun bravePic(
+        bytes: ByteArray? = png(120, 80),
+        title: String = "Photo: theguardian.com",
+        error: String? = null,
+    ) = RistAttachment(
+        kind = "image", mime = "image/jpeg", title = title, text = "",
+        bytes = bytes, toolId = "image-search", error = error, remote = true,
+    )
+
+    private fun allViews(v: View): List<View> =
+        listOf(v) + if (v is ViewGroup) (0 until v.childCount).flatMap { allViews(v.getChildAt(it)) } else emptyList()
+
+    @Test
+    fun `a loaded picture is drawn with its credit under it as plain text`() {
+        val (_, cards) = renderOnHome(bravePic())
+        val card = only(cards) as ViewGroup
+        assertEquals("the image and its caption, nothing else", 2, card.childCount)
+        val image = card.getChildAt(0) as ImageView
+        val caption = card.getChildAt(1) as TextView
+        assertTrue(shown(image))
+        assertNotNull(image.drawable)
+        assertEquals(120, image.drawable.intrinsicWidth)
+        assertTrue(shown(caption))
+        assertEquals("Photo: theguardian.com", caption.text.toString())
+        assertFalse("no kind label or error line on a loaded picture",
+            allViews(card).filterIsInstance<TextView>().any { it !== caption && shown(it) })
+    }
+
+    @Test
+    fun `the credit is not a link, link detection is off and it is not underlined`() {
+        val (_, cards) = renderOnHome(bravePic(title = "Photo: theguardian.com"))
+        val caption = (only(cards) as ViewGroup).getChildAt(1) as TextView
+        assertEquals(0, caption.autoLinkMask)
+        assertFalse(caption.linksClickable)
+        assertNull(caption.movementMethod)
+        assertFalse(caption.isTextSelectable)
+        assertEquals(0, caption.paintFlags and android.graphics.Paint.UNDERLINE_TEXT_FLAG)
+        val text = caption.text
+        if (text is android.text.Spanned) {
+            assertEquals(0, text.getSpans(0, text.length, android.text.style.URLSpan::class.java).size)
+            assertEquals(0, text.getSpans(0, text.length, android.text.style.ClickableSpan::class.java).size)
+        }
+    }
+
+    @Test
+    fun `nothing on a loaded picture is tappable, long-pressable or focusable`() {
+        val (_, cards) = renderOnHome(bravePic())
+        allViews(only(cards)).forEach { v ->
+            val what = v.javaClass.simpleName
+            assertFalse("$what is clickable", v.isClickable)
+            assertFalse("$what is long-clickable", v.isLongClickable)
+            assertFalse("$what is context-clickable", v.isContextClickable)
+            assertFalse("$what is focusable", v.isFocusable)
+            assertFalse("$what has a click handler", v.hasOnClickListeners())
+            assertFalse("$what would open or share it", v.performClick())
+            assertFalse("$what would offer a save on a long press", v.performLongClick())
+        }
+    }
+
+    @Test
+    fun `a loaded picture is never announced`() {
+        val (_, cards) = renderOnHome(bravePic())
+        allViews(only(cards)).forEach {
+            assertEquals(View.ACCESSIBILITY_LIVE_REGION_NONE, it.accessibilityLiveRegion)
+        }
+        val image = (only(cards) as ViewGroup).getChildAt(0)
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO, image.importantForAccessibility)
+        // The caption stays readable by a screen reader, as plain text with no actions.
+        val caption = (only(cards) as ViewGroup).getChildAt(1) as TextView
+        assertTrue(caption.isImportantForAccessibility)
+        assertFalse(caption.isClickable)
+        assertFalse(caption.isLongClickable)
+    }
+
+    @Test
+    fun `a failed load renders nothing at all, no box, no caption, no error`() {
+        listOf(
+            bravePic(bytes = null, error = "could not be loaded (404)"),
+            bravePic(bytes = null, error = "refused a link"),
+            bravePic(bytes = null, error = "too large"),
+            bravePic(bytes = null, error = "timed out"),
+            bravePic(bytes = null),
+            bravePic(bytes = ByteArray(0)),
+            bravePic(title = "   "),
+            bravePic().copy(kind = "data"),
+        ).forEach { item ->
+            val a = home()
+            val host = replyContainer(a)
+            val before = host.childCount
+            AttachmentView.render(host, listOf(item))
+            assertEquals("a failed load left a trace: $item", 0, cards(host).size)
+            assertEquals(before, host.childCount)
+            assertFalse("the caption showed on its own",
+                allViews(host).filterIsInstance<TextView>().any { it.text.toString().contains("theguardian") })
+        }
+    }
+
+    @Test
+    fun `a failed load beside a good attachment leaves only the good one`() {
+        val (_, cards) = renderOnHome(
+            bravePic(bytes = null, error = "could not be loaded"),
+            attachment("text", title = "Note", text = "hello"),
+        )
+        assertEquals(1, cards.size)
+        assertTrue(allViews(cards[0]).filterIsInstance<TextView>().any { it.text.toString() == "hello" })
+    }
+
+    @Test
+    fun `a predecoded loaded picture still draws, from its bitmap alone`() {
+        val ready = AttachmentView.predecode(ctx(), listOf(bravePic())).single()
+        assertNotNull(ready.bitmap)
+        assertTrue(ready.remote)
+        val (_, cards) = renderOnHome(ready)
+        assertNotNull(((only(cards) as ViewGroup).getChildAt(0) as ImageView).drawable)
+    }
+
+    @Test
+    fun `an inline picture keeps its usual card, unchanged`() {
+        val (_, cards) = renderOnHome(attachment("image", mime = "image/png", title = "Chart", bytes = png(40, 40)))
+        val card = only(cards)
+        assertTrue(shown(card.findViewById<ImageView>(R.id.attachmentImage)))
+        assertEquals("Chart", tv(card, R.id.attachmentTitle).text.toString())
     }
 }

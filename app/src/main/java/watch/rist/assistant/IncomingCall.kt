@@ -74,19 +74,42 @@ object CallerId {
 
     private const val TAG = "RistIncoming"
 
+    /**
+     * The name for [number], from this phone alone: the system address book first (which holds the
+     * owner's own contacts and the Rist mirror of the backend's), then Rist's own copy of the
+     * backend's contacts. Never asks the network, so it works with no signal.
+     */
     fun nameFor(ctx: Context, number: String): String? {
         if (number.isBlank()) return null
-        return runCatching {
-            val uri = android.net.Uri.withAppendedPath(
-                ContactsContract.PhoneLookup.CONTENT_FILTER_URI, android.net.Uri.encode(number)
-            )
-            ctx.contentResolver.query(
-                uri, arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME), null, null, null
-            )?.use { c -> if (c.moveToFirst()) c.getString(0)?.takeIf { it.isNotBlank() } else null }
-        }.onFailure {
-            Log.w(TAG, "caller-ID lookup failed; showing the number instead", it)
-        }.getOrNull()
+        return providerName(ctx, number) ?: runCatching { ContactIndex.nameFor(ctx, number) }
+            .onFailure { Log.w(TAG, "contact index lookup failed", it) }.getOrNull()
     }
+
+    private fun providerName(ctx: Context, number: String): String? = runCatching {
+        val uri = android.net.Uri.withAppendedPath(
+            ContactsContract.PhoneLookup.CONTENT_FILTER_URI, android.net.Uri.encode(number)
+        )
+        ctx.contentResolver.query(
+            uri, arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME), null, null, null
+        )?.use { c -> if (c.moveToFirst()) c.getString(0)?.takeIf { it.isNotBlank() } else null }
+    }.onFailure {
+        Log.w(TAG, "caller-ID lookup failed; showing the number instead", it)
+    }.getOrNull()
+
+    /**
+     * Who a message or call is going to, for a toast: "Name · (206) 555-0100", or just the number
+     * when no name is known. [hint] is a name the backend sent with the command.
+     */
+    fun label(ctx: Context, number: String, hint: String = ""): String {
+        val shown = pretty(number).ifBlank { number }
+        // A hint with no letters is the number again in some other form, not a name.
+        val name = hint.trim().takeIf { h -> h.any { it.isLetter() } }
+            ?: nameFor(ctx, number)
+        return if (name.isNullOrBlank()) shown else "$name · $shown"
+    }
+
+    /** Drops cached names after the address book changed. */
+    fun forget() = CommsFeedView.forgetNames()
 
     fun pretty(number: String): String {
         val d = number.filter { it.isDigit() }

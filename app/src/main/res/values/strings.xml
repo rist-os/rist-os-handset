@@ -160,12 +160,26 @@
     <string name="pair_submit_desc">Connect this device using the code you typed</string>
     <string name="pair_prompt">Enter your pairing code. Codes may be temporary, so if yours has expired, you may need to request a new one.</string>
     <string name="pair_connected">Your device is connected.</string>
-    <string name="pair_revoked">This device\'s access was turned off. Connecting it again will not restore it — contact support.</string>
+    <string name="pair_revoked">This phone was removed from your account. To connect it again, open Phones in your Rist account, choose Add a phone, and enter the code it gives you here.</string>
     <string name="pair_working">Connecting…</string>
 
     <string name="status_never_connected">Not connected yet. Tap here to connect this device.</string>
     <string name="status_connection_lost">This device is no longer connected. Tap here to reconnect.</string>
-    <string name="status_revoked">This device\'s access was turned off. Tap here to find out what to do.</string>
+    <string name="status_revoked">This phone was removed from your account. Tap here to pair it again.</string>
+    <string name="billing_update_payment">Update payment</string>
+    <string name="billing_update_payment_desc">Open the payment page to renew your Rist Assistant subscription</string>
+    <string name="billing_opening">Opening the payment page…</string>
+    <string name="billing_open_account">Open account page</string>
+    <string name="billing_open_account_desc">Open your Rist account page to finish setting up your subscription</string>
+    <string name="emergency_button_desc">Emergency call</string>
+    <string name="removed_title">This phone was removed from your account</string>
+    <string name="removed_body">Rist can\'t answer on it. Nothing on the phone was erased. Calls, texts, the camera and your alarms still work, and you don\'t need to reset the phone.</string>
+    <string name="removed_steps_heading">To use Rist on this phone again</string>
+    <string name="removed_step_1">1. On a computer or another phone, sign in to your Rist account and open Phones.</string>
+    <string name="removed_step_2">2. Choose Add a phone. You\'ll get a pairing code.</string>
+    <string name="removed_step_3">3. Tap Enter pairing code below and type the code in.</string>
+    <string name="removed_pair">Enter pairing code</string>
+    <string name="removed_later">Not now</string>
     <string name="mail_unread_one">You have an unread email.</string>
     <string name="mail_unread_many">You have %1$d unread emails.</string>
     <string name="apps_label">Apps</string>
@@ -182,7 +196,7 @@
     <string name="torch_off_desc">Flashlight, off</string>
     <string name="record_label_answer">ANSWER</string>
     <string name="app_voicemail">Voicemail</string>
-    <string name="phone_settings_hint">Wi-Fi, Bluetooth, display and the rest of Android.</string>
+    <string name="phone_settings_hint">Wi-Fi, Bluetooth, display and the rest of the phone.</string>
 
     <string name="ota_offer_started">Update starting. It will install in the background, and the phone will ask you to restart when it is ready.</string>
     <string name="ota_offer_refused">That update could not be started. It may have been replaced by a newer one. Please try again later.</string>
@@ -245,4 +259,79 @@
     <string name="ota_downloading_stop">Stop waiting</string>
     <string name="ota_downloading_keep">Keep waiting</string>
     <string name="ota_downloading_stopped">Stopped. The update will be offered again the next time the phone checks.</string>
+
+    <!-- Home boxes -->
+    <string name="boxes_add">Add a tile</string>
+    <string name="boxes_empty_hint">Say or type what it should show or do: “the temperature”, “check my email”.</string>
+    <string name="boxes_all_short">All</string>
+    <string name="boxes_all_title">All tiles</string>
+    <string name="boxes_handle_desc">All tiles</string>
+    <string name="boxes_done">Done</string>
+    <string name="boxes_done_desc">Done editing tiles</string>
+    <string name="boxes_close">Close</string>
+    <string name="boxes_refresh">Refresh</string>
+    <string name="boxes_refreshing">Refreshing…</string>
+    <string name="boxes_refreshing_state">Refreshing</string>
+    <string name="boxes_refresh_slow">Still working…</string>
+    <string name="boxes_refresh_offline">Offline</string>
+    <string name="boxes_refresh_failed">Couldn\'t update</string>
+    <string name="boxes_create_label">New tile</string>
+    <string name="boxes_creating">Creating…</string>
+    <string name="boxes_creating_desc">Creating tile: %1$s. Hold to cancel.</string>
+    <string name="boxes_create_still">Still creating…</string>
+    <string name="boxes_create_failed">Couldn\'t create that tile</string>
+    <string name="boxes_add_queued">Offline. The tile will be added when you\'re back online</string>
+    <string name="boxes_create_cancel">Cancel</string>
+    <string name="boxes_edit">Edit</string>
+    <string name="boxes_delete">Delete</string>
+    <string name="boxes_move_left">Move left</string>
+    <string name="boxes_move_right">Move right</string>
+    <string name="boxes_move_earlier">Move earlier</string>
+    <string name="boxes_move_later">Move later</string>
+    <string name="boxes_removed_undo">Tile removed · UNDO</string>
+    <string name="boxes_removed_undo_desc">Tile removed. Double tap to undo.</string>
+    <string name="boxes_updated_at">Updated %1$s</string>
+    <string name="boxes_stale">out of date</string>
+    <string name="boxes_selected">Selected</string>
+    <string name="boxes_not_selected">Not selected</string>
+    <string name="boxes_kind_display">Display</string>
+    <string name="boxes_kind_display_sub">Shows something on a schedule</string>
+    <string name="boxes_kind_command">Command</string>
+    <string name="boxes_kind_command_sub">Sends your words when tapped</string>
+    <string name="boxes_sheet_add_title">Add a tile</string>
+    <string name="boxes_sheet_display_prompt">What should it show?</string>
+    <string name="boxes_sheet_command_prompt">What should it say?</string>
+    <string name="boxes_sheet_display_hint">Rist keeps it up to date. Say how often only if you want to.</string>
+    <string name="boxes_sheet_add_button">Add tile</string>
+    <string name="boxes_sheet_footer">Or just say it anywhere: “add a tile that shows my next meeting”.</string>
+    <string name="boxes_sheet_edit_title">Edit tile</string>
+    <string name="boxes_sheet_name">Name</string>
+    <string name="boxes_sheet_change_command">Change what this tile does</string>
+    <string name="boxes_sheet_change_display">Change what this tile shows</string>
+    <string name="boxes_sheet_save">Save</string>
+    <plurals name="boxes_count">
+        <item quantity="one">%d tile · hold one to move, edit or delete</item>
+        <item quantity="other">%d tiles · hold one to move, edit or delete</item>
+    </plurals>
+    <plurals name="boxes_all_desc">
+        <item quantity="one">All tiles, %d tile</item>
+        <item quantity="other">All tiles, %d tiles</item>
+    </plurals>
+
+    <!-- Notifications: the feed's heading, the built-in first tile and the screen it opens -->
+    <string name="notifications_title">Notifications</string>
+    <string name="notifications_none_new">None new</string>
+    <string name="notifications_new">%1$d new</string>
+    <string name="notifications_empty">No notifications.</string>
+    <plurals name="notifications_tile_desc">
+        <item quantity="one">Notifications, %d new. Double tap to open.</item>
+        <item quantity="other">Notifications, %d new. Double tap to open.</item>
+    </plurals>
+    <string name="look_heading">LOOK</string>
+    <string name="look_factory">Factory look</string>
+    <string name="look_set_by_assistant">Set by your assistant</string>
+    <string name="look_set_by_assistant_named">Set by your assistant: %1$s</string>
+    <string name="look_hint">Ask your assistant to change colours, fonts or text size.</string>
+    <string name="look_reset">Reset to default</string>
+    <string name="look_reset_done">Back to the factory look</string>
 </resources>

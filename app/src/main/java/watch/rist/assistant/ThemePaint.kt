@@ -53,6 +53,7 @@ object ThemePaint {
                     v.setHintTextColor(mapped(hintBase))
                     // `v.typeface = tf` alone resets the style to NORMAL; carry the existing style over.
                     v.typeface = Typeface.create(tf, v.typeface?.style ?: Typeface.NORMAL)
+                    if (t.typeScale != 1f || v.getTag(R.id.tag_theme_base_size) != null) scaleText(v, t)
                 }
                 is ImageView -> v.setColorFilter(t.ink)
             }
@@ -64,10 +65,49 @@ object ThemePaint {
     fun faintOf(t: RistTheme): Int =
         androidx.core.graphics.ColorUtils.blendARGB(t.ink, t.ground, 0.5f)
 
-    fun typefaceOf(ctx: Context, t: RistTheme): Typeface? = when (t.font) {
-        "pixel" -> runCatching { androidx.core.content.res.ResourcesCompat.getFont(ctx, R.font.pixel) }.getOrNull()
-        "mono" -> Typeface.MONOSPACE
-        "serif" -> Typeface.SERIF
-        else -> Typeface.SANS_SERIF
+    /** Ordinary-size text on a fill: WCAG AA, 4.5:1. */
+    const val TEXT_CONTRAST = 4.5
+
+    /**
+     * Words on an accent fill: the theme's ground where it reads at 4.5:1, else whichever of
+     * black or white reads better (one of them always reaches 4.5:1).
+     */
+    fun onAccent(t: RistTheme): Int = when {
+        contrast(t.ground, t.accent) >= TEXT_CONTRAST -> t.ground
+        contrast(android.graphics.Color.WHITE, t.accent) >= contrast(android.graphics.Color.BLACK, t.accent) ->
+            android.graphics.Color.WHITE
+        else -> android.graphics.Color.BLACK
+    }
+
+    /** The accent as a text colour on [fill] where it reads at 4.5:1, else the theme's text colour. */
+    fun accentTextOn(t: RistTheme, fill: Int): Int =
+        if (contrast(t.accent, fill) >= TEXT_CONTRAST) t.accent else t.ink
+
+    /** The body typeface: the design's font, in bold when the design asks for bold body text. */
+    fun typefaceOf(ctx: Context, t: RistTheme): Typeface? {
+        val tf = Fonts.typeface(ctx, t.font)
+        return if (t.bold) Typeface.create(tf, Typeface.BOLD) else tf
+    }
+
+    /** The clock's and the hold label's typeface. */
+    fun displayTypefaceOf(ctx: Context, t: RistTheme): Typeface? = Fonts.typeface(ctx, t.displayFont)
+
+    /** Body text never drops below this after scaling; smaller labels are never made smaller. */
+    const val TEXT_FLOOR_SP = 14f
+
+    /**
+     * [baseSp] scaled by the design's text scale. Text drawn at 14 sp or more never goes below
+     * 14 sp, and text drawn smaller is never shrunk further.
+     */
+    fun scaledSp(t: RistTheme, baseSp: Float): Float {
+        val scaled = baseSp * t.typeScale
+        return maxOf(scaled, minOf(baseSp, TEXT_FLOOR_SP))
+    }
+
+    /** Sets [v]'s size to its first-seen size scaled by [t]; safe to call on every repaint. */
+    fun scaleText(v: TextView, t: RistTheme) {
+        val baseSp = (v.getTag(R.id.tag_theme_base_size) as? Float)
+            ?: (v.textSize / v.resources.displayMetrics.scaledDensity).also { v.setTag(R.id.tag_theme_base_size, it) }
+        v.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, scaledSp(t, baseSp))
     }
 }

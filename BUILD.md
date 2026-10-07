@@ -27,9 +27,15 @@ whose image was built with that same platform key. It also bumps `versionCode` i
 `app/build.gradle.kts` and `app/src/main/AndroidManifest.xml`; revert that bump before
 submitting a change.
 
+**`push.sh` does not work on a phone running a published RistOS image.** Public images turn adb
+and Developer options off and keep them off, so there is nothing to install over. To develop on a
+phone, build your own dev image (without `RIST_PUBLIC_BUILD=true`) and flash it; adb stays on there.
+`./push.sh debug` builds a debuggable APK and needs `RIST_DEV_KEYS`: a separate dev platform key
+set, never the release one, and it installs only on a dev image built with that same key.
+
 ## The whole image
 
-RistOS is GrapheneOS for the Pixel 10a (`stallion`) with the Rist layer added. To build it:
+RistOS is built on GrapheneOS for the Pixel 10a (`stallion`) with the Rist layer added. To build it:
 
 1. Build GrapheneOS for `stallion` following [grapheneos.org/build](https://grapheneos.org/build).
 2. Add the Rist layer: append `image/stallion-wiring.txt` to the device makefile, and apply the

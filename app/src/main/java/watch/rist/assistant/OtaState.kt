@@ -27,6 +27,7 @@ object OtaState {
     private const val KEY_APPLYING_PERCENT = "applying_percent"
     private const val KEY_APPLYING_STATUS = "applying_status"
     private const val KEY_LAST_OK_AT = "last_ok_at"
+    private const val KEY_LAST_VERIFIED_AT = "last_verified_at"
     private const val KEY_LAST_NUDGE_AT = "last_nudge_at"
 
     const val DEFAULT_CHANNEL = "stable"
@@ -84,6 +85,13 @@ object OtaState {
     }
 
     fun lastSuccessAtSeconds(ctx: Context): Long = prefs(ctx).getLong(KEY_LAST_OK_AT, 0L)
+
+    /** When a manifest last passed its signature and expiry checks; only that can say "up to date". */
+    fun noteVerified(ctx: Context, atSeconds: Long) {
+        prefs(ctx).edit().putLong(KEY_LAST_VERIFIED_AT, atSeconds).apply()
+    }
+
+    fun lastVerifiedAtSeconds(ctx: Context): Long = prefs(ctx).getLong(KEY_LAST_VERIFIED_AT, 0L)
 
     fun notBeforeSeconds(ctx: Context): Long = prefs(ctx).getLong(KEY_NOT_BEFORE, 0L)
 

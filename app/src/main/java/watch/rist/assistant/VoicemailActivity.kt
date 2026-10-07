@@ -27,7 +27,7 @@ class VoicemailActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val t = Themes.byId(Config.themeId(this))
+        val t = Themes.current(this)
 
         val scroll = ScrollView(this).apply { setBackgroundColor(t.ground) }
         val col = LinearLayout(this).apply {

@@ -81,7 +81,7 @@ class PairingScreenTest {
     }
 
     @Test
-    fun `a revoked device says so, and is not offered a field that cannot help`() {
+    fun `a revoked device says so, and is offered the field to pair again`() {
         Config.setEnrolRevoked(ctx(), true)
         val a = settings()
         val status = a.findViewById<TextView>(R.id.pairStatus).text.toString()
@@ -90,8 +90,11 @@ class PairingScreenTest {
             "a revoked device must never read as connected",
             a.getString(R.string.pair_connected), status
         )
-        assertEquals(View.GONE, a.findViewById<EditText>(R.id.pairCodeInput).visibility)
-        assertEquals(View.GONE, a.findViewById<TextView>(R.id.pairSubmit).visibility)
+        assertEquals(
+            "a revoked phone with no way to pair again needs a factory reset",
+            View.VISIBLE, a.findViewById<EditText>(R.id.pairCodeInput).visibility
+        )
+        assertEquals(View.VISIBLE, a.findViewById<TextView>(R.id.pairSubmit).visibility)
     }
 
     @Test
@@ -166,13 +169,13 @@ class PairingScreenTest {
     }
 
     @Test
-    fun `the field comes back when a device returns to needing a code`() {
+    fun `the field stays when a revocation is lifted and the device still needs a code`() {
         Config.setEnrolRevoked(ctx(), true)
         val c = settingsController()
         val a = c.get()
         assertEquals(
-            "precondition: a revoked device hides the field",
-            View.GONE, a.findViewById<EditText>(R.id.pairCodeInput).visibility
+            "precondition: a revoked device is offered the field",
+            View.VISIBLE, a.findViewById<EditText>(R.id.pairCodeInput).visibility
         )
 
         Config.setEnrolRevoked(ctx(), false)

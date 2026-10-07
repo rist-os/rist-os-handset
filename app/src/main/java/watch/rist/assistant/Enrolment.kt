@@ -23,11 +23,26 @@ object Enrolment {
     private const val POLL_INTERVAL_MS = 3_000L
     private const val POLL_MAX_ATTEMPTS = 20
 
-    private const val MAX_ATTEMPTS = 3
+    // The first few texts go as fast as the nonce allows; after that each wait doubles, up to a day.
+    internal const val QUICK_ATTEMPTS = 3
+    internal const val BACKOFF_BASE_MS = 30L * 60L * 1000L
+    internal const val BACKOFF_MAX_MS = 24L * 60L * 60L * 1000L
 
-    enum class Readiness { READY, NO_SIM, NO_SERVICE, NOT_CONFIGURED, EXHAUSTED, REVOKED, ALREADY_ENROLLED }
+    enum class Readiness { READY, NO_SIM, NO_SERVICE, NOT_CONFIGURED, BACKING_OFF, ALREADY_ENROLLED }
 
     fun needed(ctx: Context): Boolean = Config.authToken(ctx).isBlank()
+
+    /** A revoked device holds a token that no longer works, so it pairs again like a new one. */
+    fun canPair(ctx: Context): Boolean = needed(ctx) || Config.enrolRevoked(ctx)
+
+    internal fun retryDelayMs(attempts: Int): Long {
+        if (attempts < QUICK_ATTEMPTS) return 0L
+        val doublings = (attempts - QUICK_ATTEMPTS).coerceAtMost(16)
+        return (BACKOFF_BASE_MS shl doublings).coerceAtMost(BACKOFF_MAX_MS)
+    }
+
+    internal fun nextAttemptAtMs(attempts: Int, lastSentAtMs: Long): Long =
+        if (attempts < QUICK_ATTEMPTS) 0L else lastSentAtMs + retryDelayMs(attempts)
 
     fun newNonce(): String {
         val bytes = ByteArray(16)
@@ -36,10 +51,14 @@ object Enrolment {
     }
 
     fun readiness(ctx: Context): Readiness {
-        if (!needed(ctx)) return Readiness.ALREADY_ENROLLED
-        if (Config.enrolRevoked(ctx)) return Readiness.REVOKED
+        if (!canPair(ctx)) return Readiness.ALREADY_ENROLLED
         if (target(ctx).isBlank()) return Readiness.NOT_CONFIGURED
-        if (Config.enrolAttempts(ctx) >= MAX_ATTEMPTS) return Readiness.EXHAUSTED
+        val now = System.currentTimeMillis()
+        // A send stamped in the future (the clock was wrong then) must not hold the phone off for years.
+        val sentAt = Config.enrolSentAtMs(ctx).let { if (it > now) 0L else it }
+        if (now < nextAttemptAtMs(Config.enrolAttempts(ctx), sentAt)) {
+            return Readiness.BACKING_OFF
+        }
         val tm = runCatching { ctx.getSystemService(TelephonyManager::class.java) }.getOrNull()
             ?: return Readiness.NO_SIM
         return when (tm.simState) {
@@ -56,10 +75,8 @@ object Enrolment {
             "Waiting for mobile service. Rist needs to send one text to finish setting up."
         Readiness.NOT_CONFIGURED ->
             "Enter the enrolment number your assistant service gave you."
-        Readiness.REVOKED ->
-            "This device's access was turned off by the assistant service. Setting it up again won't help."
-        Readiness.EXHAUSTED ->
-            "Setup couldn't be completed. Retrying will not help; check with whoever runs your assistant service."
+        Readiness.BACKING_OFF ->
+            "Setup hasn't finished yet. This phone will try again on its own a little later."
         Readiness.ALREADY_ENROLLED -> "Already set up."
         Readiness.READY -> "Setting up…"
     }
@@ -126,6 +143,8 @@ object Enrolment {
                                     false
                                 } else {
                                     clear(ctx)
+                                    Config.setEnrolRevoked(ctx, false)
+                                    WakeLoop.kick()
                                     Log.i(TAG, "enrolled: stored a ${token.length}-char token")
                                     true
                                 }
@@ -171,6 +190,9 @@ object Enrolment {
         NOT_GRANTED,
         STORE_FAILED,
         LOCKED_OUT,
+        PAYMENT_REQUIRED,
+        HELD_ELSEWHERE,
+        DEVICE_LIMIT,
     }
 
     // Backend floor: nonce min_length=8.
@@ -178,13 +200,28 @@ object Enrolment {
 
     internal fun isPlausibleCode(raw: String): Boolean = raw.trim().length >= MIN_CODE_LEN
 
-    internal fun classifyPair(code: Int, tokenBlank: Boolean): PairResult = when {
+    /** `X-Rist-Enrol` on a 409: which of the two it is. */
+    internal const val ENROL_REASON_HEADER = "X-Rist-Enrol"
+    internal const val HELD_DEVICE_LIMIT = "device-limit"
+    internal const val HELD_ELSEWHERE = "held-elsewhere"
+
+    /** Where a customer removes a phone; said on the device-limit 409. */
+    internal const val PHONES_PAGE = "ristassist.com/account/phones"
+
+    internal fun classifyPair(code: Int, tokenBlank: Boolean, detail: String = "", reason: String = ""): PairResult = when {
         code in 200..299 && tokenBlank -> PairResult.NOT_GRANTED
         code in 200..299 -> PairResult.OK
         code == 404 -> PairResult.NOT_RECOGNISED
         code == 403 -> PairResult.REFUSED
         code == 400 || code == 422 -> PairResult.MALFORMED
         code == 429 -> PairResult.LOCKED_OUT
+        // Two 409s: the account is at its device limit, or another account holds this phone.
+        // Either way the code is used up. Told apart by X-Rist-Enrol, else by the server's detail.
+        code == 409 && reason.trim().equals(HELD_DEVICE_LIMIT, ignoreCase = true) -> PairResult.DEVICE_LIMIT
+        code == 409 && reason.trim().equals(HELD_ELSEWHERE, ignoreCase = true) -> PairResult.HELD_ELSEWHERE
+        code == 409 && detail.contains("maximum", ignoreCase = true) -> PairResult.DEVICE_LIMIT
+        code == 409 -> PairResult.HELD_ELSEWHERE
+        code == Billing.PAYMENT_REQUIRED -> PairResult.PAYMENT_REQUIRED
         else -> PairResult.NETWORK
     }
 
@@ -208,11 +245,13 @@ object Enrolment {
                 .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
             client.newCall(req).execute().use { resp ->
+                val bodyText = runCatching { resp.body?.string().orEmpty() }.getOrDefault("")
                 val token = if (resp.isSuccessful) {
-                    runCatching { JSONObject(resp.body?.string().orEmpty()).optString("token").trim() }
-                        .getOrDefault("")
+                    runCatching { JSONObject(bodyText).optString("token").trim() }.getOrDefault("")
                 } else ""
-                var verdict = classifyPair(resp.code, token.isBlank())
+                val detail = if (resp.isSuccessful) "" else
+                    runCatching { JSONObject(bodyText).optString("detail").trim() }.getOrDefault("")
+                var verdict = classifyPair(resp.code, token.isBlank(), detail, resp.header(ENROL_REASON_HEADER).orEmpty())
                 if (verdict == PairResult.OK) {
                     Config.setAuthToken(ctx, token)
                     if (Config.authToken(ctx) != token) {
@@ -221,6 +260,10 @@ object Enrolment {
                     } else {
                         clear(ctx)
                         Config.setCredentialRejected(ctx, false)
+                        Config.setEnrolRevoked(ctx, false)
+                        Config.clearBillingLapse(ctx)
+                        // The wake loop may be sitting out a refused token's wait.
+                        WakeLoop.kick()
                         // Never log the code or the token.
                         Log.i(TAG, "paired: stored a ${token.length}-char token")
                     }
@@ -234,7 +277,7 @@ object Enrolment {
     }
 
     fun explainPair(r: PairResult): String = when (r) {
-        PairResult.OK -> "This device is now connected."
+        PairResult.OK -> "Connected to Rist Assist."
         PairResult.NOT_RECOGNISED ->
             "That code wasn't recognized. Check the characters and try again."
         PairResult.REFUSED ->
@@ -244,11 +287,19 @@ object Enrolment {
         PairResult.NO_ENDPOINT ->
             "No assistant service is set. Fill in the address just above, press Save endpoint, then connect."
         PairResult.NETWORK ->
-            "Couldn't reach the assistant service. Check the connection and try again — your code has not been used."
+            "Couldn't reach the assistant service. Check the connection and try again; if it then says the code was used, get a new one."
         PairResult.NOT_GRANTED ->
             "The assistant service answered but didn't connect this device. Get a new code and try again."
         PairResult.LOCKED_OUT ->
             "Too many attempts. Wait a few minutes, then get a new code and try again."
+        PairResult.PAYMENT_REQUIRED ->
+            "The assistant service says this account's subscription isn't active. Finish signing up or renew it in your Rist account, then try again — your code has not been used."
+        PairResult.HELD_ELSEWHERE ->
+            "This phone is still listed on another Rist account. Remove it on that account's Phones page, " +
+                "then get a new code and try again. This code has been used."
+        PairResult.DEVICE_LIMIT ->
+            "This account already has two phones. Remove one on the Phones page at $PHONES_PAGE, " +
+                "then get a new code and try again. This code has been used."
         PairResult.STORE_FAILED ->
             "This device couldn't save the connection securely, so it isn't connected. " +
                 "Restart the phone and try a new code; if it keeps happening, report it."
@@ -261,9 +312,11 @@ object Enrolment {
         else base.trimEnd('/') + "/v1/enroll"
     }
 
-    // Only a 401 may reach here; never 503 or 403.
+    // Only a 401 may reach here; never 503 or 403. A phone removed on the website gets 401, so
+    // this opens the pairing screen once (RemovedActivity); nothing waits on SMS enrolment.
     fun onCredentialDead(ctx: Context) {
         if (Config.enrolRevoked(ctx)) return
+        if (!Config.credentialRejected(ctx)) Config.setRemovedNoticeShown(ctx, false)
         // Must be set before the clear below.
         Config.setCredentialRejected(ctx, true)
         if (Config.authToken(ctx).isNotBlank()) {
@@ -272,9 +325,28 @@ object Enrolment {
         }
     }
 
+    /** Sent by the backend with the 403 for a revoked device; a bare 403 (proxy, WAF, unknown user) never latches. */
+    const val REVOKED_HEADER = "X-Rist-Device-Revoked"
+
+    internal fun isExplicitRevocation(code: Int, header: String?): Boolean =
+        code == 403 && header?.trim()?.lowercase() in setOf("1", "true")
+
+    // An explicit-revocation 403 only, never 402. The token is kept so the wake loop can notice a
+    // reinstatement, and pairing stays open so a new code can bring the phone back without a reset.
     fun onRevoked(ctx: Context) {
-        if (!Config.enrolRevoked(ctx)) Log.w(TAG, "this device has been revoked; enrolment disabled")
+        if (!Config.enrolRevoked(ctx)) {
+            Log.w(TAG, "this device has been revoked; pairing is open again")
+            // A new removal is told once more, on its own screen (RemovedActivity).
+            Config.setRemovedNoticeShown(ctx, false)
+        }
         Config.setEnrolRevoked(ctx, true)
+    }
+
+    /** The backend served this device again, so whatever revoked it has been undone. */
+    fun onReinstated(ctx: Context) {
+        if (!Config.enrolRevoked(ctx)) return
+        Log.i(TAG, "served again after a revocation; clearing it")
+        Config.setEnrolRevoked(ctx, false)
     }
 
     fun run(ctx: Context) {

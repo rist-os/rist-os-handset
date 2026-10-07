@@ -16,7 +16,7 @@ class SmsResultReceiver : BroadcastReceiver() {
         val cid = intent.getStringExtra(EXTRA_CID).orEmpty()
         when (resultCode) {
             Activity.RESULT_OK -> {
-                Log.i(TAG, "sms to $who: sent")
+                Log.i(TAG, "sms: sent")
                 toast(context, "Sent to $who")
                 CommsResults.record(context, cid, "send_sms", true)
             }
@@ -28,7 +28,7 @@ class SmsResultReceiver : BroadcastReceiver() {
                     SmsManager.RESULT_ERROR_GENERIC_FAILURE -> "the network rejected it"
                     else -> "error $resultCode"
                 }
-                Log.w(TAG, "sms to $who FAILED: $why")
+                Log.w(TAG, "sms FAILED: $why")
                 CommsResults.record(context, cid, "send_sms", false, why)
                 toast(context, "Could not text $who — $why")
             }

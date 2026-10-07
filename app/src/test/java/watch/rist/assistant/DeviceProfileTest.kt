@@ -9,7 +9,7 @@ class DeviceProfileTest {
 
     @Test
     fun schemaVersion_isTheOneTheProtoCallsCurrent() {
-        // The proto is a sync target from the backend repo; the constant is typed by hand.
+        // The proto follows the server's schema; the constant is typed by hand.
         // When they drift, the backend is told the device speaks a version it does not.
         assertEquals(rist.v1.SchemaVersion.SCHEMA_VERSION_CURRENT_VALUE, DeviceProfile.RCS_SCHEMA_VERSION)
     }
@@ -18,9 +18,7 @@ class DeviceProfileTest {
     fun phoneCapabilities_advertiseFullColorTouchProfile() {
         val caps: Capabilities = DeviceProfile.capabilities(screenW = 1080, screenH = 2400)
 
-        // Video calls, once declared, bring v15 with them; without them the phone stays at its own.
-        val expected = if (VideoCalls.SHIPPED) VideoCalls.SCHEMA_VERSION else DeviceProfile.RCS_SCHEMA_VERSION
-        assertEquals(expected, caps.schemaVersion)
+        assertEquals(DeviceProfile.RCS_SCHEMA_VERSION, caps.schemaVersion)
         assertEquals(24, caps.colorDepth)
         assertEquals(3 * 1024 * 1024, caps.maxImageBytes)
         assertEquals(listOf("button", "voice", "touch"), caps.inputList)
@@ -28,7 +26,9 @@ class DeviceProfileTest {
             listOf("card", "stack", "text", "stat", "list", "image", "chart", "button", "divider",
                    "map_tiles", "map_tiles_hd")
         ))
-        assertEquals(if (VideoCalls.SHIPPED) 12 else 11, caps.componentsCount)
+        // capabilities(w, h) lists no fonts; the device's own call adds one "font:<id>" per font.
+        val expected = 11 + listOf(VideoCalls.SHIPPED, HomeBoxes.SHIPPED, DesignSync.SHIPPED, Checklists.SHIPPED).count { it }
+        assertEquals(expected, caps.componentsCount)
     }
 
     @Test

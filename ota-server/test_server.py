@@ -39,6 +39,20 @@ def write_release(directory, name, manifest, sig=FAKE_SIG):
         with open(path + ".minisig", "wb") as fh:
             fh.write(sig)
     return raw
+
+
+def place_package(src, directory):
+    """Hard-link (or copy) the package in. The server refuses symlinks, so a fixture must not use one."""
+    dst = os.path.join(directory, os.path.basename(src))
+    if os.path.lexists(dst):
+        return dst
+    try:
+        os.link(src, dst)
+    except OSError:
+        shutil.copyfile(src, dst)
+    return dst
+
+
 BIG_SIZE = 16 * 1024 * 1024
 
 
@@ -106,9 +120,7 @@ class OtaTest(unittest.TestCase):
 
         pkg_dir = os.path.join(cls.tmp, "pkgs")
         os.makedirs(pkg_dir, exist_ok=True)
-        link = os.path.join(pkg_dir, os.path.basename(cls.zip_path))
-        if not os.path.exists(link):
-            os.symlink(os.path.abspath(cls.zip_path), link)
+        place_package(os.path.abspath(cls.zip_path), pkg_dir)
         cls.manifest_bytes = write_release(pkg_dir, "m.json", cls.manifest)
 
         os.environ["RIST_OTA_TOKEN"] = TOKEN
@@ -118,6 +130,10 @@ class OtaTest(unittest.TestCase):
         cls.big = os.path.join(pkg_dir, "big.bin")
         with open(cls.big, "wb") as fh:
             fh.truncate(BIG_SIZE)
+        # Only a file a signed manifest names is downloadable, so big.bin gets one of its own.
+        write_release(pkg_dir, "big.json", {
+            "device": "bigdev", "channel": "test", "timestamp": 1, "filename": "big.bin",
+            "payload_offset": 0, "payload_size": BIG_SIZE, "payload_properties": ""})
         cls.store = srv.Store(pkg_dir)
         cls.httpd = srv.make_server("127.0.0.1", 0, cls.store, token=TOKEN)
         cls.port = cls.httpd.server_address[1]
@@ -185,9 +201,10 @@ class OtaTest(unittest.TestCase):
         c.request("GET", "/v1/ota/stallion/stable")
         self.assertEqual(c.getresponse().status, 401)
 
-    def test_same_build_gets_204(self):
-        status, _, _ = self.req("/v1/ota/stallion/stable?build=%s" % self.manifest["build"])
-        self.assertEqual(status, 204)
+    def test_same_build_still_gets_the_signed_manifest(self):
+        status, _, body = self.req("/v1/ota/stallion/stable?build=%s" % self.manifest["build"])
+        self.assertEqual(status, 200)
+        self.assertEqual(body, self.manifest_bytes)
 
     def test_older_build_gets_the_manifest(self):
         status, _, body = self.req("/v1/ota/stallion/stable?build=2026010100")
@@ -232,7 +249,7 @@ class OtaTest(unittest.TestCase):
     def test_an_unsigned_manifest_is_not_served_at_all(self):
         d = tempfile.mkdtemp(prefix="ota-unsigned-", dir=self.tmp)
         name = os.path.basename(self.zip_path)
-        os.symlink(os.path.abspath(self.zip_path), os.path.join(d, name))
+        place_package(os.path.abspath(self.zip_path), d)
         write_release(d, "a.json", self.manifest, sig=None)
         port = self.spawn(store=self.srv.Store(d, reload_interval=0))
         self.assertEqual(self.req("/v1/ota/stallion/stable", port=port)[0], 404)
@@ -241,7 +258,7 @@ class OtaTest(unittest.TestCase):
     def test_an_empty_sidecar_is_treated_as_no_sidecar(self):
         d = tempfile.mkdtemp(prefix="ota-emptysig-", dir=self.tmp)
         name = os.path.basename(self.zip_path)
-        os.symlink(os.path.abspath(self.zip_path), os.path.join(d, name))
+        place_package(os.path.abspath(self.zip_path), d)
         write_release(d, "a.json", self.manifest, sig=b"   \n")
         port = self.spawn(store=self.srv.Store(d, reload_interval=0))
         self.assertEqual(self.req("/v1/ota/stallion/stable", port=port)[0], 404)
@@ -249,7 +266,7 @@ class OtaTest(unittest.TestCase):
     def test_a_sidecar_landing_late_is_picked_up_without_a_restart(self):
         d = tempfile.mkdtemp(prefix="ota-latesig-", dir=self.tmp)
         name = os.path.basename(self.zip_path)
-        os.symlink(os.path.abspath(self.zip_path), os.path.join(d, name))
+        place_package(os.path.abspath(self.zip_path), d)
         write_release(d, "a.json", self.manifest, sig=None)
         port = self.spawn(store=self.srv.Store(d, reload_interval=0))
         self.assertEqual(self.req("/v1/ota/stallion/stable", port=port)[0], 404)
@@ -262,7 +279,7 @@ class OtaTest(unittest.TestCase):
     def test_a_real_minisign_signature_verifies_against_the_served_bytes(self):
         d = tempfile.mkdtemp(prefix="ota-realsig-", dir=self.tmp)
         name = os.path.basename(self.zip_path)
-        os.symlink(os.path.abspath(self.zip_path), os.path.join(d, name))
+        place_package(os.path.abspath(self.zip_path), d)
         manifest_path = os.path.join(d, "a.json")
         write_release(d, "a.json", self.manifest, sig=None)
 
@@ -324,6 +341,42 @@ class OtaTest(unittest.TestCase):
             self.assertEqual(head, PAYLOAD[:16])
         else:
             self.assertEqual(head[:4], b"CrAU")
+
+    def test_a_file_no_manifest_names_is_not_served(self):
+        with open(os.path.join(self.pkg_dir, "secret.env"), "wb") as fh:
+            fh.write(b"KEY=not-for-download\n")
+        self.addCleanup(os.unlink, os.path.join(self.pkg_dir, "secret.env"))
+        self.assertEqual(self.req("/pkg/secret.env")[0], 404)
+        self.assertEqual(self.req("/pkg/m.json")[0], 404)
+
+    def test_a_symlinked_package_is_not_served(self):
+        d = tempfile.mkdtemp(prefix="ota-symlink-", dir=self.tmp)
+        name = os.path.basename(self.zip_path)
+        os.symlink(os.path.abspath(self.zip_path), os.path.join(d, name))
+        write_release(d, "a.json", self.manifest)
+        port = self.spawn(store=self.srv.Store(d, reload_interval=0))
+        self.assertEqual(self.req("/v1/ota/stallion/stable", port=port)[0], 404)
+        self.assertEqual(self.req("/pkg/" + name, port=port)[0], 404)
+
+    def test_a_symlink_out_of_the_root_is_not_served_even_if_a_manifest_names_it(self):
+        d = tempfile.mkdtemp(prefix="ota-escape-", dir=self.tmp)
+        outside = os.path.join(self.tmp, "outside.key")
+        with open(outside, "wb") as fh:
+            fh.write(b"private\n")
+        os.symlink(outside, os.path.join(d, "outside.key"))
+        m = dict(self.manifest, filename="outside.key")
+        m.pop("zip_size", None)
+        write_release(d, "a.json", m)
+        port = self.spawn(store=self.srv.Store(d, reload_interval=0))
+        self.assertEqual(self.req("/pkg/outside.key", port=port)[0], 404)
+
+    def test_a_manifest_naming_a_path_is_skipped(self):
+        d = tempfile.mkdtemp(prefix="ota-path-", dir=self.tmp)
+        place_package(os.path.abspath(self.zip_path), d)
+        m = dict(self.manifest, filename="../" + os.path.basename(self.zip_path))
+        write_release(d, "a.json", m)
+        port = self.spawn(store=self.srv.Store(d, reload_interval=0))
+        self.assertEqual(self.req("/v1/ota/stallion/stable", port=port)[0], 404)
 
     def test_traversal_is_refused(self):
         status, _, _ = self.req("/pkg/../../../etc/passwd")
@@ -503,7 +556,7 @@ class OtaTest(unittest.TestCase):
     def _second_release_dir(self):
         d = tempfile.mkdtemp(prefix="ota-reload-", dir=self.tmp)
         name = os.path.basename(self.zip_path)
-        os.symlink(os.path.abspath(self.zip_path), os.path.join(d, name))
+        place_package(os.path.abspath(self.zip_path), d)
         write_release(d, "a.json", self.manifest)
         newer = dict(self.manifest)
         newer["build"] = "2099010100"

@@ -43,7 +43,7 @@ class WakeService : Service() {
         return START_STICKY
     }
 
-    // §3: a held poll dies with the network it was on, so a new network means a new poll now,
+    // A held poll dies with the network it was on, so a new network means a new poll now,
     // not after the backoff runs out.
     private fun watchNetwork() {
         if (netCallback != null) return

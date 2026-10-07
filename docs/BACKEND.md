@@ -137,7 +137,8 @@ gate as the endpoint editor — a build with an endpoint compiled in hides both.
 
 Two other routes exist:
 
-- **Push a token file**, if you are scripting a fleet and not touching screens:
+- **Push a token file**, if you are scripting a fleet and not touching screens (dev images only:
+  a published image has adb turned off):
 
   ```sh
   echo -n 'choose-something' > rist-token.txt
@@ -169,6 +170,10 @@ Return `401` when the credential genuinely needs replacing. For anything else �
 transient fault, an unknown route — use the status that actually describes it. **`503` for
 "could not decide"** specifically: the device treats a single `401` as authoritative and does not
 retry, so a service that answers `401` where it means `503` will unpair every handset at once.
+
+**Revoking a device takes a `403` with `X-Rist-Device-Revoked: 1`.** The device then stops polling
+and stops offering pairing, so only a reset of the phone brings it back. A `403` without that header is only a refusal: the
+device reports it and tries again later, so a proxy or a firewall rule cannot disable a phone.
 
 `SECURITY.md` documents the threat model and the residual risks this accepts.
 
@@ -256,15 +261,15 @@ Attachment {
   title   = short label for the UI
   text    = the body, when kind=text
   data    = inline bytes, when kind=image|data (base64 over the JSON transport)
-  uri     = an alternative to inline: the device fetches it
+  uri     = a picture to load instead of inline bytes: kind=image on imgs.search.brave.com only
   tool_id = provenance
 }
 ```
 
 Inline `data` wins over `uri` when both are set.
 
-**Limits the device enforces.** Over these, the attachment is dropped or shown as an error — never
-silently omitted:
+**Limits the device enforces.** Over these, the attachment is dropped or shown as an error (a
+picture loaded from `uri` shows nothing instead; see below):
 
 | Limit | Value |
 |---|---|
@@ -272,15 +277,29 @@ silently omitted:
 | Bytes per response | 24 MiB |
 | Attachments per response | 8 |
 
-**`uri` must be `https`.** Plain `http` works only on a debuggable build. `file:`, `content:` and
-`data:` are refused before a socket opens, and a redirect landing on a refused scheme is refused
-too. An `image` must genuinely decode as one: the bytes are checked against known image headers
-before any decoder sees them, so a mislabelled `mime` is caught rather than trusted.
+An `image` must genuinely decode as one: the bytes are checked against known image headers before
+any decoder sees them, so a mislabelled `mime` is caught rather than trusted.
 
-**The device sends its bearer token only to your configured backend host** — matched on scheme, host
-AND port — and sends no credential anywhere else, including after a redirect. So a `uri` pointing at
-a CDN or object store must be self-authenticating: a signed URL, a capability in the path, or public.
-A bare link that expects the device's token will 403 and the user will see an error card.
+**`uri` is loaded from one host only.** The device loads `uri` only on a `kind = "image"`
+attachment, only when it is `https` on exactly `imgs.search.brave.com` (no subdomain, no
+user-info, port 443), and only when `title` is set. Every other `uri` is never requested: a
+picture on any other host shows nothing, a `kind = "data"` attachment with only a `uri` shows its
+usual file card (title and type, size unknown, cannot be opened on the phone), and a `kind = "text"`
+attachment with only a `uri` shows an error card. Put anything the phone should show in `data` or
+`text`. The device never sends its bearer token, or any credential, with a `uri` load.
+
+A loaded picture is fetched with a plain GET: no cookies, no bearer token or any other credential,
+no `Referer`. A redirect is followed only while it stays on that host. The body is capped at 8 MiB
+and the whole load at 10 seconds, and it must decode as JPEG, PNG, WebP or GIF. It is drawn with
+`title` under it as plain, non-tappable text (a credit such as "Photo: example.com", never a link);
+nothing on it can be opened, shared or saved, and it is held in memory only, never written to
+storage. A load that fails for any reason shows nothing at all, caption included, and is not
+retried. Pictures sent as inline `data` are unaffected by any of this.
+
+**A picture's credit is shown short.** Under a picture on the feed, `title` is drawn on at most
+two lines. A credit of the form `<title> by <author> (<site>, <licence>)` is shown as
+`Photo: <site> · <author> · <licence>`; any other credit is shown as sent. The full `title` is
+shown in the full-screen view of an inline picture.
 
 ## Place triggers (`Geofence`, schema v11)
 
@@ -299,6 +318,26 @@ already armed. `label` is for logs only and is never authority.
 `caps.max_geofences` (16 on this build) is mandatory: 0 or unset means "this device cannot
 do place triggers", and the backend then refuses to create one out loud rather than storing
 a fence nothing will ever evaluate.
+
+## Contacts (`ContactSync`, schema v14)
+
+Optional. A backend that keeps an address book can let the phone mirror it, so a call or a text
+from someone in it shows their name, with no network needed at ring time.
+
+- Put the owner's current contacts cursor in `DeviceResponse.contacts_cursor` and
+  `WakeSignal.contacts_cursor`, on every reply. It is opaque; the phone compares it for equality
+  with the one it last applied and pulls when they differ. Leave it empty while contacts are off.
+- Serve `GET <host>/v1/contacts?since=<cursor>` with the same `Authorization` header as the wake
+  channel, answering a `ContactSync`. An empty or unknown `since` gets `full = true` (the phone
+  replaces its copy); a known one gets the changes since it plus `deleted_ids`. Page with `more`
+  and `cursor`; the phone applies nothing until the last page is in.
+- `409` means contacts are off for this account: the phone stops asking and keeps what it has,
+  until a non-empty cursor arrives again.
+
+The phone writes the contacts into the system address book under a "Rist" account (one row per
+`ContactRecord.id`, with names, phone numbers, email addresses, nicknames from `aliases` and a note
+from `description`) and keeps its own copy for Rist's screens. It is one way for now: contacts made
+on the phone are not sent back. Settings has "Sync contacts with Rist" and "Sync now".
 
 ## Navigation (`NavCommand`)
 

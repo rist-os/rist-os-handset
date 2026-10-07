@@ -124,14 +124,14 @@ class VideoCallsTest {
     }
 
     @Test
-    fun `the capability is declared with v15 or not at all`() {
+    fun `the capability is the component alone, on the phone's own schema`() {
         val without = DeviceProfile.capabilities(1080, 2424, videoCalls = false)
         assertFalse(VideoCalls.COMPONENT in without.componentsList)
         assertEquals(DeviceProfile.RCS_SCHEMA_VERSION, without.schemaVersion)
 
         val with = DeviceProfile.capabilities(1080, 2424, videoCalls = true)
         assertTrue(VideoCalls.COMPONENT in with.componentsList)
-        assertEquals(15, with.schemaVersion)
+        assertEquals(DeviceProfile.RCS_SCHEMA_VERSION, with.schemaVersion)
     }
 
     @Test

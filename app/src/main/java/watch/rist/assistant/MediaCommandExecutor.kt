@@ -31,6 +31,10 @@ class MediaCommandExecutor(
         const val ACTION_PREVIOUS = "previous"
 
         internal data class Chapter(val url: String, val section: Int)
+
+        /** https only: the player would otherwise open file:, content: or asset: as this app. */
+        internal fun playable(url: String): Boolean =
+            url.isNotBlank() && url.trim().startsWith("https://", ignoreCase = true)
         internal data class Queue(val chapters: List<Chapter>, val startIndex: Int)
 
         /**
@@ -41,9 +45,9 @@ class MediaCommandExecutor(
          * so is a blank `stream_url`, which no player can open.
          */
         internal fun queueFor(streamUrl: String, section: Int, playlist: List<String>): Queue {
-            val now = if (streamUrl.isNotBlank()) listOf(Chapter(streamUrl, section)) else emptyList()
+            val now = if (playable(streamUrl)) listOf(Chapter(streamUrl, section)) else emptyList()
             val upcoming = playlist.mapIndexedNotNull { i, url ->
-                url.takeIf { it.isNotBlank() }?.let { Chapter(it, section + 1 + i) }
+                url.takeIf { playable(it) }?.let { Chapter(it, section + 1 + i) }
             }
             return Queue(now + upcoming, 0)
         }

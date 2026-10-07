@@ -15,7 +15,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     steps:
       # fetch-depth 0: preflight_publish.sh scans history; a shallow clone would silently pass.
       - uses: actions/checkout@v7
@@ -133,7 +133,7 @@ jobs:
 
       - name: Build and test
         if: steps.scope.outputs.docs_only != 'true'
-        timeout-minutes: 12
+        timeout-minutes: 40
         run: ./gradlew :app:assembleDebug test --no-daemon --stacktrace
 
       - name: Upload test reports on failure

@@ -1,17 +1,18 @@
 package watch.rist.assistant
 
-import android.content.pm.ApplicationInfo
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import androidx.test.core.app.ApplicationProvider
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import java.util.concurrent.CountDownLatch
@@ -21,10 +22,16 @@ import java.util.concurrent.atomic.AtomicInteger
 @RunWith(RobolectricTestRunner::class)
 class AttachmentGenerationTest {
 
-    // FLAG_DEBUGGABLE is the only thing [Config.isDebugBuild] reads; MockWebServer speaks plain http.
-    private fun allowPlainHttp(a: MainActivity) {
-        val ai = a.applicationContext.applicationInfo
-        ai.flags = ai.flags or ApplicationInfo.FLAG_DEBUGGABLE
+    @After
+    fun undial() {
+        Attachments.dialForTest = null
+    }
+
+    private val png: ByteArray by lazy {
+        val out = java.io.ByteArrayOutputStream()
+        android.graphics.Bitmap.createBitmap(8, 6, android.graphics.Bitmap.Config.ARGB_8888)
+            .compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+        out.toByteArray()
     }
 
     private fun activity() = Robolectric.buildActivity(MainActivity::class.java).create().get()
@@ -246,7 +253,6 @@ class AttachmentGenerationTest {
         val server = gatedServer(gate, requests)
         try {
             val a = activity()
-            allowPlainHttp(a)
             a.handleReply(
                 replyWithFetches(server, "First", "Second"),
                 subject = "test", clear = true,
@@ -280,7 +286,6 @@ class AttachmentGenerationTest {
         val server = gatedServer(gate, requests)
         try {
             val a = activity()
-            allowPlainHttp(a)
             a.handleReply(replyWithFetches(server, "Stale"), subject = "test", clear = true)
             assertTrue("precondition: the fetch never started", awaitRequests(requests, atLeast = 1))
 
@@ -362,12 +367,15 @@ class AttachmentGenerationTest {
             s.dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     if (requests.incrementAndGet() == 1) gate.await(20, TimeUnit.SECONDS)
-                    return MockResponse().setBody("attachment-bytes")
+                    return MockResponse().setBody(okio.Buffer().write(png))
                 }
             }
             s.start()
+            // Pictures load only from Brave's host; this serves that host's urls from here.
+            Attachments.dialForTest = { real -> s.url(real.encodedPath) }
         }
 
+    @Suppress("UNUSED_PARAMETER")
     private fun replyWithFetches(server: MockWebServer, vararg titles: String): rist.v1.DeviceResponse {
         val b = rist.v1.DeviceResponse.newBuilder()
             .setStatus(200)
@@ -376,11 +384,11 @@ class AttachmentGenerationTest {
         titles.forEach { t ->
             b.addAttachments(
                 rist.v1.Attachment.newBuilder()
-                    .setKind("data")
-                    .setMime("application/octet-stream")
+                    .setKind("image")
+                    .setMime("image/jpeg")
                     .setTitle(t)
-                    .setUri(server.url("/$t.bin").toString())
-                    .setToolId("test")
+                    .setUri("https://imgs.search.brave.com/" + t.filter { it.isLetterOrDigit() })
+                    .setToolId("image-search")
                     .build()
             )
         }
@@ -483,5 +491,55 @@ class AttachmentGenerationTest {
             "the answer was dismissed and its picture is still on screen",
             0, cards(a)
         )
+    }
+
+    private fun braveServer(status: Int): MockWebServer = MockWebServer().also { s ->
+        s.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse =
+                if (status == 200) MockResponse().setBody(okio.Buffer().write(png))
+                else MockResponse().setResponseCode(status)
+        }
+        s.start()
+        Attachments.dialForTest = { real -> s.url(real.encodedPath) }
+    }
+
+    @Test(timeout = 30_000)
+    fun `a Brave picture in a real reply is drawn under the answer and never written to disk`() {
+        val server = braveServer(200)
+        try {
+            val c = Robolectric.buildActivity(MainActivity::class.java).create()
+            val a = c.get()
+            Transcript.begin(a, "a picture of the guy who drew Waldo", EntryState.ANSWERED)
+            a.handleReply(replyWithFetches(server, "Photo: theguardian.com"), subject = "test", clear = true)
+
+            assertTrue(awaitTitle(a, "Photo: theguardian.com").contains("Photo: theguardian.com"))
+            assertEquals(1, server.requestCount)
+            assertTrue(
+                "a picture loaded from a url was kept on disk",
+                ReceivedPhotos.byEntry(a).isEmpty()
+            )
+            // Still there after a repaint of the feed, from memory.
+            c.pause().resume()
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            assertEquals(1, cards(a))
+            assertEquals("no reload on a repaint", 1, server.requestCount)
+        } finally {
+            runCatching { server.shutdown() }
+            ReceivedPhotos.clearAll(ApplicationProvider.getApplicationContext())
+        }
+    }
+
+    @Test(timeout = 30_000)
+    fun `a Brave picture that fails to load leaves nothing on screen`() {
+        val server = braveServer(404)
+        try {
+            val a = activity()
+            a.handleReply(replyWithFetches(server, "Photo: theguardian.com"), subject = "test", clear = true)
+            assertFalse(awaitSettledText(a).contains("theguardian"))
+            assertEquals(0, cards(a))
+            assertEquals("no retry", 1, server.requestCount)
+        } finally {
+            runCatching { server.shutdown() }
+        }
     }
 }

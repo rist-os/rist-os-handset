@@ -42,7 +42,7 @@ class OtaUpdateButtonTest {
         OtaState.clearApprovals(ctx())
         // A staged build outranks every other state; clearApprovals is what resets consent.
         OtaState.setReadyBuild(ctx(), "")
-        Config.setThemeId(ctx(), "ledger")
+        TestLooks.reset(ctx())
         setNetwork(connected = true, metered = false)
     }
 
@@ -614,7 +614,7 @@ class OtaUpdateButtonTest {
         for (t in Themes.ALL) {
             OtaState.clearApprovals(ctx())
             OtaState.recordOffer(ctx(), build, bytes)
-            Config.setThemeId(ctx(), t.id)
+            TestLooks.use(ctx(), t)
             setNetwork(connected = true, metered = true)
             val a = activity()
             button(a)!!.performClick()
@@ -633,7 +633,7 @@ class OtaUpdateButtonTest {
         for (t in Themes.ALL) {
             OtaState.clearApprovals(ctx())
             OtaState.recordOffer(ctx(), build, bytes)
-            Config.setThemeId(ctx(), t.id)
+            TestLooks.use(ctx(), t)
 
             setNetwork(connected = false, metered = false)
             val a = activity()
@@ -656,7 +656,7 @@ class OtaUpdateButtonTest {
     @Test
     fun `every dialog offers a button that dismisses it`() {
         OtaState.recordOffer(ctx(), build, bytes)
-        Config.setThemeId(ctx(), "night")
+        TestLooks.use(ctx(), Themes.byId("night"))
 
         setNetwork(connected = true, metered = true)
         val a = activity()

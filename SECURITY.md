@@ -60,14 +60,16 @@ infers the caller from the most recent missed call. **It can be wrong.**
   handset with no screen lock (`KioskManager.duressCredentialIsReachable`, pinned by
   `DuressReachabilityTest`). **Not verified on hardware:** that a device comes back up usable after a
   duress wipe on our image.
-- **Developer options and adb are enabled on first boot** by `aosp/init/rist-provision-do.sh`.
-  They are not re-forced later: turn USB
-  debugging off and it stays off. A handset with no screen lock — the default, since the keyguard
-  follows the user's own PIN — needs only physical access and a cable for an authorized adb shell.
-  `com.android.systemui` is allowlisted in lock task so the adb authorization dialog can be answered.
-- **Two Device Owner restrictions are deliberately not set.** Applied and read back:
+- **Developer options and adb are enabled on first boot of a dev image only.** A public image
+  (`RIST_PUBLIC_BUILD=true`, which ships `/product/etc/rist/public-build`) turns them off once in
+  `aosp/init/rist-provision-do.sh`, and the Device Owner sets `DISALLOW_DEBUGGING_FEATURES`, so
+  they cannot be turned back on from Settings. The hidden "Exit kiosk" corner exists only on dev
+  images. On a dev image a handset with no screen lock needs only physical access and a cable for
+  an authorized adb shell.
+- **One Device Owner restriction is deliberately not set.** Applied and read back:
   `DISALLOW_SAFE_BOOT`, `DISALLOW_ADD_USER`, `DISALLOW_INSTALL_UNKNOWN_SOURCES`,
-  `DISALLOW_UNINSTALL_APPS`. Not applied: `DISALLOW_FACTORY_RESET`, `DISALLOW_DEBUGGING_FEATURES`.
+  `DISALLOW_UNINSTALL_APPS`, plus `DISALLOW_DEBUGGING_FEATURES` on public images. Not applied:
+  `DISALLOW_FACTORY_RESET`.
 - **Some personal identifiers appear in logs.** Credentials are masked everywhere, dialled numbers
   are masked (`Redact.maskNumber` in `DeviceCommands`), and outbound message bodies are logged as a
   character count rather than content.

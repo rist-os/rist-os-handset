@@ -12,11 +12,9 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 
 /**
- * The regression this exists for: the kiosk withholds LOCK_TASK_FEATURE_NOTIFICATIONS, so there is no
- * shade, no heads-up and no ongoing-call chip, and recents is off -- but HOME is on and Rist is HOME.
- * One press therefore left a live call with no way back to it and End unreachable. One outgoing call
- * ran 3m14s and stopped only when the far end hung up; there is no disconnect request for it in the
- * log at all, because there was no way to ask for one.
+ * The kiosk withholds LOCK_TASK_FEATURE_NOTIFICATIONS, so there is no shade, no heads-up and no
+ * ongoing-call chip, and recents is off -- but HOME is on and Rist is HOME. One press would leave a
+ * live call with no way back to it and End unreachable.
  */
 @RunWith(RobolectricTestRunner::class)
 class CallStateTest {

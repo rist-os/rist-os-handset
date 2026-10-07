@@ -19,8 +19,10 @@ object VoicemailTranscript {
         data class Failed(val why: String) : Result()
     }
 
+    private const val MAX_TRANSCRIPT_BYTES = 256 * 1024
+
     fun fetch(ctx: Context, id: String): Result {
-        if (id.isBlank()) return Result.NotFound
+        if (!VoicemailAudio.safeId(id)) return Result.NotFound
 
         val base = Config.backendUrl(ctx)
         if (!base.startsWith("http")) return Result.Failed("no assistant service configured")
@@ -42,11 +44,20 @@ object VoicemailTranscript {
                     // 204 must be tested before isSuccessful (2xx).
                     resp.code == 204 -> { Log.i(TAG, "no words yet for $id"); Result.NotReady }
                     resp.code == 202 -> { Log.i(TAG, "transcription still running for $id"); Result.NotReady }
-                    resp.isSuccessful -> parse(resp.body?.string().orEmpty(), id)
+                    resp.isSuccessful -> parse(
+                        resp.body?.byteStream()?.let { Attachments.readBounded(it, MAX_TRANSCRIPT_BYTES) }
+                            ?.toString(Charsets.UTF_8).orEmpty(), id)
                     resp.code == 410 -> { Log.i(TAG, "audio expired for $id; nothing to read"); Result.Expired }
                     resp.code == 404 -> { Log.i(TAG, "no transcript route or no such message: $id"); Result.NotFound }
                     resp.code == 401 -> { Enrolment.onCredentialDead(ctx); Result.Failed("not authorised") }
-                    resp.code == 403 -> { Enrolment.onRevoked(ctx); Result.Failed("access turned off") }
+                    resp.code == 403 -> if (Enrolment.isExplicitRevocation(403, resp.header(Enrolment.REVOKED_HEADER))) {
+                        Enrolment.onRevoked(ctx); Result.Failed("access turned off")
+                    } else Result.Failed("access refused")
+                    resp.code == Billing.PAYMENT_REQUIRED -> {
+                        val lapse = Billing.lapseWithLine(resp)
+                        Billing.onLapsed(ctx, lapse)
+                        Result.Failed(Billing.lineFor(lapse))
+                    }
                     else -> Result.Failed("couldn't read that one (${resp.code})")
                 }
             }

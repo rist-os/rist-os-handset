@@ -46,7 +46,8 @@ class AlarmService : Service() {
 
         runCatching { startForeground(NOTIF_ID, buildNotification(title, text)) }
             .onFailure { Log.w(TAG, "startForeground failed", it) }
-        Log.i(TAG, "ringing: $title / $text")
+        Log.i(TAG, "ringing: $title")
+        ringingId = intent?.getStringExtra(AlarmReceiver.EXTRA_ALARM_ID).orEmpty()
         runCatching { DeviceCommands.setRinging(applicationContext, text) }
 
         takeAudioFocus()
@@ -249,6 +250,7 @@ class AlarmService : Service() {
     }
 
     override fun onDestroy() {
+        ringingId = ""
         runCatching { DeviceCommands.setRinging(applicationContext, "") }
         stopHandler.removeCallbacksAndMessages(null)
         stopNoise()
@@ -267,6 +269,18 @@ class AlarmService : Service() {
         const val ACTION_DISMISS = "watch.rist.assistant.ALARM_DISMISS"
         const val EXTRA_REASON = "reason"
         const val EXTRA_IS_TIMER = "is_timer"
+
+        /** The id of the alarm sounding now, "" when none is. */
+        @Volatile var ringingId: String = ""
+            internal set
+
+        /** A backend cancel or snooze names one alarm and must not silence another; a blank cancel is "every alarm". */
+        internal fun ringingMatches(id: String, blankMeansAll: Boolean, ringing: String = ringingId): Boolean =
+            if (id.isBlank()) blankMeansAll else id == ringing
+
+        fun dismissIfRinging(ctx: Context, id: String, reason: String, blankMeansAll: Boolean) {
+            if (ringingMatches(id, blankMeansAll)) dismiss(ctx, reason)
+        }
 
         fun dismiss(ctx: Context, reason: String = "unnamed") = runCatching {
             ctx.startService(

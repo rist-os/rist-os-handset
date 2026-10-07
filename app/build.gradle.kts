@@ -31,7 +31,7 @@ android {
         applicationId = "watch.rist.assistant"
         minSdk = 34
         targetSdk = 35
-        versionCode = 1010
+        versionCode = 1040
         versionName = "0.2.0"
 
         ndk { abiFilters += "arm64-v8a" }
@@ -72,6 +72,10 @@ android {
     }
 }
 
+tasks.withType<Test>().configureEach {
+    maxHeapSize = "2g"
+}
+
 // OtaEngineCallback.kt subclasses @SystemApi UpdateEngineCallback, absent from the public android.jar; Soong-only.
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
     exclude("**/OtaEngineCallback.kt")
@@ -82,6 +86,8 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+    // Already in the APK through Material; named here because the home boxes use it directly.
+    implementation("androidx.recyclerview:recyclerview:1.1.0")
     implementation("androidx.activity:activity-ktx:1.9.2")
     implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
 

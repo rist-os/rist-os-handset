@@ -43,8 +43,32 @@ object Config {
     private const val KEY_ENROL_SENT_AT = "enrol_sent_at"
     private const val KEY_ENROL_ATTEMPTS = "enrol_attempts"
     private const val KEY_RIST_NUMBER = "rist_number"
-    private const val KEY_ENROL_REVOKED = "enrol_revoked"
+    // Renamed when only an explicit signal could latch it: the old key was set by any 403.
+    private const val KEY_ENROL_REVOKED = "enrol_revoked_explicit"
     private const val KEY_CREDENTIAL_REJECTED = "credential_rejected"
+    private const val KEY_BILLING_LAPSE = "billing_lapse"
+    private const val KEY_BILLING_RENEW = "billing_renew_url"
+    private const val KEY_BILLING_PORTAL = "billing_portal_path"
+    private const val KEY_BILLING_NO_PORTAL = "billing_no_portal"
+    private const val KEY_BILLING_ACCOUNT_URL = "billing_account_url"
+    private const val KEY_BILLING_LINE = "billing_line"
+    private const val KEY_FEATURES = "features"
+    private const val KEY_HOME_BOXES = "home_boxes"
+    private const val KEY_DESIGN_SPEC = "design_spec"
+    private const val KEY_DESIGN_PREVIOUS = "design_previous"
+    private const val KEY_DESIGN_STATE = "design_state"
+    private const val KEY_DESIGN_POST = "design_post"
+    private const val KEY_SETTINGS_VERSION = "settings_version"
+    private const val KEY_DESIGN_MIGRATED = "design_migrated"
+    private const val KEY_BOX_EDIT_QUEUE = "box_edit_queue"
+    private const val KEY_ITEM_CHECK_QUEUE = "item_check_queue"
+    private const val KEY_CHECKLIST_BOXES_SEEN = "checklist_boxes_seen"
+    private const val KEY_CONTACTS_SYNC_OFF = "contacts_sync_off"
+    private const val KEY_CONTACTS_REFUSED = "contacts_refused"
+    private const val KEY_CONTACTS_CURSOR = "contacts_cursor"
+    private const val KEY_CONTACTS_NEEDS_FULL = "contacts_needs_full"
+    private const val KEY_CONTACTS_SYNCED_AT = "contacts_synced_at"
+    private const val KEY_REMOVED_NOTICE_SHOWN = "removed_notice_shown"
     private const val KEY_COMMS_RESULTS = "comms_results"
     private const val KEY_VOICEMAILS = "voicemails"
     private const val KEY_SETTINGS_STATE = "settings_state"
@@ -82,6 +106,20 @@ object Config {
     }
 
     @Volatile private var cached: SharedPreferences? = null
+
+    /**
+     * Robolectric has no AndroidKeyStore; this lets a test hold the secret keys in plain prefs.
+     * Refuses to run anywhere but Robolectric, so no code path can put secrets in plain prefs on a phone.
+     */
+    internal fun usePlainPrefsForTest(ctx: Context) {
+        check(isRobolectric()) { "plain prefs are for Robolectric tests only" }
+        cached = ctx.applicationContext.getSharedPreferences("$PREFS.test", Context.MODE_PRIVATE)
+    }
+
+    internal fun forgetPrefsForTest() { cached = null }
+
+    internal fun isRobolectric(fingerprint: String? = android.os.Build.FINGERPRINT): Boolean =
+        fingerprint == "robolectric"
 
     private fun prefs(ctx: Context): SharedPreferences {
         cached?.let { return it }
@@ -196,7 +234,11 @@ object Config {
 
     private fun clearAuthTokenForHostChange(ctx: Context) {
         val had = authToken(ctx).length
-        prefs(ctx).edit().remove(KEY_AUTH_TOKEN).apply()
+        // A revocation or a lapse was one backend's word about this device, not the next one's.
+        prefs(ctx).edit().remove(KEY_AUTH_TOKEN).remove(KEY_ENROL_REVOKED).remove(KEY_BILLING_LAPSE)
+            .remove(KEY_BILLING_RENEW).remove(KEY_BILLING_PORTAL).remove(KEY_BILLING_NO_PORTAL).remove(KEY_BILLING_ACCOUNT_URL).remove(KEY_BILLING_LINE)
+            .remove(KEY_FEATURES).remove(KEY_CONTACTS_SYNC_OFF).remove(KEY_REMOVED_NOTICE_SHOWN)
+            .remove(KEY_CONTACTS_REFUSED).remove(KEY_CONTACTS_CURSOR).apply()
         if (had > 0) {
             android.util.Log.i("RistConfig", "backend endpoint changed; cleared the device token ($had chars)")
         }
@@ -259,6 +301,92 @@ object Config {
     fun setCredentialRejected(ctx: Context, v: Boolean) {
         prefs(ctx).edit().putBoolean(KEY_CREDENTIAL_REJECTED, v).apply()
     }
+
+    fun billingLapse(ctx: Context): String = prefs(ctx).getString(KEY_BILLING_LAPSE, "") ?: ""
+    fun billingRenewUrl(ctx: Context): String = prefs(ctx).getString(KEY_BILLING_RENEW, "") ?: ""
+    fun billingPortalPath(ctx: Context): String = prefs(ctx).getString(KEY_BILLING_PORTAL, "") ?: ""
+    fun billingNoPortal(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_BILLING_NO_PORTAL, false)
+    fun setBillingNoPortal(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_BILLING_NO_PORTAL, v).apply() }
+
+    fun billingAccountUrl(ctx: Context): String = prefs(ctx).getString(KEY_BILLING_ACCOUNT_URL, "") ?: ""
+
+    fun billingLine(ctx: Context): String = prefs(ctx).getString(KEY_BILLING_LINE, "") ?: ""
+
+    fun setBillingLapse(
+        ctx: Context, reason: String, renewUrl: String, portalPath: String, accountUrl: String = "", line: String = "",
+    ) {
+        prefs(ctx).edit().putString(KEY_BILLING_LAPSE, reason).putString(KEY_BILLING_RENEW, renewUrl)
+            .putString(KEY_BILLING_PORTAL, portalPath).putString(KEY_BILLING_ACCOUNT_URL, accountUrl)
+            .putString(KEY_BILLING_LINE, line).apply()
+    }
+
+    fun clearBillingLapse(ctx: Context) {
+        prefs(ctx).edit().remove(KEY_BILLING_LAPSE).remove(KEY_BILLING_RENEW)
+            .remove(KEY_BILLING_PORTAL).remove(KEY_BILLING_NO_PORTAL).remove(KEY_BILLING_ACCOUNT_URL)
+            .remove(KEY_BILLING_LINE).apply()
+    }
+
+    /** The last feature set the backend sent, as JSON; empty when none has ever arrived. */
+    fun features(ctx: Context): String = prefs(ctx).getString(KEY_FEATURES, "") ?: ""
+    fun setFeatures(ctx: Context, json: String) { prefs(ctx).edit().putString(KEY_FEATURES, json).apply() }
+
+    /** The last home box set, as base64 protobuf bytes; empty when none has ever arrived. */
+    fun homeBoxes(ctx: Context): String = prefs(ctx).getString(KEY_HOME_BOXES, "") ?: ""
+    fun setHomeBoxes(ctx: Context, b64: String) { prefs(ctx).edit().putString(KEY_HOME_BOXES, b64).apply() }
+
+    /** The applied DesignSpec, base64 protobuf; empty for the factory look. */
+    fun designSpec(ctx: Context): String = prefs(ctx).getString(KEY_DESIGN_SPEC, "") ?: ""
+    fun setDesignSpec(ctx: Context, b64: String) { prefs(ctx).edit().putString(KEY_DESIGN_SPEC, b64).apply() }
+    /** The spec before it, kept so a design that will not draw can be undone on the phone. */
+    fun designPrevious(ctx: Context): String = prefs(ctx).getString(KEY_DESIGN_PREVIOUS, "") ?: ""
+    fun setDesignPrevious(ctx: Context, b64: String) { prefs(ctx).edit().putString(KEY_DESIGN_PREVIOUS, b64).apply() }
+    /** The DesignState the next turn carries, base64 protobuf. */
+    fun designState(ctx: Context): String = prefs(ctx).getString(KEY_DESIGN_STATE, "") ?: ""
+    fun setDesignState(ctx: Context, b64: String) { prefs(ctx).edit().putString(KEY_DESIGN_STATE, b64).apply() }
+    /** A look changed on the phone and not yet accepted by the backend, base64 protobuf. */
+    fun designPost(ctx: Context): String = prefs(ctx).getString(KEY_DESIGN_POST, "") ?: ""
+    fun setDesignPost(ctx: Context, b64: String) { prefs(ctx).edit().putString(KEY_DESIGN_POST, b64).apply() }
+    /** The SettingsCommand.version last applied; 0 after a wipe. */
+    fun settingsVersion(ctx: Context): Long = prefs(ctx).getLong(KEY_SETTINGS_VERSION, 0L)
+    fun setSettingsVersion(ctx: Context, v: Long) { prefs(ctx).edit().putLong(KEY_SETTINGS_VERSION, v).apply() }
+    /** Whether the theme picked before designs came from the backend was handed over. */
+    fun designMigrated(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_DESIGN_MIGRATED, false)
+    fun setDesignMigrated(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_DESIGN_MIGRATED, v).apply() }
+
+    /** Touch edits to the boxes not yet accepted by the backend, oldest first, as a JSON array. */
+    fun boxEditQueue(ctx: Context): String = prefs(ctx).getString(KEY_BOX_EDIT_QUEUE, "") ?: ""
+    fun setBoxEditQueue(ctx: Context, json: String) { prefs(ctx).edit().putString(KEY_BOX_EDIT_QUEUE, json).apply() }
+
+    /** List ticks not yet accepted by the backend, latest state per item, as a JSON array. */
+    fun itemCheckQueue(ctx: Context): String = prefs(ctx).getString(KEY_ITEM_CHECK_QUEUE, "") ?: ""
+    fun setItemCheckQueue(ctx: Context, json: String) { prefs(ctx).edit().putString(KEY_ITEM_CHECK_QUEUE, json).apply() }
+
+    /** Whether a box list has arrived since this phone first declared checklists. */
+    fun checklistBoxesSeen(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_CHECKLIST_BOXES_SEEN, false)
+    fun setChecklistBoxesSeen(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_CHECKLIST_BOXES_SEEN, v).apply() }
+
+    fun contactsSyncOff(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_CONTACTS_SYNC_OFF, false)
+    fun setContactsSyncOff(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_CONTACTS_SYNC_OFF, v).apply() }
+
+    /** The backend answered a contacts route with "contacts off for this account". */
+    fun contactsRefused(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_CONTACTS_REFUSED, false)
+    fun setContactsRefused(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_CONTACTS_REFUSED, v).apply() }
+    /** The contacts cursor last applied to the mirror; empty = never synced. */
+    fun contactsCursor(ctx: Context): String = prefs(ctx).getString(KEY_CONTACTS_CURSOR, "") ?: ""
+    fun setContactsCursor(ctx: Context, v: String) { prefs(ctx).edit().putString(KEY_CONTACTS_CURSOR, v).apply() }
+    /** A pull applied: its cursor and whether the next pull must be full, in one write. */
+    fun setContactsApplied(ctx: Context, cursor: String, needsFull: Boolean) {
+        prefs(ctx).edit().putString(KEY_CONTACTS_CURSOR, cursor).putBoolean(KEY_CONTACTS_NEEDS_FULL, needsFull).apply()
+    }
+    /** The next pull must be a full one: "Sync now", or the address book write did not land. */
+    fun contactsNeedsFull(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_CONTACTS_NEEDS_FULL, false)
+    fun setContactsNeedsFull(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_CONTACTS_NEEDS_FULL, v).apply() }
+    /** Wall-clock ms of the last pull applied; 0 = never. */
+    fun contactsSyncedAt(ctx: Context): Long = prefs(ctx).getLong(KEY_CONTACTS_SYNCED_AT, 0L)
+    fun setContactsSyncedAt(ctx: Context, v: Long) { prefs(ctx).edit().putLong(KEY_CONTACTS_SYNCED_AT, v).apply() }
+
+    fun removedNoticeShown(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_REMOVED_NOTICE_SHOWN, false)
+    fun setRemovedNoticeShown(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_REMOVED_NOTICE_SHOWN, v).apply() }
 
     fun voicemailCount(ctx: Context): Int = prefs(ctx).getInt(KEY_VM_COUNT, 0)
     fun setVoicemailCount(ctx: Context, n: Int) { prefs(ctx).edit().putInt(KEY_VM_COUNT, n).apply() }
@@ -444,7 +572,12 @@ object Config {
         prefs(ctx).getString(KEY_AUTH_TOKEN, "") ?: ""
 
     fun setAuthToken(ctx: Context, token: String) {
-        prefs(ctx).edit().putString(KEY_AUTH_TOKEN, token.trim()).apply()
+        val t = token.trim()
+        val e = prefs(ctx).edit().putString(KEY_AUTH_TOKEN, t)
+        // A new pairing may be a different account: its first contact pull must replace the
+        // address book, never a delta on top of the last owner's people.
+        if (t.isNotEmpty() && t != authToken(ctx)) e.remove(KEY_CONTACTS_CURSOR).putBoolean(KEY_CONTACTS_NEEDS_FULL, true)
+        e.apply()
     }
 
     private const val TOKEN_IMPORT_FILE = "rist-token.txt"

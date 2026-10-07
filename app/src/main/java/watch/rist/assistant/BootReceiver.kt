@@ -23,6 +23,8 @@ class BootReceiver : BroadcastReceiver() {
                     // A reboot wipes every AlarmManager alarm, so anything the user set is gone
                     // until this puts it back.
                     runCatching { Alarms.reschedule(ctx.applicationContext) }
+                    // Caller ID reads the local address book, so bring it up to date now.
+                    runCatching { ContactsSync.onBoot(ctx.applicationContext) }
                     // A phone switched off at home and on again abroad is the commonest way to
                     // arrive somewhere with the wrong clock.
                     runCatching {

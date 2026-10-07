@@ -33,7 +33,7 @@ object OtaSection {
         old?.let { host.removeView(it) }
         val idx = (anchor?.let { host.indexOfChild(it) } ?: -1).coerceAtLeast(0)
 
-        val t = Themes.byId(Config.themeId(a))
+        val t = Themes.current(a)
         val ink = t.ink
         val muted = Themes.readableMuted(t)
         val pixelTf: Typeface? =

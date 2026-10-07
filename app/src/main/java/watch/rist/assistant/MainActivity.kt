@@ -68,7 +68,7 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
 
     private lateinit var titleText: View
     private lateinit var talkButton: View
@@ -290,6 +290,36 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // What the backend offers this account changed: take down anything it no longer offers.
+    private val featuresReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) = applyFeatures(repaint = true)
+    }
+
+    private fun applyFeatures(repaint: Boolean = false) = runCatching {
+        if (!Features.isOn(this, Features.Id.MEDIA)) nowPlayingCard.visibility = View.GONE
+        if (!Features.isOn(this, Features.Id.MAPS) && currentNav != null) closeNav()
+        renderBoxes()
+        if (repaint) {
+            CommsFeedView.render(this)
+            refreshGearBadge()
+        }
+    }.onFailure { Log.w(TAG, "applying features failed", it) }.let { }
+
+    // The box list changed: a reply or the wake brought a new one, or an edit was made.
+    private val boxesReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) = renderBoxes()
+    }
+
+    // A new look from the assistant, or a reset: redraw everything at once, no restart.
+    private val designReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            applyTheme()
+            runCatching { renderTranscript() }
+            runCatching { CommsFeedView.render(this@MainActivity) }
+            runCatching { renderCommandStrip() }
+        }
+    }
+
     private val mediaStatusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             status(intent.getStringExtra(PlaybackService.EXTRA_MEDIA_STATUS).orEmpty())
@@ -351,11 +381,13 @@ class MainActivity : AppCompatActivity() {
                     state = if (answered) EntryState.ANSWERED else EntryState.FAILED,
                     answer = reply?.speech?.text?.takeIf { it.isNotBlank() } ?: text,
                     requestId = reply?.requestId.orEmpty(),
+                    checklists = reply?.checklistsList,
                     error = if (answered) "" else if (userCancelled) "cancelled" else st.ifBlank { "no reply" },
                 )
             }
             activeEntryId = 0L
             if (userCancelled) statusText.text = getString(R.string.status_idle)
+            else if (reply == null && text.isBlank()) showFailure(failureLine(st))
             else status(if (text.isBlank()) st else "$st\n  “$text”")
             renderReply(reply, fallbackText = text)
         }
@@ -403,8 +435,11 @@ class MainActivity : AppCompatActivity() {
                 right = bars.right,
                 bottom = basePad + bottomInset
             )
-            talkTile.visibility =
-                if (insets.isVisible(WindowInsetsCompat.Type.ime())) View.GONE else View.VISIBLE
+            val imeUp = insets.isVisible(WindowInsetsCompat.Type.ime())
+            talkTile.visibility = if (imeUp) View.GONE else View.VISIBLE
+            // The row gives its height back to the answers while typing.
+            boxesHiddenForIme = imeUp
+            renderBoxes()
             insets
         }
 
@@ -427,6 +462,7 @@ class MainActivity : AppCompatActivity() {
         replyContainer = findViewById(R.id.replyContainer)
         clearButton = findViewById(R.id.clearButton)
         clearButton.setOnClickListener { clearReply() }
+        wireBoxes()
 
         nowPlayingCard = findViewById(R.id.nowPlayingCard)
         npTitle = findViewById(R.id.npTitle)
@@ -590,6 +626,10 @@ class MainActivity : AppCompatActivity() {
         lbm.registerReceiver(cmdStateReceiver, IntentFilter(DeviceCommands.ACTION_STATE_CHANGED))
         lbm.registerReceiver(streamProgressReceiver, IntentFilter(StreamingStatus.ACTION_PROGRESS))
         lbm.registerReceiver(streamEndedReceiver, IntentFilter(StreamingStatus.ACTION_STREAM_ENDED))
+        lbm.registerReceiver(featuresReceiver, IntentFilter(Features.ACTION_CHANGED))
+        lbm.registerReceiver(boxesReceiver, IntentFilter(HomeBoxes.ACTION_CHANGED))
+        lbm.registerReceiver(designReceiver, IntentFilter(DesignSync.ACTION_CHANGED))
+        DesignSync.migrateLegacyTheme(this)
         runCatching {
             registerReceiver(timeTickReceiver, IntentFilter().apply {
                 addAction(Intent.ACTION_TIME_TICK)
@@ -606,6 +646,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * The home screen is singleTask: a HOME press or a launch while it is already up comes here
+     * instead of stacking a second copy. Nothing is read from the launch intent, in onCreate or
+     * here; onResume redraws as for any return.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
+
     override fun onResume() {
         super.onResume()
         Config.importTokenFileIfPresent(applicationContext)
@@ -619,6 +669,8 @@ class MainActivity : AppCompatActivity() {
                 navSensorManager?.registerListener(compassListener, it, SensorManager.SENSOR_DELAY_NORMAL)
             }
         }
+        // A tile held past its stale time would sit dimmed until the idle poll comes round.
+        WakeLoop.kick()
         applyTheme()
         refreshTalkEnabled()
         refreshGearBadge()
@@ -632,9 +684,13 @@ class MainActivity : AppCompatActivity() {
         renderTranscript()
         renderCommandStrip()
         CommsFeedView.render(this)
+        renderBoxes()
         cmdHandler.removeCallbacks(cmdTicker)
         if (DeviceCommands.anythingRunning()) cmdHandler.post(cmdTicker)
         enterKioskIfOwner()
+        applyFeatures()
+        // A phone removed from its account says so once, on a screen of its own.
+        if (RemovedActivity.showIfDue(this)) return
         // Captured before askIfDue, which stamps asked-at and makes isDue() false.
         val networkQuestionWasDue = NetworkLocationConsent.isDue(this)
         NetworkLocationPromptActivity.askIfDue(this)
@@ -677,19 +733,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun applyTheme() = runCatching {
-        val t = Themes.byId(Config.themeId(this))
-        val tf = when (t.font) {
-            "pixel" -> pixelTf
-            "mono"  -> android.graphics.Typeface.MONOSPACE
-            "serif" -> android.graphics.Typeface.SERIF
-            else    -> android.graphics.Typeface.SANS_SERIF
-        }
-        val displayTf = when (t.displayFont) {
-            "pixel" -> pixelTf
-            "mono" -> android.graphics.Typeface.MONOSPACE
-            "serif" -> android.graphics.Typeface.SERIF
-            else -> android.graphics.Typeface.SANS_SERIF
-        }
+        val t = Themes.current(this)
+        val tf = ThemePaint.typefaceOf(this, t)
+        val displayTf = ThemePaint.displayTypefaceOf(this, t)
         val faint = t.inkFaint ?: blend(t.ink, t.ground, 0.5f)
         val muted = Themes.readableMuted(t)
         findViewById<View>(R.id.root)?.setBackgroundColor(t.ground)
@@ -698,25 +744,31 @@ class MainActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.recordLabel)?.apply {
             setTextColor(if (t.holdOnAccent) t.accent else t.inkMuted)
             typeface = displayTf
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, if (t.holdOnAccent) 14f else 15f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ThemePaint.scaledSp(t, if (t.holdOnAccent) 14f else 15f))
         }
         findViewById<TextView>(R.id.clockText)?.apply {
-            setTextColor(if (t.id == "night") 0xFFE9EFE4.toInt() else t.ink)
+            setTextColor(t.clockColor)
             typeface = displayTf
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, if (t.id == "night") 45f else 48f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, t.clockSp)
         }
         findViewById<TextView>(R.id.dateText)?.apply {
             setTextColor(muted); typeface = tf
-            letterSpacing = if (t.id == "night") 0.14f else 0.05f
-            isAllCaps = (t.id == "night")
+            letterSpacing = if (t.labelCaps) 0.14f else 0.05f
+            isAllCaps = t.labelCaps
         }
         findViewById<TextView>(R.id.recordCancel)?.apply { setTextColor(muted); typeface = tf }
         findViewById<TextView>(R.id.clearButton)?.apply { setTextColor(muted); typeface = tf }
         findViewById<TextView>(R.id.commandText)?.apply { typeface = tf }
         updateGlance()
-        findViewById<ImageView>(R.id.settingsGear)?.setColorFilter(t.inkMuted)
+        // Protected: with a design from the assistant the gear is drawn in the text colour,
+        // which always reads on the background, so Settings (and Reset) can always be found.
+        findViewById<ImageView>(R.id.settingsGear)?.setColorFilter(
+            if (DesignSync.declared()) t.ink else t.inkMuted)
         (findViewById<View>(R.id.replyContainer) as? android.view.ViewGroup)?.let { rc ->
-            for (i in 0 until rc.childCount) (rc.getChildAt(i) as? TextView)?.apply { setTextColor(t.ink); typeface = tf }
+            for (i in 0 until rc.childCount) (rc.getChildAt(i) as? TextView)?.apply {
+                setTextColor(t.ink); typeface = tf
+                if (t.typeScale != 1f || getTag(R.id.tag_theme_base_size) != null) ThemePaint.scaleText(this, t)
+            }
         }
         findViewById<View>(R.id.talkButton)?.background = themedTile(t)
         findViewById<ImageView>(R.id.recordGlyph)?.apply {
@@ -736,6 +788,8 @@ class MainActivity : AppCompatActivity() {
             setImageResource(if (t.lineIcons) R.drawable.ic_send_line else R.drawable.ic_send)
             setColorFilter(t.accent)
         }
+        findViewById<TextView>(R.id.boxUndo)?.apply { setTextColor(ThemePaint.accentTextOn(t, t.ground)) }
+        renderBoxes()
         retintUnthemedSubtree(findViewById(R.id.nowPlayingCard), t, faint, tf)
         retintUnthemedSubtree(findViewById(R.id.navBox), t, faint, tf)
         retintUnthemedSubtree(findViewById(R.id.navPill), t, faint, tf)
@@ -750,6 +804,9 @@ class MainActivity : AppCompatActivity() {
             androidx.core.view.WindowInsetsControllerCompat(window, window.decorView)
                 .isAppearanceLightStatusBars = !t.dark
         }
+    }.onFailure {
+        Log.w(TAG, "drawing the look failed", it)
+        DesignSync.renderFailed(this)
     }
 
     private fun retintUnthemedSubtree(
@@ -779,6 +836,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun trackMaintenanceHold(ev: MotionEvent) {
+        // No credential stands behind this exit, so only a dev build offers it.
+        if (BuildVariant.isPublic()) return
         val hotspot = findViewById<View>(R.id.maintenanceHotspot) ?: return
         fun disarm() { maintenanceArmed?.let { maintenanceHoldHandler.removeCallbacks(it) }; maintenanceArmed = null }
         when (ev.actionMasked) {
@@ -845,6 +904,9 @@ class MainActivity : AppCompatActivity() {
         lbm.unregisterReceiver(nowPlayingReceiver)
         lbm.unregisterReceiver(streamProgressReceiver)
         lbm.unregisterReceiver(streamEndedReceiver)
+        lbm.unregisterReceiver(featuresReceiver)
+        lbm.unregisterReceiver(boxesReceiver)
+        lbm.unregisterReceiver(designReceiver)
     }
 
     private fun renderAwaitingReply() = runCatching {
@@ -857,7 +919,7 @@ class MainActivity : AppCompatActivity() {
     }.let { }
 
     private fun updateGlance() = runCatching {
-        val t = Themes.byId(Config.themeId(this))
+        val t = Themes.current(this)
         val now = java.util.Date()
         val locale = java.util.Locale.getDefault()
         val timePart = java.text.SimpleDateFormat("h:mm", locale).format(now)
@@ -876,7 +938,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         findViewById<TextView>(R.id.dateText)?.text = java.text.SimpleDateFormat(
-            if (t.id == "night") "EEE d MMM" else "EEEE, d MMMM", java.util.Locale.getDefault()
+            if (t.dateShort) "EEE d MMM" else "EEEE, d MMMM", java.util.Locale.getDefault()
         ).format(now)
     }.let { }
 
@@ -884,6 +946,8 @@ class MainActivity : AppCompatActivity() {
         override fun onReceive(context: Context, intent: Intent) {
             updateGlance()
             CommsFeedView.render(this@MainActivity)
+            // Ages ("8m ago") and staleness move with the clock.
+            renderBoxes()
             // Midnight passed, or the clock or zone moved the day: the answers' times need
             // their "Yesterday" now, not on the next turn.
             if (CommsFeed.dayKey(System.currentTimeMillis()) != transcriptDrawnOn) renderTranscript()
@@ -936,11 +1000,8 @@ class MainActivity : AppCompatActivity() {
         val row = findViewById<LinearLayout>(R.id.commandStrip) ?: return
         val label = findViewById<TextView>(R.id.commandText) ?: return
         val holder = findViewById<LinearLayout>(R.id.commandButtons) ?: return
-        val t = Themes.byId(Config.themeId(this))
-        val tf = when (t.font) {
-            "pixel" -> pixelTf; "mono" -> android.graphics.Typeface.MONOSPACE
-            "serif" -> android.graphics.Typeface.SERIF; else -> android.graphics.Typeface.SANS_SERIF
-        }
+        val t = Themes.current(this)
+        val tf = ThemePaint.typefaceOf(this, t)
         val d = resources.displayMetrics.density
         val timer = DeviceCommands.timerText()
         val sw = DeviceCommands.stopwatchText()
@@ -1035,7 +1096,25 @@ class MainActivity : AppCompatActivity() {
         }
 
         row.visibility = if (any) View.VISIBLE else View.GONE
+        syncAnswerGap()
     }
+
+    /**
+     * The answers sit under the box row, which is gone when there are no boxes. A gone view has
+     * no margins, so the gap the answers kept under the timer strip is carried here instead: with
+     * the row gone the layout is exactly the one before boxes existed.
+     */
+    internal fun syncAnswerGap() = runCatching {
+        val scroll = findViewById<View>(R.id.replyScroll) ?: return@runCatching
+        val lp = scroll.layoutParams as? androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+            ?: return@runCatching
+        val strip = findViewById<View>(R.id.commandStrip)
+        val want = if (strip?.visibility == View.VISIBLE) resources.getDimensionPixelSize(R.dimen.gap) else 0
+        if (lp.goneTopMargin != want) {
+            lp.goneTopMargin = want
+            scroll.layoutParams = lp
+        }
+    }.let { }
 
     private val cmdStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -1255,7 +1334,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Camera or existing photos. Everything behind both was already built; only this was missing. */
     private fun openPhotoSource() {
-        val theme = Themes.byId(Config.themeId(this))
+        val theme = Themes.current(this)
         runCatching {
             RistDialog.choose(
                 activity = this,
@@ -1555,7 +1634,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateTorchUi() {
         val icon = findViewById<ImageView>(R.id.torchIcon) ?: return
-        val t = Themes.byId(Config.themeId(this))
+        val t = Themes.current(this)
         if (t.lineIcons) icon.setImageResource(
             if (torchOn) R.drawable.ic_flashlight_line_on else R.drawable.ic_flashlight_line
         )
@@ -1621,6 +1700,7 @@ class MainActivity : AppCompatActivity() {
                     state = if (reply != null) EntryState.ANSWERED else EntryState.FAILED,
                     answer = reply?.speech?.text.orEmpty(),
                     requestId = reply?.requestId.orEmpty(),
+                    checklists = reply?.checklistsList,
                     error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
                 )
             }
@@ -1709,9 +1789,130 @@ class MainActivity : AppCompatActivity() {
                     state = if (reply != null) EntryState.ANSWERED else EntryState.FAILED,
                     answer = answer,
                     requestId = reply?.requestId.orEmpty(),
+                    checklists = reply?.checklistsList,
                     error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
                 )
             }
+            handleReply(reply, subject = "message", clear = true)
+        }
+    }
+
+    // ---- home boxes ----
+
+    internal lateinit var boxBoard: BoxBoard
+    private var boxesHiddenForIme = false
+    private var boxesBack: androidx.activity.OnBackPressedCallback? = null
+
+    private val allBoxesLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) AllBoxesActivity.turnFrom(result.data)?.let { sendBoxTurn(it) }
+        }
+
+    private fun wireBoxes() = runCatching {
+        val list = findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.boxList)
+        boxBoard = BoxBoard(this, list, grid = false, host = object : BoxBoard.Host {
+            override fun onTurn(turn: HomeBoxes.Turn) = sendBoxTurn(turn)
+            override fun onAll() = openAllBoxes()
+            override fun onEditModeChanged(on: Boolean) { boxesBack?.isEnabled = on }
+        }, undoBar = findViewById(R.id.boxUndo), handle = findViewById(R.id.boxHandle))
+        val cb = object : androidx.activity.OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() { boxBoard.setEditMode(false) }
+        }
+        boxesBack = cb
+        onBackPressedDispatcher.addCallback(this, cb)
+        // The icon font (1.2 MB), its name list and any custom icons load off the main thread.
+        if (HomeBoxes.declared()) {
+            val app = applicationContext
+            Thread({ runCatching { BoxIcons.warm(app, HomeBoxes.boxes(app)) } }, "rist-box-icons").start()
+        }
+        // The handle under the row: a tap, or a swipe up, opens every box as a grid.
+        val handle = findViewById<View>(R.id.boxHandle)
+        var downY = 0f
+        handle.setOnTouchListener { v, ev ->
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { downY = ev.rawY; true }
+                MotionEvent.ACTION_UP -> {
+                    val slop = ViewConfiguration.get(this).scaledTouchSlop
+                    if (downY - ev.rawY > slop || abs(downY - ev.rawY) <= slop) { v.performClick(); openAllBoxes() }
+                    true
+                }
+                else -> true
+            }
+        }
+        renderBoxes()
+    }.onFailure { Log.w(TAG, "home boxes wiring failed", it) }.let { }
+
+    /** The feed was drawn: the Notifications tile shows the same count, without asking again. */
+    override fun onFeedWaiting(waiting: Int, listed: Int) {
+        if (::boxBoard.isInitialized) boxBoard.showWaiting(waiting, listed)
+    }
+
+    internal fun openAllBoxes() {
+        if (::boxBoard.isInitialized) boxBoard.setEditMode(false)
+        allBoxesLauncher.launch(Intent(this, AllBoxesActivity::class.java))
+    }
+
+    /** Shows the row when this account has boxes and the keyboard is down; draws the held list. */
+    internal fun renderBoxes() = runCatching {
+        if (!::boxBoard.isInitialized) return@runCatching
+        val row = findViewById<View>(R.id.boxRow) ?: return@runCatching
+        val shown = HomeBoxes.shown(this) && !boxesHiddenForIme
+        row.visibility = if (shown) View.VISIBLE else View.GONE
+        if (!HomeBoxes.shown(this) && boxBoard.editMode) boxBoard.setEditMode(false)
+        if (shown) boxBoard.render()
+    }.onFailure { Log.w(TAG, "drawing the boxes failed", it) }.let { }
+
+    /**
+     * Sends a turn a box started. A command-box tap is typed text in every way that matters to
+     * the backend, with box_id beside it; the add and change sheets address the boxes tool. A
+     * second tap on a box whose turn is still in flight is ignored.
+     */
+    internal fun sendBoxTurn(turn: HomeBoxes.Turn) {
+        val fromCommand = turn.targetToolId.isBlank() && turn.boxId.isNotBlank()
+        if (fromCommand && !HomeBoxes.beginSend(turn.boxId)) {
+            Log.i(TAG, "box ${turn.boxId} is still sending; tap ignored")
+            return
+        }
+        cancelInFlightTurn()
+        hideKeyboard()
+        if (fromCommand) Haptics.ack(this)
+        status(getString(R.string.text_sending))
+        val entryId = runCatching { Transcript.begin(this, turn.prompt, EntryState.WAITING) }.getOrDefault(0L)
+        // An add from the sheet puts up a placeholder tile until the new box arrives.
+        val creating = HomeBoxes.addWords(turn)?.let { BoxCreate.start(this, it) }
+        renderTranscript()
+        renderBoxes()
+        uiScope.launch {
+            val uploader = Uploader(applicationContext)
+            val reply = try {
+                withContext(Dispatchers.IO) {
+                    if (turn.targetToolId.isBlank()) {
+                        uploader.sendText(turn.text, onLocationInterim = { resp -> speakInterim(resp) }, boxId = turn.boxId)
+                    } else {
+                        uploader.sendToolCall(turn.targetToolId, turn.text, boxId = turn.boxId)
+                    }
+                }
+            } finally {
+                if (fromCommand) HomeBoxes.endSend(turn.boxId)
+            }
+            if (creating != null) BoxCreate.turnEnded(
+                applicationContext, creating, replied = reply != null,
+                carriedBoxes = reply?.hasBoxes() == true, expectsReply = reply?.expectsReply == true,
+                mayHaveHappened = uploader.lastFailure == Uploader.MAY_HAVE_HAPPENED,
+            )
+            if (reply == null) announceFailure(uploader.lastFailure)
+            if (entryId != 0L) runCatching {
+                Transcript.update(
+                    this@MainActivity, entryId,
+                    state = if (reply != null) EntryState.ANSWERED else EntryState.FAILED,
+                    answer = reply?.speech?.text.orEmpty(),
+                    requestId = reply?.requestId.orEmpty(),
+                    checklists = reply?.checklistsList,
+                    error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
+                )
+            }
+            renderBoxes()
+            // The same reply handling as a typed or spoken turn: a tile tap is the user's words.
             handleReply(reply, subject = "message", clear = true)
         }
     }
@@ -1784,12 +1985,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderActions(actions: List<rist.v1.Action>) = runCatching {
-        val t = Themes.byId(Config.themeId(this))
+        val t = Themes.current(this)
         val d = resources.displayMetrics.density
-        val tf = when (t.font) {
-            "pixel" -> pixelTf; "mono" -> android.graphics.Typeface.MONOSPACE
-            "serif" -> android.graphics.Typeface.SERIF; else -> android.graphics.Typeface.SANS_SERIF
-        }
+        val tf = ThemePaint.typefaceOf(this, t)
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
@@ -1833,6 +2031,7 @@ class MainActivity : AppCompatActivity() {
                     state = if (reply != null) EntryState.ANSWERED else EntryState.FAILED,
                     answer = reply?.speech?.text.orEmpty(),
                     requestId = reply?.requestId.orEmpty(),
+                    checklists = reply?.checklistsList,
                     error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
                 )
             }
@@ -1873,27 +2072,44 @@ class MainActivity : AppCompatActivity() {
                 state = if (reply != null) EntryState.ANSWERED else EntryState.FAILED,
                 answer = reply?.speech?.text.orEmpty(),
                 requestId = reply?.requestId.orEmpty(),
+                checklists = reply?.checklistsList,
                 error = if (reply != null) "" else failure.ifBlank { "no reply" },
             )
         }
     }
 
-    private fun announceFailure(reason: String) = runCatching {
+    // The status line is hidden on this layout, so a failure is also put where it can be seen.
+    internal fun announceFailure(reason: String) = runCatching {
         if (StreamingCancel.takeCancelledFlag()) {
             statusText.text = getString(R.string.status_idle)
             return@runCatching
         }
-        status("Sorry — " + reason.ifBlank { "something went wrong reaching the network" } + ".")
+        showFailure(failureLine(reason))
     }.onFailure { Log.w(TAG, "announceFailure", it) }.let { }
+
+    private fun showFailure(line: String) {
+        status(line)
+        Toast.makeText(this, line, Toast.LENGTH_LONG).show()
+        Haptics.final(this)
+        refreshBillingNotice()
+        // The turn just learned this phone was removed: say so now, not on the next return home.
+        RemovedActivity.showIfDue(this)
+    }
+
+    private var billingNoticeShown: String? = null
+
+    private fun refreshBillingNotice() = runCatching {
+        val now = Billing.notice(this)
+        if (now == billingNoticeShown) return@runCatching
+        billingNoticeShown = now
+        CommsFeedView.render(this)
+    }.onFailure { Log.w(TAG, "billing notice", it) }.let { }
 
     private fun renderPendingConfirmation() = runCatching {
         if (pendingActionId.isBlank()) return@runCatching
-        val t = Themes.byId(Config.themeId(this))
+        val t = Themes.current(this)
         val d = resources.displayMetrics.density
-        val tf = when (t.font) {
-            "pixel" -> pixelTf; "mono" -> android.graphics.Typeface.MONOSPACE
-            "serif" -> android.graphics.Typeface.SERIF; else -> android.graphics.Typeface.SANS_SERIF
-        }
+        val tf = ThemePaint.typefaceOf(this, t)
         fun button(label: String, approved: Boolean) = TextView(this).apply {
             text = label
             setTextColor(if (approved) t.accent else t.inkMuted)
@@ -1955,18 +2171,19 @@ class MainActivity : AppCompatActivity() {
         }.getOrDefault(0L)
         renderTranscript()
         uiScope.launch {
-            val reply = withContext(Dispatchers.IO) {
-                Uploader(applicationContext).sendConfirmation(actionId, approved)
-            }
+            val uploader = Uploader(applicationContext)
+            val reply = withContext(Dispatchers.IO) { uploader.sendConfirmation(actionId, approved) }
             if (entryId != 0L) runCatching {
                 Transcript.update(
                     this@MainActivity, entryId,
                     state = if (reply != null) EntryState.ANSWERED else EntryState.FAILED,
                     answer = reply?.speech?.text.orEmpty(),
                     requestId = reply?.requestId.orEmpty(),
-                    error = if (reply != null) "" else "no reply (transport error)",
+                    checklists = reply?.checklistsList,
+                    error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
                 )
             }
+            if (reply == null) announceFailure(uploader.lastFailure)
             handleReply(reply, subject = "confirmation", clear = true)
         }
     }
@@ -1985,11 +2202,8 @@ class MainActivity : AppCompatActivity() {
     private fun renderTranscript(): Unit {
       runCatching {
         replyContainer.removeAllViews()
-        val t = Themes.byId(Config.themeId(this))
-        val tf = when (t.font) {
-            "pixel" -> pixelTf; "mono" -> android.graphics.Typeface.MONOSPACE
-            "serif" -> android.graphics.Typeface.SERIF; else -> android.graphics.Typeface.SANS_SERIF
-        }
+        val t = Themes.current(this)
+        val tf = ThemePaint.typefaceOf(this, t)
         val d = resources.displayMetrics.density
         val muted = Themes.readableMuted(t)
         var attachmentsPainted = false
@@ -2013,18 +2227,39 @@ class MainActivity : AppCompatActivity() {
         for ((idx, e) in shown.withIndex()) {
             // A double tap anywhere on the entry toggles the pin, prompt line and answer both.
             // A single tap did it before, and a tap meant only to stop a scroll or to wake the
-            // screen pinned things by accident. The ✕ sits outside this column with its own handler.
+            // screen pinned things by accident. A sideways swipe clears an unpinned answer.
             val togglePin = {
                 Log.i(TAG, "pin double-tapped id=${e.localId} wasPinned=${e.pinned}")
                 runCatching { Transcript.setPinned(this@MainActivity, e.localId, !e.pinned) }
                     .onFailure { Log.w(TAG, "pin toggle failed", it) }
                 renderTranscript()
             }
-            val col = LinearLayout(this).apply {
+            val clear = {
+                runCatching { Transcript.discard(this@MainActivity, e.localId) }
+                Haptics.ack(this@MainActivity)
+                renderTranscript()
+            }
+            // A pinned answer is exempt from the age sweep and the count cap, so it cannot be
+            // swiped away either: "kept until I unpin it" has to mean a stray swipe loses nothing.
+            val swipe = if (e.pinned) null else SwipeDismiss(this@MainActivity) { clear() }
+            val entryRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = (10 * d).toInt(); bottomMargin = (8 * d).toInt() }
+                if (!e.pinned) {
+                    setTag(R.id.feed_dismiss, clear)
+                    ViewCompat.addAccessibilityAction(this, "Clear this answer") { _, _ -> clear(); true }
+                }
+            }
+            val col = SwipeColumn(this).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 isFocusable = true
                 contentDescription = (if (e.pinned) "Pinned. " else "") + e.prompt
+                // A swipe that starts on a checklist row, a picture or a button is still a
+                // swipe: the column takes it from the child, which hears a cancel, not a click.
+                if (swipe != null) intercept = { ev -> swipe.onTouch(entryRow, ev) }
                 val taps = android.view.GestureDetector(this@MainActivity,
                     object : android.view.GestureDetector.SimpleOnGestureListener() {
                         // Claiming the down is what delivers the second tap; the scroll view
@@ -2032,7 +2267,14 @@ class MainActivity : AppCompatActivity() {
                         override fun onDown(ev: MotionEvent) = true
                         override fun onDoubleTap(ev: MotionEvent): Boolean { togglePin(); return true }
                     })
-                setOnTouchListener { _, ev -> taps.onTouchEvent(ev) }
+                setOnTouchListener { _, ev ->
+                    // Once the swipe owns the gesture the tap detector hears a cancel, so the
+                    // end of a swipe is never taken for half of a double tap.
+                    if (swipe != null && swipe.onTouch(entryRow, ev)) {
+                        taps.onTouchEvent(MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL })
+                        true
+                    } else taps.onTouchEvent(ev)
+                }
                 // A screen reader's double tap arrives as a click action, not as two touches.
                 ViewCompat.replaceAccessibilityAction(
                     this,
@@ -2091,6 +2333,7 @@ class MainActivity : AppCompatActivity() {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, if (e.state == EntryState.ANSWERED) 17f else 12f)
                 if (live) liveStatusView = this
             })
+            if (e.state == EntryState.ANSWERED) ChecklistView.addCards(col, e, t, tf)
             keptPhotos[e.localId]?.forEach { photo -> photoCard(photo, t, muted, tf, d)?.let { col.addView(it) } }
             if (live) col.addView(TextView(this).apply {
                 text = getString(R.string.stop_turn)
@@ -2103,29 +2346,7 @@ class MainActivity : AppCompatActivity() {
                     if (cancelInFlightTurn()) status(getString(R.string.stop_turn_sent))
                 }
             })
-            // A pinned answer is exempt from the age sweep and the count cap, so the ✕ is
-            // withdrawn while it is pinned: "kept until I unpin it" has to mean it cannot be
-            // lost to a stray tap either.
-            val dismiss = TextView(this).apply {
-                text = "✕"
-                setTextColor(muted); typeface = tf
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                setPadding((10 * d).toInt(), (2 * d).toInt(), (2 * d).toInt(), (6 * d).toInt())
-                isClickable = true; isFocusable = true
-                visibility = if (e.pinned) View.GONE else View.VISIBLE
-                contentDescription = "Clear this answer"
-                setOnClickListener {
-                    runCatching { Transcript.discard(this@MainActivity, e.localId) }
-                    renderTranscript()
-                }
-            }
-            replyContainer.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = (10 * d).toInt(); bottomMargin = (8 * d).toInt() }
-                addView(col); addView(dismiss)
-            })
+            replyContainer.addView(entryRow.apply { addView(col) })
 
             if (idx == 0 && lastAttachments.isNotEmpty() && e.localId == lastAttachmentsEntryId) {
                 runCatching { AttachmentView.render(replyContainer, lastAttachments, insertAfter = idx) }
@@ -2138,12 +2359,32 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (pendingActionId.isNotBlank()) renderPendingConfirmation()
-        findViewById<android.widget.ScrollView>(R.id.replyScroll)?.post {
-            findViewById<android.widget.ScrollView>(R.id.replyScroll)?.fullScroll(View.FOCUS_UP)
-        }
+        keepNewestReplyInView()
         findViewById<View>(R.id.clearButton)?.visibility = View.GONE
         armStaleRepaint()
       }.onFailure { Log.w(TAG, "renderTranscript failed", it) }
+    }
+
+    /**
+     * The answers share one scroller with the notifications above them, so an opened notice (or
+     * a long list of calls) could push the newest answer below the screen. After each repaint the
+     * scroller goes to the top when the newest answer still fits there, and otherwise only as far
+     * down as it takes to show that answer, so as much of the feed as fits stays in sight.
+     * Measured just before the next frame, once the new rows are laid out.
+     */
+    private fun keepNewestReplyInView() {
+        val scroll = findViewById<android.widget.ScrollView>(R.id.replyScroll) ?: return
+        androidx.core.view.OneShotPreDrawListener.add(scroll) {
+            runCatching {
+                val newest = replyContainer.getChildAt(0)
+                val y = replyScrollTarget(
+                    replyTop = replyContainer.top + (newest?.top ?: 0),
+                    newestHeight = newest?.height ?: 0,
+                    viewport = scroll.height - scroll.paddingTop - scroll.paddingBottom,
+                )
+                if (scroll.scrollY != y) scroll.scrollTo(0, y)
+            }.onFailure { Log.w(TAG, "could not bring the newest answer into view", it) }
+        }
     }
 
     /**
@@ -2212,11 +2453,14 @@ class MainActivity : AppCompatActivity() {
             ) { _, _ -> PhotoViewerActivity.offerSave(this@MainActivity, photo.file); true }
         }
         box.addView(image)
-        // The credit and licence the picture came with; for a searched image it is required.
+        // The credit and licence the picture came with; for a searched image it is required. The
+        // feed shows it short ("Photo: site · author · licence"); the full line is in the viewer.
         if (photo.title.isNotBlank()) box.addView(TextView(this).apply {
-            text = photo.title.trim()
+            text = AttachmentView.shortCredit(photo.title)
             setTextColor(muted); typeface = tf
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
             setPadding(0, (3 * d).toInt(), 0, 0)
         })
         return box
@@ -2249,6 +2493,7 @@ class MainActivity : AppCompatActivity() {
         val generation = ++attachmentGeneration
 
         if (clear) renderTranscript()
+        refreshBillingNotice()
 
         Haptics.final(this)
 
@@ -2256,7 +2501,7 @@ class MainActivity : AppCompatActivity() {
             dispatchMedia(reply.media, reply.toolId.orEmpty())
         }
 
-        if (reply != null && reply.hasNav()) {
+        if (reply != null && reply.hasNav() && Features.isOn(this, Features.Id.MAPS)) {
             showNav(reply.nav)
         }
 
@@ -2268,7 +2513,7 @@ class MainActivity : AppCompatActivity() {
                 var keptAny = false
                 val items = withContext(Dispatchers.IO) {
                     runCatching {
-                        val resolved = Attachments.resolve(this@MainActivity, pending) { isActive }
+                        val resolved = Attachments.resolve(pending) { isActive }
                         // Kept before the feed's decode, which lets the picture's bytes go. With
                         // no answer to keep them under, they stay cards as before.
                         val (photos, rest) =
@@ -2289,6 +2534,8 @@ class MainActivity : AppCompatActivity() {
                                 mime = a.mime, title = a.title, text = "",
                                 bytes = null, toolId = a.toolId,
                                 error = "could not be loaded",
+                                // A picture loaded from a url that fails shows nothing at all.
+                                remote = Attachments.isUrlOnly(a),
                             )
                         }
                     }
@@ -2350,7 +2597,8 @@ class MainActivity : AppCompatActivity() {
     private fun isSpeechBusy(): Boolean = Playback.isActive()
 
     private fun updateNowPlaying(intent: Intent) {
-        val active = intent.getBooleanExtra(PlaybackService.EXTRA_NP_ACTIVE, false)
+        val active = intent.getBooleanExtra(PlaybackService.EXTRA_NP_ACTIVE, false) &&
+            Features.isOn(this, Features.Id.MEDIA)
         if (!active) { nowPlayingCard.visibility = View.GONE; return }
         nowPlayingCard.visibility = View.VISIBLE
 
@@ -2660,7 +2908,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun speakNav(text: String) {
-        Log.i(TAG, "nav cue: $text")
+        Log.i(TAG, "nav cue (${text.length} chars)")
     }
 
     private fun updateNavHere() {
@@ -2697,6 +2945,24 @@ class MainActivity : AppCompatActivity() {
     internal companion object {
         private const val PHOTO_OPEN_GUARD_MS = 1_000L
         private const val TAG = "RistMain"
+
+        /**
+         * Where the answers' scroller goes after a repaint: 0 (the feed in full) when the newest
+         * answer, starting [replyTop] px down, fits on screen there; else the least scroll that
+         * shows all of it, or its top when it is taller than the [viewport].
+         */
+        internal fun replyScrollTarget(replyTop: Int, newestHeight: Int, viewport: Int): Int {
+            if (viewport <= 0 || newestHeight <= 0) return 0
+            return (replyTop + minOf(newestHeight, viewport) - viewport).coerceIn(0, maxOf(0, replyTop))
+        }
+
+        /** A backend sentence (the 402's renew line) is shown as it is; our own reasons get "Sorry — ". */
+        internal fun failureLine(reason: String): String {
+            val r = reason.trim()
+            if (r.isEmpty()) return "Sorry — something went wrong reaching the network."
+            if (r.first().isUpperCase() && r.last() in ".!?") return r
+            return "Sorry — " + r.trimEnd('.') + "."
+        }
 
         /**
          * "▸ prompt  2:17 PM  📌" as one piece of text, so it wraps as a sentence does and the

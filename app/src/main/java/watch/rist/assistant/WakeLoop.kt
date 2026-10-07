@@ -33,6 +33,10 @@ object WakeLoop {
     internal const val BACKOFF_MAX_MS = 60_000L
     /** How often to look again when there is no token to poll with. */
     internal const val NO_TOKEN_RECHECK_MS = 5L * 60 * 1000
+    /** A revoked token is asked again this rarely, so a reinstatement is noticed without a reset. */
+    internal const val REVOKED_RECHECK_MS = 60L * 60 * 1000
+    /** A 402 here is not in the contract; if one comes, ask again at this pace until it stops. */
+    internal const val LAPSED_RECHECK_MS = 5L * 60 * 1000
 
     /** Floor and ceiling on the server's poll_after_s: 0 must not become a tight loop. */
     internal const val POLL_GAP_MIN_MS = 1_000L
@@ -46,16 +50,32 @@ object WakeLoop {
         data class Signal(val signal: WakeSignal, val acked: List<String>) : Outcome()
         /** 401: the credential is dead. Enrolment clears it; the loop waits for a new one. */
         object Unauthorised : Outcome()
-        /** 403: revoked. Never poll again on this token. */
+        /** 403 with the revoked header: revoked. Asked again only every [REVOKED_RECHECK_MS]. */
         object Revoked : Outcome()
+        /** 403 without it: refused for now, not revoked. Poll again much later. */
+        object Refused : Outcome()
+        /** 402: the subscription lapsed. The token is fine; nothing is cleared. */
+        data class Lapsed(val lapse: Billing.Lapse) : Outcome()
         /** 503 or a transport failure: back off and try again. */
         data class Retry(val why: String) : Outcome()
         /** No token, or no backend address: nothing to poll with yet. */
         object NotReady : Outcome()
     }
 
-    /** `…/v1/device` becomes `…/v1/device/wake`, carrying the acks and the real card count. */
-    internal fun wakeUrl(backendUrl: String, acks: List<String>, maxNotifications: Int): String? {
+    /**
+     * `…/v1/device` becomes `…/v1/device/wake`, carrying the acks and the real card count.
+     * [boxesVersion]: the box list version held, sent only by a phone that declares boxes.
+     * [designVersions]: the design and settings versions held, sent only by a phone that takes a
+     * design. Every declared component goes in one comma-separated `components`.
+     */
+    internal fun wakeUrl(
+        backendUrl: String,
+        acks: List<String>,
+        maxNotifications: Int,
+        boxesVersion: Long? = null,
+        designVersions: Pair<Long, Long>? = null,
+        checklists: Boolean = false,
+    ): String? {
         val base = backendUrl.trim().trimEnd('/')
         if (base.isEmpty()) return null
         val wake = if (base.endsWith("/v1/device")) "$base/wake" else "$base/v1/device/wake"
@@ -64,6 +84,20 @@ object WakeLoop {
             .apply { if (acks.isNotEmpty()) addQueryParameter("ack", acks.joinToString(",")) }
             // Always explicit: absent, the wake endpoint picks 5, not the 8 this phone shows.
             .addQueryParameter("max_notifications", maxNotifications.toString())
+            .apply {
+                val components = mutableListOf<String>()
+                if (boxesVersion != null) {
+                    addQueryParameter("boxes", boxesVersion.toString())
+                    components += HomeBoxes.COMPONENT
+                }
+                if (designVersions != null) {
+                    addQueryParameter("design", designVersions.first.toString())
+                    addQueryParameter("settings", designVersions.second.toString())
+                    components += DesignSync.COMPONENT
+                }
+                if (checklists) components += Checklists.COMPONENT
+                if (components.isNotEmpty()) addQueryParameter("components", components.joinToString(","))
+            }
             .build().toString()
     }
 
@@ -82,12 +116,25 @@ object WakeLoop {
 
     /** One held poll. Blocking; call off the main thread. */
     internal fun poll(ctx: Context, http: OkHttpClient = client): Outcome {
-        if (Config.enrolRevoked(ctx)) return Outcome.Revoked
         val bearer = Uploader.bearer(ctx) ?: return Outcome.NotReady
         val acks = NotificationQueue.pendingAcks(ctx)
-        val url = wakeUrl(Config.backendUrl(ctx), acks, CommsFeed.MAX_NOTIFICATIONS) ?: return Outcome.NotReady
+        // Box edits made offline go first, so the version asked about is the one they produced.
+        if (HomeBoxes.declared()) runCatching { HomeBoxes.flush(ctx) }
+        if (Checklists.declared()) runCatching { Checklists.flush(ctx) }
+        if (DesignSync.declared()) {
+            DesignSync.migrateLegacyTheme(ctx)
+            runCatching { DesignSync.flush(ctx) }
+        }
+        val url = wakeUrlFor(ctx, acks) ?: return Outcome.NotReady
         return exchange(http, url, bearer, Config.deviceId(ctx), acks)
     }
+
+    /** This phone's wake address: its acks, its card count, and its box version if it has boxes. */
+    internal fun wakeUrlFor(ctx: Context, acks: List<String>): String? =
+        wakeUrl(Config.backendUrl(ctx), acks, CommsFeed.MAX_NOTIFICATIONS,
+            if (HomeBoxes.declared()) Checklists.boxesVersionToAsk(ctx, HomeBoxes.version(ctx)) else null,
+            if (DesignSync.declared()) DesignSync.version(ctx) to Config.settingsVersion(ctx) else null,
+            Checklists.declared())
 
     /** The HTTP half of [poll], apart from the stores so it can be tested on its own. */
     internal fun exchange(http: OkHttpClient, url: String, bearer: String, device: String, acks: List<String>): Outcome {
@@ -101,7 +148,12 @@ object WakeLoop {
                 when (resp.code) {
                     200 -> Outcome.Signal(WakeSignal.parseFrom(resp.body?.bytes() ?: ByteArray(0)), acks)
                     401 -> Outcome.Unauthorised
-                    403 -> Outcome.Revoked
+                    403 -> if (Enrolment.isExplicitRevocation(403, resp.header(Enrolment.REVOKED_HEADER))) {
+                        Outcome.Revoked
+                    } else {
+                        Outcome.Refused
+                    }
+                    Billing.PAYMENT_REQUIRED -> Outcome.Lapsed(Billing.lapseWithLine(resp))
                     else -> Outcome.Retry("HTTP ${resp.code}")
                 }
             }
@@ -119,6 +171,11 @@ object WakeLoop {
         val fresh = NotificationQueue.unheldIds(ctx, signal.notificationsList)
         if (signal.notificationsCount > 0) NotificationQueue.store(ctx, signal.notificationsList)
         NotificationQueue.setMailUnread(ctx, signal.mailUnread)
+        if (signal.hasFeatures()) runCatching { Features.apply(ctx, signal.features) }
+        if (signal.hasBoxes()) runCatching { HomeBoxes.apply(ctx, signal.boxes) }
+        if (signal.hasDesign()) runCatching { DesignSync.apply(ctx, signal.design) }
+        if (signal.hasSettings() && DesignSync.declared()) runCatching { SettingsApply.handle(ctx, signal.settings) }
+        runCatching { ContactsSync.onCursor(ctx, signal.contactsCursor) }
         if (Config.voicemailCount(ctx) != signal.voicemailUnheard) {
             Config.setVoicemailCount(ctx, signal.voicemailUnheard)
             NotificationQueue.countsChanged(ctx)
@@ -153,14 +210,24 @@ object WakeLoop {
         withTimeoutOrNull(ms) { kicks.receive() }
     }
 
-    /** The whole client (§3 "Your loop"). Runs until its coroutine is cancelled. */
+    /** Whether the loop sits out this token: it is the one last refused, and the refusal still holds. */
+    internal fun sitsOut(token: String?, refusedToken: String?, refusedUntilMs: Long, nowMs: Long): Boolean =
+        token != null && token == refusedToken && nowMs < refusedUntilMs
+
+    /** When a token refused with 403 at [nowMs] is asked again. */
+    internal fun revokedUntil(nowMs: Long): Long = nowMs + REVOKED_RECHECK_MS
+
+    /** The whole client loop. Runs until its coroutine is cancelled. */
     suspend fun run(ctx: Context) {
         var backoff = BACKOFF_MIN_MS
         var refusedToken: String? = null
+        var refusedUntil = Long.MAX_VALUE
         while (true) {
             val token = Uploader.bearer(ctx)
-            if (token != null && token == refusedToken) {
-                waitOrKick(NO_TOKEN_RECHECK_MS)
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (sitsOut(token, refusedToken, refusedUntil, now)) {
+                // Short waits, so a new token (a re-pair) is polled with soon; a kick only re-checks.
+                waitOrKick(minOf(NO_TOKEN_RECHECK_MS, refusedUntil - now))
                 continue
             }
             // A kick asks for a poll, and this is it. Left queued, it would cut short the wait
@@ -173,6 +240,8 @@ object WakeLoop {
             kicks.tryReceive()
             when (out) {
                 is Outcome.Signal -> {
+                    refusedToken = null
+                    runCatching { Enrolment.onReinstated(ctx) }
                     runCatching { apply(ctx, out.signal, out.acked) }
                         .onFailure { Log.w(TAG, "could not take a signal in", it) }
                     backoff = BACKOFF_MIN_MS
@@ -184,13 +253,25 @@ object WakeLoop {
                     Log.w(TAG, "401: stopping until the phone has a new credential")
                     runCatching { Enrolment.onCredentialDead(ctx) }
                     refusedToken = token
+                    refusedUntil = Long.MAX_VALUE
                 }
                 Outcome.Revoked -> {
-                    Log.w(TAG, "403: this device is revoked; not polling")
+                    Log.w(TAG, "403: this device is revoked; asking again in ${REVOKED_RECHECK_MS / 60_000} min")
                     runCatching { Enrolment.onRevoked(ctx) }
+                    backoff = BACKOFF_MIN_MS
+                    // Refuse this token for the hour rather than sleeping it: a kick must not
+                    // re-ask a revoked token, and a new one from a re-pair must not wait the hour.
                     refusedToken = token
-                    // A revoked phone with no token at all passes the refused-token check on
-                    // every turn of the loop; this wait is what keeps that from spinning.
+                    refusedUntil = revokedUntil(android.os.SystemClock.elapsedRealtime())
+                }
+                is Outcome.Lapsed -> {
+                    Log.w(TAG, "402: subscription ${out.lapse.reason}; keeping the token, asking again later")
+                    runCatching { Billing.onLapsed(ctx, out.lapse) }
+                    backoff = BACKOFF_MIN_MS
+                    waitOrKick(LAPSED_RECHECK_MS)
+                }
+                Outcome.Refused -> {
+                    Log.w(TAG, "403 with no revocation signal; waiting before the next poll")
                     waitOrKick(NO_TOKEN_RECHECK_MS)
                 }
                 is Outcome.Retry -> {
