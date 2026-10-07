@@ -1,9 +1,11 @@
 package watch.rist.assistant
 
 import android.content.Context
+import android.util.Base64
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
+import rist.v1.Checklist
 import java.io.File
 
 enum class EntryState { RECORDING, SENT, WAITING, ANSWERED, FAILED }
@@ -18,11 +20,18 @@ data class TranscriptEntry(
     var error: String = "",
     /** Pinned entries survive the age sweep and the count cap until they are unpinned. */
     var pinned: Boolean = false,
+    /** Lists the reply showed with checkboxes, with the ticks made on them since. */
+    var checklists: List<Checklist> = emptyList(),
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", localId).put("at", at).put("prompt", prompt)
         .put("state", state.name).put("answer", answer)
         .put("requestId", requestId).put("error", error).put("pinned", pinned)
+        .apply {
+            if (checklists.isNotEmpty()) put("checklists", JSONArray().also { arr ->
+                checklists.forEach { arr.put(Base64.encodeToString(it.toByteArray(), Base64.NO_WRAP)) }
+            })
+        }
 
     companion object {
         fun fromJson(o: JSONObject) = TranscriptEntry(
@@ -34,6 +43,11 @@ data class TranscriptEntry(
             requestId = o.optString("requestId"),
             error = o.optString("error"),
             pinned = o.optBoolean("pinned", false),
+            checklists = o.optJSONArray("checklists")?.let { arr ->
+                (0 until arr.length()).mapNotNull {
+                    runCatching { Checklist.parseFrom(Base64.decode(arr.getString(it), Base64.NO_WRAP)) }.getOrNull()
+                }
+            } ?: emptyList(),
         )
     }
 }
@@ -117,10 +131,12 @@ object Transcript {
         ctx: Context, localId: Long,
         state: EntryState? = null, prompt: String? = null,
         answer: String? = null, requestId: String? = null, error: String? = null,
+        checklists: List<Checklist>? = null,
     ) {
         ensureLoaded(ctx)
         val e = entries.firstOrNull { it.localId == localId } ?: return
         state?.let { e.state = it }
+        checklists?.let { e.checklists = it }
         prompt?.let { e.prompt = it }
         answer?.let { e.answer = it }
         requestId?.let { e.requestId = it }
@@ -149,6 +165,25 @@ object Transcript {
         if (e.pinned == pinned) return
         e.pinned = pinned
         save(ctx)
+    }
+
+    /** Every reply card holding [itemId] now shows it as [checked]. */
+    @Synchronized
+    fun setItemChecked(ctx: Context, itemId: String, checked: Boolean) {
+        ensureLoaded(ctx)
+        var changed = false
+        for (e in entries) {
+            if (e.checklists.none { cl -> cl.itemsList.any { it.id == itemId && it.checked != checked } }) continue
+            e.checklists = e.checklists.map { cl ->
+                val b = cl.toBuilder()
+                for (i in 0 until b.itemsCount) {
+                    if (b.getItems(i).id == itemId) b.setItems(i, b.getItems(i).toBuilder().setChecked(checked))
+                }
+                b.build()
+            }
+            changed = true
+        }
+        if (changed) save(ctx)
     }
 
     // ---- test seams ----

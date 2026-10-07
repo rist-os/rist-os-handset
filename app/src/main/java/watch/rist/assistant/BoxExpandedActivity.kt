@@ -48,6 +48,10 @@ class BoxExpandedActivity : AppCompatActivity() {
     private lateinit var titleView: TextView
     private lateinit var updatedView: TextView
     private lateinit var bodyView: TextView
+    private lateinit var listsView: LinearLayout
+
+    /** Rows ticked while this view is open, by item id: they stay on screen until it closes. */
+    private val kept = HashMap<String, ChecklistView.Kept>()
     private lateinit var refreshButton: FrameLayout
     private lateinit var refreshIcon: ImageView
     private lateinit var refreshStatus: TextView
@@ -185,7 +189,17 @@ class BoxExpandedActivity : AppCompatActivity() {
             setTextClassifier(android.view.textclassifier.TextClassifier.NO_OP)
             setPadding(px(22f), px(18f), px(22f), px(28f))
         }
-        root.addView(ScrollView(this).apply { addView(bodyView) },
+        listsView = LinearLayout(this).apply {
+            tag = TAG_LISTS
+            orientation = LinearLayout.VERTICAL
+            setPadding(px(18f), px(10f), px(22f), px(28f))
+            visibility = View.GONE
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(bodyView); addView(listsView)
+        }
+        root.addView(ScrollView(this).apply { addView(content) },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         fill()
     }
@@ -284,9 +298,42 @@ class BoxExpandedActivity : AppCompatActivity() {
         }
         // A box that sent no full text shows what it has: the glance value and its line.
         val body = b.body.ifBlank { listOf(face.value, face.detail).filter { it.isNotBlank() }.joinToString("\n\n") }
-        bodyView.text = Markdown.render(body)
+        val lists = if (Checklists.declared()) b.checklistsList else emptyList()
+        bodyView.visibility = if (lists.isEmpty()) View.VISIBLE else View.GONE
+        listsView.visibility = if (lists.isEmpty()) View.GONE else View.VISIBLE
+        if (lists.isEmpty()) bodyView.text = Markdown.render(body) else drawLists(lists)
         BoxRefresh.observe(HomeBoxes.boxes(this))
         drawRefresh()
+    }
+
+    /**
+     * The tile's sections as the backend sent them: a list section as rows with checkboxes, any
+     * other section as its markdown.
+     */
+    private fun drawLists(lists: List<rist.v1.Checklist>) {
+        listsView.removeAllViews()
+        for ((i, cl) in lists.withIndex()) {
+            if (cl.title.isNotBlank()) listsView.addView(ChecklistView.heading(this, cl.title, rt, tf))
+            if (cl.list.isBlank() || cl.itemsCount == 0) {
+                if (cl.markdown.isNotBlank()) listsView.addView(TextView(this).apply {
+                    text = if (cl.list.isBlank()) Markdown.render(cl.markdown) else cl.markdown
+                    typeface = tf
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, ThemePaint.scaledSp(rt, 16f))
+                    setTextColor(if (cl.list.isBlank()) rt.ink else Themes.readableMuted(rt))
+                    setLineSpacing(0f, 1.3f)
+                    setPadding(px(4f), px(4f), 0, px(8f))
+                })
+                continue
+            }
+            val key = ChecklistView.sectionKey(i, cl)
+            ChecklistView.tileRows(this, key, cl, kept).forEachIndexed { at, (item, shown) ->
+                listsView.addView(ChecklistView.row(this, item, shown, rt, tf) { _, now ->
+                    Haptics.ack(this)
+                    kept[item.id] = ChecklistView.Kept(key, at, item)
+                    Checklists.tap(this, item.id, now, !now)
+                })
+            }
+        }
     }
 
     companion object {
@@ -295,6 +342,7 @@ class BoxExpandedActivity : AppCompatActivity() {
         const val TAG_ICON = "box-expanded-icon"
         const val TAG_UPDATED = "box-expanded-updated"
         const val TAG_BODY = "box-expanded-body"
+        const val TAG_LISTS = "box-expanded-lists"
         const val TAG_CLOSE = "box-expanded-close"
         const val TAG_REFRESH = "box-expanded-refresh"
         const val TAG_REFRESH_STATUS = "box-expanded-refresh-status"
