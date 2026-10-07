@@ -27,6 +27,24 @@ sign_manifest() {
   }
 }
 
+# The release public key, as compiled into every handset (OtaSignature.PUBLIC_KEY). Reading it from
+# the source keeps one copy of it; RIST_OTA_PINNED_PUBKEY overrides it for a fork with its own key.
+pinned_pubkey() {
+  if [ -n "${RIST_OTA_PINNED_PUBKEY:-}" ]; then printf '%s' "$RIST_OTA_PINNED_PUBKEY"; return 0; fi
+  local src="$HERE/../app/src/main/java/watch/rist/assistant/OtaSignature.kt"
+  [ -f "$src" ] || return 1
+  sed -n 's/^[[:space:]]*const val PUBLIC_KEY = "\([A-Za-z0-9+\/=]*\)".*/\1/p' "$src" | head -1
+}
+
+# verify_pinned <file> <sig>: minisign check against the pinned key; never a key file from disk.
+verify_pinned() {
+  command -v minisign >/dev/null 2>&1 || { echo "minisign not found; cannot verify before re-signing" >&2; return 1; }
+  local key
+  key="$(pinned_pubkey)"
+  [ -n "$key" ] || { echo "no pinned release key (OtaSignature.PUBLIC_KEY not found; set RIST_OTA_PINNED_PUBKEY)" >&2; return 1; }
+  minisign -V -q -P "$key" -m "$1" -x "$2" >/dev/null 2>&1
+}
+
 if [ "${1:-}" = "--promote" ]; then
   DEVICE="${2:-}"; FROM="${3:-beta}"; TO="${4:-stable}"
   [ -n "$DEVICE" ] || { echo "usage: $0 --promote <device> [from] [to]" >&2; exit 2; }
@@ -44,13 +62,31 @@ if [ "${1:-}" = "--promote" ]; then
   # "channel" is inside the signed bytes: promotion must rewrite it and RE-SIGN, not byte-copy
   aws ${EP[@]+"${EP[@]}"} s3 cp "$RIST_OTA_BUCKET/v1/ota/$DEVICE/$FROM" "$PM" --only-show-errors || {
     echo "cannot read v1/ota/$DEVICE/$FROM from the bucket; $TO is unchanged" >&2; exit 1; }
+  aws ${EP[@]+"${EP[@]}"} s3 cp "$RIST_OTA_BUCKET/v1/ota/$DEVICE/$FROM.minisig" "$PM.from.minisig" --only-show-errors || {
+    echo "cannot read v1/ota/$DEVICE/$FROM.minisig from the bucket; $TO is unchanged" >&2; exit 1; }
 
-  python3 - "$PM" "$TO" <<'PY' || { echo "could not rewrite the channel; $TO is unchanged" >&2; exit 1; }
+  # Re-signing is an endorsement. Without this check, anyone who can write to the bucket gets their
+  # manifest signed by the release key on the next promote or expiry refresh. The key is the one
+  # compiled into the handset, not a file on this machine and not anything fetched from the bucket.
+  verify_pinned "$PM" "$PM.from.minisig" || {
+    echo >&2
+    echo "REFUSING TO PROMOTE: v1/ota/$DEVICE/$FROM does not carry a valid signature from the pinned" >&2
+    echo "release key. Someone other than the release process may have written it. $TO is unchanged." >&2
+    echo "Do not re-sign it by hand. Find out who wrote that object, then republish from the package." >&2
+    exit 1; }
+  echo "    ok: v1/ota/$DEVICE/$FROM verifies against the pinned release key"
+  rm -f "$PM.from.minisig"
+
+  python3 - "$PM" "$TO" "$DEVICE" "$FROM" <<'PY' || { echo "could not rewrite the channel; $TO is unchanged" >&2; exit 1; }
 import json, sys
-path, to = sys.argv[1], sys.argv[2]
+path, to, device, frm = sys.argv[1:5]
 with open(path) as fh:
     m = json.load(fh)
 was = m.get("channel")
+# The signature covers these, but a validly signed manifest for another device or channel is
+# still the wrong one to promote.
+if m.get("device") != device or was != frm:
+    sys.exit("manifest says device=%r channel=%r, expected %r/%r" % (m.get("device"), was, device, frm))
 m["channel"] = to
 with open(path, "w") as fh:
     json.dump(m, fh, indent=2, sort_keys=True)

@@ -58,6 +58,12 @@ elif [ "$AKRC" -ne 0 ]; then
   echo "  The adb-key gate reached no verdict (UNCHECKED above). That is not a pass." >&2
   echo "===VALIDATE_DONE rc=99 (adb_keys gate inconclusive)==="; exit 99
 fi
+# The public-build marker is what turns adb off and disallows debugging at runtime
+# (rist-provision-do.sh, BuildVariant.kt). An image without it is a private image, whatever this
+# script exported: refuse it rather than sign a public release that keeps adb on.
+[ -f "$P/product/etc/rist/public-build" ] || { echo "  no public-build marker at $P/product/etc/rist/public-build." >&2; \
+  echo "  aosp/rist.mk did not see RIST_PUBLIC_BUILD=true, so this image would keep adb on." >&2; \
+  echo "===VALIDATE_DONE rc=96 (public-build marker ABSENT -- not a public image)==="; exit 96; }
 IS=$P/system/etc/rist/rist-provision-do.sh
 [ -s "$IS" ] || { echo "  no Device-Owner provisioning script at $IS (or it is empty)." >&2; \
                   echo "===VALIDATE_DONE rc=93 (provisioning script absent -- init gate could not run)==="; exit 93; }
@@ -74,6 +80,30 @@ cp "$TF" releases/$BN/$DEVICE-target_files.zip || { echo "===VALIDATE_DONE rc=90
 OT="$(rist_newest "out/soong/.intermediates/build/make/tools/otatools_package/otatools-package/linux_glibc_x86_64/gen/otatools.zip")" \
   || { echo "===VALIDATE_DONE rc=91 (no otatools package -- see above)==="; exit 91; }
 cp "$OT" releases/$BN/$DEVICE-otatools.zip || { echo "===VALIDATE_DONE rc=91 (could not stage otatools)==="; exit 91; }
+
+# The same two facts, read from the staged target_files -- the artefact that is signed, not the
+# out/ tree beside it: the marker is present and no adb_keys file is.
+python3 - "releases/$BN/$DEVICE-target_files.zip" <<'VARIANT_CHECK'
+import sys, zipfile
+try:
+    names = set(zipfile.ZipFile(sys.argv[1]).namelist())
+except Exception as e:
+    print("  cannot read %s: %s" % (sys.argv[1], e), file=sys.stderr); sys.exit(2)
+if "PRODUCT/etc/rist/public-build" not in names:
+    print("  target_files has no PRODUCT/etc/rist/public-build: this is not a public image.", file=sys.stderr)
+    sys.exit(1)
+keys = sorted(n for n in names if n.endswith("etc/security/adb_keys"))
+if keys:
+    print("  target_files carries an adb key: %s" % ", ".join(keys), file=sys.stderr)
+    sys.exit(1)
+print("  GATE PASS: target_files has the public-build marker and no adb_keys.")
+VARIANT_CHECK
+VRC=$?
+if [ "$VRC" -eq 1 ]; then
+  echo "===VALIDATE_DONE rc=96 (target_files is not a public image -- see above)==="; exit 96
+elif [ "$VRC" -ne 0 ]; then
+  echo "===VALIDATE_DONE rc=99 (public-variant check on target_files could not run)==="; exit 99
+fi
 
 PATCH_CHECK="$RIST_REPO/tools/check_patches.py"
 if [ ! -f "$PATCH_CHECK" ] || ! command -v python3 >/dev/null 2>&1; then
