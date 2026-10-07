@@ -35,6 +35,7 @@ object DeviceProfile {
         homeBoxes: Boolean = HomeBoxes.declared(),
         design: Boolean = DesignSync.declared(),
         fontIds: List<String> = emptyList(),
+        checklists: Boolean = Checklists.declared(),
     ): Capabilities =
         Capabilities.newBuilder()
             // v18 carries every field this build reads; the video_call component alone decides
@@ -54,6 +55,8 @@ object DeviceProfile {
             .apply { if (homeBoxes) addComponents(HomeBoxes.COMPONENT) }
             // Whether this phone takes a DesignSpec, and the fonts a design may name.
             .apply { if (design) addComponents(DesignSync.COMPONENT).addAllComponents(Fonts.capsEntries(fontIds)) }
+            // Whether this phone draws lists with checkboxes; without it lists come as markdown.
+            .apply { if (checklists) addComponents(Checklists.COMPONENT) }
             .setMaxImageBytes(MAX_IMAGE_BYTES)
             // 0 or unset means "cannot do place triggers".
             .setMaxGeofences(Geofences.MAX_FENCES)
