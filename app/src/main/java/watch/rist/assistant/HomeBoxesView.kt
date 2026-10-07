@@ -280,15 +280,21 @@ internal class BoxBoard(
             cornerRadius = px(16f).toFloat()
         }
 
+    /**
+     * A tile's label: one line that shrinks to fit (10 sp down to [LABEL_MIN_SP]) rather than
+     * being cut to "WEATH…". Only a label still too long at the smallest size is ellipsized.
+     * Shrinking needs a bounded width: in a row, the label takes the room left beside the icon.
+     */
     private fun label(text: String, colour: Int) = TextView(activity).apply {
         this.text = text
         isAllCaps = true
         typeface = pixelTf
-        letterSpacing = 0.08f
+        letterSpacing = 0f
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
         setTextColor(colour)
         maxLines = 1
         ellipsize = TextUtils.TruncateAt.END
+        setAutoSizeTextTypeUniformWithConfiguration(LABEL_MIN_SP, 10, 1, TypedValue.COMPLEX_UNIT_SP)
     }
 
     private fun small(text: String, colour: Int, tf: Typeface?) = TextView(activity).apply {
@@ -382,7 +388,10 @@ internal class BoxBoard(
                 gravity = Gravity.CENTER_VERTICAL
             }
             boxIcon(b, t.ink)?.let { top.addView(it) }
-            top.addView(label(face.label, muted).apply { tag = LABEL_TAG })
+            top.addView(label(face.label, muted).apply {
+                tag = LABEL_TAG
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            })
             col.addView(top)
             col.addView(value(face.value, valueSp(face.value), t.ink, tf, 2, Gravity.CENTER_VERTICAL or Gravity.START))
             if (face.detail.isNotBlank()) col.addView(small(face.detail, muted, tf).apply { tag = DETAIL_TAG; maxLines = detailLines() })
@@ -497,9 +506,6 @@ internal class BoxBoard(
         // The longest built-in label: shrink it to fit rather than cut it to "NOTIFICATI…".
         col.addView(label(activity.getString(R.string.notifications_title), muted).apply {
             tag = LABEL_TAG
-            letterSpacing = 0f
-            ellipsize = null
-            setAutoSizeTextTypeUniformWithConfiguration(6, 10, 1, TypedValue.COMPLEX_UNIT_SP)
         })
         col.addView(value(count.toString(), valueSp(count.toString()), if (count > 0) t.ink else muted, tf, 1,
             Gravity.CENTER_VERTICAL or Gravity.START))
@@ -635,6 +641,8 @@ internal class BoxBoard(
         const val ALL_W_DP = 64f
         const val DIM_ALPHA = 0.62f
         const val MIN_VALUE_SP = 12f
+        // The smallest a tile label shrinks to; the pixel face is still legible there.
+        const val LABEL_MIN_SP = 6
         const val LARGE_TEXT = 1.3f
 
         const val TILE_TAG_PREFIX = "box:"
