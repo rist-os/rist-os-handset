@@ -169,6 +169,7 @@ object HomeBoxes {
         val next = synchronized(this) {
             var set = clamp(incoming)
             for (edit in queued(ctx)) set = applyLocally(set, edit)
+            runCatching { Checklists.observe(ctx, set.boxesList) }
             val before = held(ctx)
             if (before == set) return false
             store(ctx, set)
@@ -353,12 +354,17 @@ object HomeBoxes {
         Config.setBoxEditQueue(ctx, if (edits.isEmpty()) "" else arr.toString())
     }
 
-    /** `…/v1/device` becomes `…/v1/device/boxes`. */
-    internal fun boxesUrl(backendUrl: String): String? {
+    /**
+     * `…/v1/device` becomes `…/v1/device/boxes`, naming `checklist_v1` when this build declares
+     * it, so the list in the reply carries the tiles' checklists too.
+     */
+    internal fun boxesUrl(backendUrl: String, checklists: Boolean = Checklists.declared()): String? {
         val base = backendUrl.trim().trimEnd('/')
         if (base.isEmpty()) return null
         val url = if (base.endsWith("/v1/device")) "$base/boxes" else "$base/v1/device/boxes"
-        return url.toHttpUrlOrNull()?.toString()
+        val parsed = url.toHttpUrlOrNull() ?: return null
+        return (if (checklists) parsed.newBuilder().addQueryParameter("components", Checklists.COMPONENT).build() else parsed)
+            .toString()
     }
 
     sealed class Sent {

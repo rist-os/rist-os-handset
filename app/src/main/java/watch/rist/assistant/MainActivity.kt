@@ -381,6 +381,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                     state = if (answered) EntryState.ANSWERED else EntryState.FAILED,
                     answer = reply?.speech?.text?.takeIf { it.isNotBlank() } ?: text,
                     requestId = reply?.requestId.orEmpty(),
+                    checklists = reply?.checklistsList,
                     error = if (answered) "" else if (userCancelled) "cancelled" else st.ifBlank { "no reply" },
                 )
             }
@@ -1687,6 +1688,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                     state = if (reply != null) EntryState.ANSWERED else EntryState.FAILED,
                     answer = reply?.speech?.text.orEmpty(),
                     requestId = reply?.requestId.orEmpty(),
+                    checklists = reply?.checklistsList,
                     error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
                 )
             }
@@ -1775,6 +1777,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                     state = if (reply != null) EntryState.ANSWERED else EntryState.FAILED,
                     answer = answer,
                     requestId = reply?.requestId.orEmpty(),
+                    checklists = reply?.checklistsList,
                     error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
                 )
             }
@@ -1892,6 +1895,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                     state = if (reply != null) EntryState.ANSWERED else EntryState.FAILED,
                     answer = reply?.speech?.text.orEmpty(),
                     requestId = reply?.requestId.orEmpty(),
+                    checklists = reply?.checklistsList,
                     error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
                 )
             }
@@ -2015,6 +2019,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                     state = if (reply != null) EntryState.ANSWERED else EntryState.FAILED,
                     answer = reply?.speech?.text.orEmpty(),
                     requestId = reply?.requestId.orEmpty(),
+                    checklists = reply?.checklistsList,
                     error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
                 )
             }
@@ -2055,6 +2060,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                 state = if (reply != null) EntryState.ANSWERED else EntryState.FAILED,
                 answer = reply?.speech?.text.orEmpty(),
                 requestId = reply?.requestId.orEmpty(),
+                checklists = reply?.checklistsList,
                 error = if (reply != null) "" else failure.ifBlank { "no reply" },
             )
         }
@@ -2161,6 +2167,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                     state = if (reply != null) EntryState.ANSWERED else EntryState.FAILED,
                     answer = reply?.speech?.text.orEmpty(),
                     requestId = reply?.requestId.orEmpty(),
+                    checklists = reply?.checklistsList,
                     error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
                 )
             }
@@ -2311,6 +2318,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, if (e.state == EntryState.ANSWERED) 17f else 12f)
                 if (live) liveStatusView = this
             })
+            if (e.state == EntryState.ANSWERED) ChecklistView.addCards(col, e, t, tf)
             keptPhotos[e.localId]?.forEach { photo -> photoCard(photo, t, muted, tf, d)?.let { col.addView(it) } }
             if (live) col.addView(TextView(this).apply {
                 text = getString(R.string.stop_turn)

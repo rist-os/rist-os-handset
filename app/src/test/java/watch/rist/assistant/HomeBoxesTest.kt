@@ -39,6 +39,7 @@ class HomeBoxesTest {
     fun clean() {
         HomeBoxes.resetForTest(ctx)
         DesignSync.resetForTest(ctx)
+        Checklists.resetForTest(ctx)
         Config.setFeatures(ctx, "")
     }
 
@@ -46,6 +47,7 @@ class HomeBoxesTest {
     fun tidy() {
         HomeBoxes.resetForTest(ctx)
         DesignSync.resetForTest(ctx)
+        Checklists.resetForTest(ctx)
         Config.setFeatures(ctx, "")
         server?.shutdown()
     }
@@ -282,7 +284,8 @@ class HomeBoxesTest {
         s.enqueue(protoBody(BoxEditReply.newBuilder().setStatus(200).setBoxes(real).build().toByteArray()))
         assertEquals(1, HomeBoxes.flush(ctx))
         val req = s.takeRequest(5, TimeUnit.SECONDS)!!
-        assertEquals("/v1/device/boxes", req.path)
+        assertEquals("/v1/device/boxes", req.requestUrl!!.encodedPath)
+        assertEquals("the reply's list carries checklists", Checklists.COMPONENT, req.requestUrl!!.queryParameter("components"))
         assertEquals("POST", req.method)
         val sent = BoxEdit.parseFrom(req.body.readByteArray())
         assertEquals(listOf("a"), sent.deleteIdsList)
@@ -362,6 +365,7 @@ class HomeBoxesTest {
         backend()
         HomeBoxes.shippedForTest = true
         DesignSync.shippedForTest = false
+        Checklists.shippedForTest = false
         HomeBoxes.apply(ctx, set(5, box("a")))
         val url = WakeLoop.wakeUrlFor(ctx, emptyList())!!.toHttpUrl()
         assertEquals("/v1/device/wake", url.encodedPath)

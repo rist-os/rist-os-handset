@@ -74,7 +74,7 @@ class BoxCreateTest {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val body = request.body.readByteArray()
-                if (request.path == "/v1/device/boxes") {
+                if (request.requestUrl?.encodedPath == "/v1/device/boxes") {
                     val e = BoxEdit.parseFrom(body)
                     edits += e
                     return boxesReply(e)

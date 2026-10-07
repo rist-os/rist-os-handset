@@ -52,7 +52,7 @@ class BoxRefreshTest {
         server = MockWebServer()
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
-                if (request.path == "/v1/device/boxes") edits += BoxEdit.parseFrom(request.body.readByteArray())
+                if (request.requestUrl?.encodedPath == "/v1/device/boxes") edits += BoxEdit.parseFrom(request.body.readByteArray())
                 return reply()
             }
         }

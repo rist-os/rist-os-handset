@@ -27,7 +27,7 @@ class DeviceProfileTest {
                    "map_tiles", "map_tiles_hd")
         ))
         // capabilities(w, h) lists no fonts; the device's own call adds one "font:<id>" per font.
-        val expected = 11 + listOf(VideoCalls.SHIPPED, HomeBoxes.SHIPPED, DesignSync.SHIPPED).count { it }
+        val expected = 11 + listOf(VideoCalls.SHIPPED, HomeBoxes.SHIPPED, DesignSync.SHIPPED, Checklists.SHIPPED).count { it }
         assertEquals(expected, caps.componentsCount)
     }
 

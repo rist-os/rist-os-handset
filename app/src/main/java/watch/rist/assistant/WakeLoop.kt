@@ -72,6 +72,7 @@ object WakeLoop {
         maxNotifications: Int,
         boxesVersion: Long? = null,
         designVersions: Pair<Long, Long>? = null,
+        checklists: Boolean = false,
     ): String? {
         val base = backendUrl.trim().trimEnd('/')
         if (base.isEmpty()) return null
@@ -92,6 +93,7 @@ object WakeLoop {
                     addQueryParameter("settings", designVersions.second.toString())
                     components += DesignSync.COMPONENT
                 }
+                if (checklists) components += Checklists.COMPONENT
                 if (components.isNotEmpty()) addQueryParameter("components", components.joinToString(","))
             }
             .build().toString()
@@ -116,6 +118,7 @@ object WakeLoop {
         val acks = NotificationQueue.pendingAcks(ctx)
         // Box edits made offline go first, so the version asked about is the one they produced.
         if (HomeBoxes.declared()) runCatching { HomeBoxes.flush(ctx) }
+        if (Checklists.declared()) runCatching { Checklists.flush(ctx) }
         if (DesignSync.declared()) {
             DesignSync.migrateLegacyTheme(ctx)
             runCatching { DesignSync.flush(ctx) }
@@ -127,8 +130,9 @@ object WakeLoop {
     /** This phone's wake address: its acks, its card count, and its box version if it has boxes. */
     internal fun wakeUrlFor(ctx: Context, acks: List<String>): String? =
         wakeUrl(Config.backendUrl(ctx), acks, CommsFeed.MAX_NOTIFICATIONS,
-            if (HomeBoxes.declared()) HomeBoxes.version(ctx) else null,
-            if (DesignSync.declared()) DesignSync.version(ctx) to Config.settingsVersion(ctx) else null)
+            if (HomeBoxes.declared()) Checklists.boxesVersionToAsk(ctx, HomeBoxes.version(ctx)) else null,
+            if (DesignSync.declared()) DesignSync.version(ctx) to Config.settingsVersion(ctx) else null,
+            Checklists.declared())
 
     /** The HTTP half of [poll], apart from the stores so it can be tested on its own. */
     internal fun exchange(http: OkHttpClient, url: String, bearer: String, device: String, acks: List<String>): Outcome {
