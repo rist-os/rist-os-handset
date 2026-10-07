@@ -4,6 +4,62 @@ Build numbers are `YYYYMMDDNN`. The log starts with 2026083110, the first publis
 
 ---
 
+## Unreleased
+
+**Device:** Pixel 10a (`stallion`) only. **Base:** GrapheneOS, the same base as 2026092300.
+**App versionCode:** 1040.
+
+### New
+
+- **Home tiles.** Ask the assistant for a tile ("the weather here", "my next meeting") and it appears
+  as a square on the home screen. Tap to open it, refresh it, change what it shows or remove it.
+- **A notifications tile.** One tile counts your notices. Notices open as cards you can expand, and
+  they stay until you dismiss them.
+- **Checkable lists.** A list the assistant gives you (shopping, packing, to-dos) has tick boxes on
+  its card and on its tile. A tick is kept on the phone until the service has it, so it is not lost
+  without signal.
+- **Swipe to clear.** Swipe a notice or an answer away. A pinned answer cannot be swiped away.
+- **Your look, from the assistant.** Ask for a different font, colours or text size and the phone
+  changes. Your choice is kept across updates and between the phone and your account.
+- **Names on calls and texts.** Your contacts in your Rist account are copied onto the phone, so
+  calls and texts show who they are, even with no signal. A switch in Settings turns this off.
+- **Pictures in answers.** An answer can show a picture from an image search, with a short credit
+  line. The picture is loaded from the search provider's image server only.
+
+### Changed
+
+- **Subscriptions.** If your subscription lapses, the phone says so in plain words and shows a way
+  to renew it. It does not lock you out, and it keeps working as a phone. Emergency calls never
+  depend on a subscription.
+- **A phone removed from your account** shows a screen saying so and can be paired again with a new
+  code, with no reset.
+- **An account with two phones** gets a clear message when a third is paired.
+- **Calls and texts the assistant places for you** show the name and number first. A premium-rate,
+  international or unknown number not in your contacts, and any emergency or crisis line, is not
+  dialled or texted for you: the dialer or the message screen opens and you press the button
+  yourself. There is a daily limit on calls and texts placed for you.
+- **The SOS button is gone from the home screen.** Dial emergency numbers from the dialer.
+
+### Security
+
+- **adb and Developer options are off on published images**, and the phone keeps them off. Recovery
+  `adb sideload` of a signed update still works.
+- **The app distrusts the server more.** Oversized or malformed replies, voicemail ids, media
+  controls from other apps and stray "forbidden" answers from a proxy are refused or ignored. Only
+  the service's explicit "this phone was removed" answer removes a phone.
+- **The release chain checks its own signatures.** The flash script refuses a release whose signature
+  does not check out, the publish step verifies the update manifest against the pinned key before
+  promoting it, and an image without the public-build marker is refused at signing.
+
+### What does not
+
+- **Emergency calling is not validated.** No verification step has been run. See `SAFETY.md`.
+- **Wireless Emergency Alert text may not display.**
+- **The published image is not reproducible from this repository.**
+- **No app store; arbitrary apps cannot be installed.**
+
+---
+
 ## 2026092300
 
 **Device:** Pixel 10a (`stallion`) only. **Android security patch level:** 2026-09-01.
