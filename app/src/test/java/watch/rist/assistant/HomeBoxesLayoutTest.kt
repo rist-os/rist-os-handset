@@ -102,8 +102,9 @@ class HomeBoxesLayoutTest {
             settle()
             val list = a.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.boxList)
             // Position 0 is the built-in Notifications tile, so a box sits one past its index.
-            for (b in long()) {
-                list.scrollToPosition(long().indexOf(b) + 1); settle()
+            // One list: long() stamps the clock, so a second call across a second boundary finds no b.
+            for ((i, b) in long().withIndex()) {
+                list.scrollToPosition(i + 1); settle()
                 val tile = requireNotNull(list.findViewWithTag<ViewGroup>(BoxBoard.TILE_TAG_PREFIX + b.id)) { b.id }
                 assertContained(tile, BoxBoard.TILE_DP, scale)
             }
