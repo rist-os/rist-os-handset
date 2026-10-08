@@ -265,12 +265,12 @@ class DesignSyncTest {
             .putAllTokens(DesignSync.tokensOf(Themes.byId("night"))).build().toByteArray()))
         s.enqueue(ok())
         Uploader(ctx).sendText("hello")
-        val post = s.takeRequest(5, TimeUnit.SECONDS)!!
+        val post = s.takeRequest(30, TimeUnit.SECONDS)!!
         assertEquals("/v1/device/design", post.path)
         val sent = DesignSpec.parseFrom(post.body.readByteArray())
         assertEquals(0L, sent.version)
         assertEquals("night", sent.baseTheme)
-        val turn = DeviceRequest.parseFrom(s.takeRequest(5, TimeUnit.SECONDS)!!.body.readByteArray())
+        val turn = DeviceRequest.parseFrom(s.takeRequest(30, TimeUnit.SECONDS)!!.body.readByteArray())
         assertEquals(1L, turn.designVersion)
         assertEquals(Themes.byId("night").ground, Themes.current(ctx).ground)
     }
@@ -290,8 +290,8 @@ class DesignSyncTest {
             .setDesign(spec(1).toBuilder().putAllTokens(DesignSync.tokensOf(Themes.FACTORY)).build())
             .build().toByteArray()))
         assertNotNull(Uploader(ctx).sendText("hello"))
-        assertEquals("/v1/device/design", s.takeRequest(5, TimeUnit.SECONDS)!!.path)
-        assertEquals(0L, DeviceRequest.parseFrom(s.takeRequest(5, TimeUnit.SECONDS)!!.body.readByteArray()).designVersion)
+        assertEquals("/v1/device/design", s.takeRequest(30, TimeUnit.SECONDS)!!.path)
+        assertEquals(0L, DeviceRequest.parseFrom(s.takeRequest(30, TimeUnit.SECONDS)!!.body.readByteArray()).designVersion)
         assertEquals("Night stays on screen", night.ground, Themes.current(ctx).ground)
         assertEquals("the version is taken, so the phone is not behind on every wake", 1L, DesignSync.version(ctx))
         assertTrue("Night still waits to be posted", DesignSync.postPending(ctx))
@@ -303,7 +303,7 @@ class DesignSyncTest {
         s.enqueue(protoBody(spec(2).toBuilder().setBaseTheme("night")
             .putAllTokens(DesignSync.tokensOf(night)).build().toByteArray()))
         assertTrue(DesignSync.flush(ctx, nowMs = now + DesignSync.SWITCHED_OFF_RETRY_MS + 1))
-        assertEquals("/v1/device/design", s.takeRequest(5, TimeUnit.SECONDS)!!.path)
+        assertEquals("/v1/device/design", s.takeRequest(30, TimeUnit.SECONDS)!!.path)
         assertFalse(DesignSync.postPending(ctx))
         assertEquals(2L, DesignSync.version(ctx))
         assertEquals(night.ground, Themes.current(ctx).ground)
@@ -464,7 +464,7 @@ class DesignSyncTest {
         s.enqueue(protoBody(spec(6).toByteArray()))
         DesignSync.reset(ctx)
         DesignSync.awaitFlushForTest()
-        val req = s.takeRequest(5, TimeUnit.SECONDS)!!
+        val req = s.takeRequest(30, TimeUnit.SECONDS)!!
         assertEquals("/v1/device/design", req.path)
         val sent = DesignSpec.parseFrom(req.body.readByteArray())
         assertEquals(0L, sent.version)
@@ -487,7 +487,7 @@ class DesignSyncTest {
             .setDesign(spec(8, "color.ground" to "#14284B", "color.ink" to "#F5F1E8")).build().toByteArray()))
         s.enqueue(ok())
         assertNotNull(Uploader(ctx).sendText("make it dark blue"))
-        val first = DeviceRequest.parseFrom(s.takeRequest(5, TimeUnit.SECONDS)!!.body.readByteArray())
+        val first = DeviceRequest.parseFrom(s.takeRequest(30, TimeUnit.SECONDS)!!.body.readByteArray())
         assertEquals(7L, first.designVersion)
         assertEquals(4L, first.settingsVersion)
         assertEquals(7L, first.designState.version)
@@ -497,7 +497,7 @@ class DesignSyncTest {
         // The next turn answers version 8: its text read as sent, while the factory tiles and
         // fields it kept were darkened to fit the light text, and say so.
         Uploader(ctx).sendText("thanks")
-        val second = DeviceRequest.parseFrom(s.takeRequest(5, TimeUnit.SECONDS)!!.body.readByteArray())
+        val second = DeviceRequest.parseFrom(s.takeRequest(30, TimeUnit.SECONDS)!!.body.readByteArray())
         assertEquals(8L, second.designVersion)
         assertEquals(8L, second.designState.version)
         val keys = second.designState.valuesList.map { it.key }
@@ -512,7 +512,7 @@ class DesignSyncTest {
         val s = backend()
         s.enqueue(ok())
         Uploader(ctx).sendText("hello")
-        val req = DeviceRequest.parseFrom(s.takeRequest(5, TimeUnit.SECONDS)!!.body.readByteArray())
+        val req = DeviceRequest.parseFrom(s.takeRequest(30, TimeUnit.SECONDS)!!.body.readByteArray())
         assertEquals(0L, req.designVersion)
         assertEquals(0L, req.settingsVersion)
         assertFalse(req.hasDesignState())

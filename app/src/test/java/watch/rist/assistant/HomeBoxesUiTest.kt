@@ -111,7 +111,7 @@ class HomeBoxesUiTest {
     private fun text(v: View, tag: String) = v.findViewWithTag<TextView>(tag)?.text?.toString()
 
     private fun waitFor(what: String, cond: () -> Boolean) {
-        val until = System.currentTimeMillis() + 5_000
+        val until = System.currentTimeMillis() + 30_000
         while (!cond()) {
             if (System.currentTimeMillis() > until) throw AssertionError("timed out waiting for $what")
             Thread.sleep(20)

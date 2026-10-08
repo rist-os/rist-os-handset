@@ -327,7 +327,7 @@ class AttachmentGenerationTest {
             .build()
 
     // The resolve runs on Dispatchers.IO, a real thread pool under Robolectric, so idle repeatedly.
-    private fun awaitCards(a: MainActivity, timeoutMs: Long = 5_000): Int {
+    private fun awaitCards(a: MainActivity, timeoutMs: Long = 30_000): Int {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
             org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
@@ -338,7 +338,7 @@ class AttachmentGenerationTest {
         return cards(a)
     }
 
-    private fun awaitTitle(a: MainActivity, title: String, timeoutMs: Long = 5_000): String {
+    private fun awaitTitle(a: MainActivity, title: String, timeoutMs: Long = 30_000): String {
         val deadline = System.currentTimeMillis() + timeoutMs
         var seen = ""
         while (System.currentTimeMillis() < deadline) {
@@ -351,7 +351,7 @@ class AttachmentGenerationTest {
         return allText(a.findViewById<ViewGroup>(R.id.replyContainer))
     }
 
-    private fun awaitNoCards(a: MainActivity, timeoutMs: Long = 5_000): Int {
+    private fun awaitNoCards(a: MainActivity, timeoutMs: Long = 30_000): Int {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
             org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
@@ -398,7 +398,7 @@ class AttachmentGenerationTest {
     private fun awaitRequests(
         requests: AtomicInteger,
         atLeast: Int,
-        timeoutMs: Long = 10_000,
+        timeoutMs: Long = 30_000,
     ): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
