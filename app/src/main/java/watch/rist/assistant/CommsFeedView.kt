@@ -197,7 +197,7 @@ object CommsFeedView {
         if (lapsed != null) host.addView(billingRow(activity, t, tf, d, lapsed))
         // On the Notifications page with nothing new, the page's own title already says it.
         val headerDrawn = !toTile && !unconnected && !(activity is NotificationsActivity && waiting == 0)
-        if (headerDrawn) host.addView(header(activity, t, tf, muted, d, waiting, all, vmWaiting))
+        if (headerDrawn) host.addView(header(activity, t, tf, muted, d, waiting, all, vmWaiting, unbadgedMail))
 
         fun divider() = host.addView(View(activity).apply {
             layoutParams = LinearLayout.LayoutParams(
@@ -231,7 +231,7 @@ object CommsFeedView {
             drawn++
             if (!toTile && (shown.isNotEmpty() || vmRow || textsUnreadable)) {
                 divider()
-                host.addView(header(activity, t, tf, muted, d, waiting, all, vmWaiting))
+                host.addView(header(activity, t, tf, muted, d, waiting, all, vmWaiting, unbadgedMail))
                 drawn++
             }
         }
@@ -268,14 +268,38 @@ object CommsFeedView {
                 LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
 
             val mailRow = LinearLayout(activity)
+            mailRow.tag = MAIL_ROW_TAG
             mailRow.orientation = LinearLayout.HORIZONTAL
+            mailRow.gravity = Gravity.CENTER_VERTICAL
             mailRow.layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
             )
             mailRow.addView(mailText)
-            swipeToDismiss(activity, mailRow, "the unread email notice") {
-                Config.setMailAcknowledged(activity, Config.mailUnread(activity))
-            }
+            // Dismissing marks the backend's unread count as seen; a higher count (a new email)
+            // brings the row back, and a count that falls to 0 re-arms it (Config.setMailUnread).
+            fun dismissMail() = Config.setMailAcknowledged(activity, Config.mailUnread(activity))
+            mailRow.addView(ImageView(activity).apply {
+                tag = MAIL_CLOSE_TAG
+                setImageResource(R.drawable.ic_close)
+                setColorFilter(muted)
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                val pad = (14 * d).toInt()
+                setPadding(pad, pad, pad, pad)
+                layoutParams = LinearLayout.LayoutParams((48 * d).toInt(), (48 * d).toInt())
+                contentDescription = "Dismiss the unread email notice"
+                isClickable = true; isFocusable = true
+                setOnClickListener {
+                    dismissMail()
+                    Haptics.ack(activity)
+                    render(activity)
+                }
+            })
+            swipeToDismiss(activity, mailRow, "the unread email notice") { dismissMail() }
+            // Clickable, so the row takes the touch down and a sideways swipe on it reaches the
+            // swipe: a row that ignores the down is never sent the moves that follow it.
+            mailRow.isClickable = true; mailRow.isFocusable = true
+            mailRow.contentDescription = mailText.text.toString() + " Double tap to have it read."
+            mailRow.setOnClickListener { readNewMail(activity) }
             host.addView(mailRow)
             drawn++
         }
@@ -295,9 +319,11 @@ object CommsFeedView {
 
     private fun header(
         activity: Activity, t: RistTheme, tf: android.graphics.Typeface?, muted: Int,
-        d: Float, waiting: Int, all: List<FeedItem>, vmWaiting: Boolean,
+        d: Float, waiting: Int, all: List<FeedItem>, vmWaiting: Boolean, unbadgedMail: Int,
     ): View {
-        val acknowledgeable = CommsFeed.unreadCount(all) + if (vmWaiting) 1 else 0
+        // The unread-mail row counts too: with nothing else new, CLEAR ALL is its way off.
+        val acknowledgeable = CommsFeed.unreadCount(all) + (if (vmWaiting) 1 else 0) +
+            (if (unbadgedMail > 0) 1 else 0)
         val bar = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -489,6 +515,26 @@ object CommsFeedView {
     internal const val NOTICE_BODY_TAG = "notice-body"
     internal const val NOTICE_TOGGLE_TAG = "notice-toggle"
     internal const val NOTICE_CLOSE_TAG = "notice-close"
+    internal const val MAIL_ROW_TAG = "mail-row"
+    internal const val MAIL_CLOSE_TAG = "mail-close"
+
+    /** What a tap on the unread-mail row asks, typed, as if the owner had said it. */
+    internal const val READ_MAIL_WORDS = "Read my new email"
+
+    /**
+     * Asks the assistant to read the new email, as a typed turn sent from the home screen, so the
+     * answer lands where every answer does. From any other screen, home is brought up to send it.
+     */
+    private fun readNewMail(activity: Activity) {
+        // A second tap before this page is gone would bring home up with the turn again.
+        if (activity.isFinishing) return
+        Haptics.ack(activity)
+        val turn = HomeBoxes.Turn(text = READ_MAIL_WORDS, targetToolId = "", boxId = "", prompt = READ_MAIL_WORDS)
+        if (activity is MainActivity) { activity.sendBoxTurn(turn); return }
+        runCatching { activity.startActivity(MainActivity.turnIntent(activity, turn)) }
+            .onFailure { Log.w(TAG, "could not bring home up to read the email", it); return }
+        activity.finish()
+    }
 
     /** Lines a long notice shows before "Show more". */
     internal const val NOTICE_PREVIEW_LINES = 4

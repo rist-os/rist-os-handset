@@ -263,10 +263,8 @@ class BoxCreateTest {
         val a = home()
         submit(a, "the temperature here every thirty minutes please")
         val p = requireNotNull(placeholder(a)) { "no placeholder" }
-        assertEquals(listOf(BoxBoard.NOTIFICATIONS_TAG, BoxBoard.TILE_TAG_PREFIX + "a", BoxBoard.CREATING_TAG), order(a).take(3))
-        row(a).scrollToPosition(3)
-        settle()
-        assertEquals(order(a).indexOf(BoxBoard.CREATING_TAG) + 1, order(a).indexOf(BoxBoard.ADD_TAG))
+        // Nothing is new, so no Notifications tile leads the row.
+        assertEquals(listOf(BoxBoard.TILE_TAG_PREFIX + "a", BoxBoard.CREATING_TAG, BoxBoard.ADD_TAG), order(a).take(3))
         assertEquals("New tile", p.findViewWithTag<TextView>(BoxBoard.LABEL_TAG).text.toString())
         assertEquals("the temperature here every…", p.findViewWithTag<TextView>(BoxBoard.DETAIL_TAG).text.toString())
         assertNotNull(p.findViewWithTag<View>(BoxBoard.SPINNER_TAG))

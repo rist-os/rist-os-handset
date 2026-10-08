@@ -672,8 +672,8 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
 
     /**
      * The home screen is singleTask: a HOME press or a launch while it is already up comes here
-     * instead of stacking a second copy. Nothing is read from the launch intent, in onCreate or
-     * here; onResume redraws as for any return.
+     * instead of stacking a second copy. Nothing is read from the launch intent but a typed turn
+     * from this app's own screens (see [turnIntent]), which onResume sends.
      */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -709,6 +709,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         renderCommandStrip()
         CommsFeedView.render(this)
         renderBoxes()
+        sendTurnFromIntent()
         cmdHandler.removeCallbacks(cmdTicker)
         if (DeviceCommands.anythingRunning()) cmdHandler.post(cmdTicker)
         enterKioskIfOwner()
@@ -1164,6 +1165,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         launch(R.id.drawerCam)   { AppLauncher.launchCamera(this) }
         launch(R.id.drawerPics)  { AppLauncher.launchGallery(this) }
         launch(R.id.drawerMaps)  { AppLauncher.launchMaps(this) }
+        launch(R.id.drawerNotifications) { startActivity(NotificationsActivity.intent(this)) }
         findViewById<View>(R.id.drawerSettings)?.setOnClickListener {
             closeAppDrawer()
             startActivity(
@@ -1223,7 +1225,13 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         NotificationHub.applyBadge(findViewById(R.id.drawerBadgeMaps), c.maps)
         NotificationHub.applyBadge(findViewById(R.id.drawerBadgeSet),  c.settings)
         findViewById<View>(R.id.drawerVoicemail)?.visibility = View.GONE
+        showDrawerNotifications(runCatching { CommsFeedView.listedCount(this) }.getOrDefault(0))
     }.let { }
+
+    /** The gear menu's way back to notifications already read, while any are listed. */
+    private fun showDrawerNotifications(listed: Int) {
+        findViewById<View>(R.id.drawerNotifications)?.visibility = if (listed > 0) View.VISIBLE else View.GONE
+    }
 
     private fun drawerCounts(): DrawerBadges.Counts {
         val w = runCatching { CommsFeedView.waiting(this) }.getOrNull()
@@ -1872,6 +1880,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
     /** The feed was drawn: the Notifications tile shows the same count, without asking again. */
     override fun onFeedWaiting(waiting: Int, listed: Int) {
         if (::boxBoard.isInitialized) boxBoard.showWaiting(waiting, listed)
+        showDrawerNotifications(listed)
     }
 
     internal fun openAllBoxes() {
@@ -2988,7 +2997,30 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
+    /** A turn another of this app's screens asked home to send; taken off the intent once sent. */
+    private fun sendTurnFromIntent() {
+        val i = intent ?: return
+        if (i.getStringExtra(EXTRA_TURN_KEY) != TURN_KEY) return
+        i.removeExtra(EXTRA_TURN_KEY)
+        AllBoxesActivity.turnFrom(i)?.let { sendBoxTurn(it) }
+    }
+
     internal companion object {
+        private const val EXTRA_TURN_KEY = "rist_turn_key"
+
+        // Known only inside this process: the activity is exported, and another app's intent
+        // must never be able to send a turn as the owner.
+        private val TURN_KEY: String = java.util.UUID.randomUUID().toString()
+
+        /** Brings home up and has it send [turn], as a tile tap would. */
+        internal fun turnIntent(ctx: Context, turn: HomeBoxes.Turn): Intent =
+            Intent(ctx, MainActivity::class.java)
+                .putExtra(EXTRA_TURN_KEY, TURN_KEY)
+                .putExtra(AllBoxesActivity.EXTRA_TEXT, turn.text)
+                .putExtra(AllBoxesActivity.EXTRA_TOOL, turn.targetToolId)
+                .putExtra(AllBoxesActivity.EXTRA_BOX, turn.boxId)
+                .putExtra(AllBoxesActivity.EXTRA_PROMPT, turn.prompt)
+
         private const val PHOTO_OPEN_GUARD_MS = 1_000L
         private const val TAG = "RistMain"
 
