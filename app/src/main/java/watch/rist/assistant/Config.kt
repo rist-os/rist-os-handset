@@ -38,6 +38,8 @@ object Config {
     private const val LEGACY_AWAITING_REPLY = "awaiting_reply"
     /** The account the conversation belongs to: the `user_id` the enroll answer named. */
     private const val KEY_SESSION_ACCOUNT = "session_account"
+    /** The session id a user-started new conversation belongs to, until a reply has been had. */
+    private const val KEY_NEW_CONVERSATION_FOR = "new_conversation_for"
     private const val KEY_KIOSK_STAMP = "kiosk_provisioned_vc"
     private const val KEY_TIMERS = "running_timers"
     private const val KEY_SMS_QUEUE = "sms_queue"
@@ -674,13 +676,38 @@ object Config {
         prefs(ctx).getString(KEY_SESSION_ID, null)?.takeIf { it.isNotEmpty() } ?: ""
 
     /**
-     * Starts a new conversation; the new id alone tells the server (no request flag exists). Only for
-     * the user's "New conversation" or a change of account.
+     * A new session id. The server keeps one conversation per account whatever the id, so this
+     * alone does not end it; [startNewConversation] is what the user's control calls. Used on its
+     * own only for a change of account, whose conversation is a different one anyway.
      */
     fun newSession(ctx: Context): String = synchronized(this) {
         val id = UUID.randomUUID().toString()
         prefs(ctx).edit().putString(KEY_SESSION_ID, id).apply()
         return id
+    }
+
+    /**
+     * The user's "New conversation": a new session id, and `new_conversation = true` on the next
+     * request (Uploader.post) until a reply to it arrives. Nothing is sent now; with nothing said,
+     * the flag waits for the next request.
+     */
+    fun startNewConversation(ctx: Context): String = synchronized(this) {
+        val id = newSession(ctx)
+        prefs(ctx).edit().putString(KEY_NEW_CONVERSATION_FOR, id).apply()
+        return id
+    }
+
+    /**
+     * Whether a request in [sessionId] must carry `new_conversation`. Tied to the id so a later
+     * change of account (which rotates the id) drops the flag rather than ending the new account's
+     * conversation.
+     */
+    internal fun newConversationPendingFor(ctx: Context, sessionId: String): Boolean =
+        sessionId.isNotEmpty() && prefs(ctx).getString(KEY_NEW_CONVERSATION_FOR, null) == sessionId
+
+    /** A request carrying the flag got its reply. A newer tap (a different id) stays pending. */
+    internal fun clearNewConversation(ctx: Context, sessionId: String) = synchronized(this) {
+        if (newConversationPendingFor(ctx, sessionId)) prefs(ctx).edit().remove(KEY_NEW_CONVERSATION_FOR).apply()
     }
 
     internal fun sessionAccount(ctx: Context): String =

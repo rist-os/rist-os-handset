@@ -487,6 +487,9 @@ class Uploader(private val ctx: Context) {
         lastLapse = null
         var req = requestProto
         if (req.utteranceId.isBlank()) req = req.toBuilder().setUtteranceId(newUtteranceId()).build()
+        // The user asked for a new conversation: every request carries it until one is answered.
+        val newConversation = Config.newConversationPendingFor(ctx, req.sessionId)
+        if (newConversation) req = req.toBuilder().setNewConversation(true).build()
         if (HomeBoxes.declared()) req = req.toBuilder().setBoxesVersion(HomeBoxes.version(ctx)).build()
         if (DesignSync.declared()) {
             DesignSync.migrateLegacyTheme(ctx)
@@ -726,6 +729,8 @@ class Uploader(private val ctx: Context) {
         } finally {
             StreamingCancel.end(reqId)
         }
+        // Answered: the backend has started the new conversation, so the next request must not.
+        if (newConversation) Config.clearNewConversation(ctx, req.sessionId)
 
         Log.i("RistNavDbg", "IN  hasNav=${resp.hasNav()} hasLocationRequest=${resp.hasLocationRequest()} " +
             "hasComms=${resp.hasComms()} hasConfirm=${resp.hasConfirm()} " +

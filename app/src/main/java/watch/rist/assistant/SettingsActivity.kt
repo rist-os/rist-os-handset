@@ -565,7 +565,7 @@ class SettingsActivity : AppCompatActivity() {
         val status = findViewById<TextView>(R.id.newConversationStatus)
         asButton(button, Themes.current(this), primary = false)
         button.setOnClickListener {
-            Config.newSession(applicationContext)
+            Config.startNewConversation(applicationContext)
             status?.text = getString(R.string.new_conversation_started)
         }
     }

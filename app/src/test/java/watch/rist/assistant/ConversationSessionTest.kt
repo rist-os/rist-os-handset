@@ -121,5 +121,86 @@ class ConversationSessionTest {
         assertNotEquals(before, Config.sessionId(ctx()))
         assertEquals(a.getString(R.string.new_conversation_started), status.text.toString())
         assertEquals("no dialog may open", null, org.robolectric.shadows.ShadowDialog.getLatestDialog())
+        assertTrue("the tap arms new_conversation for the next request",
+            Config.newConversationPendingFor(ctx(), Config.sessionId(ctx())))
+    }
+
+    // ── new_conversation (v28, DeviceRequest field 30) ─────────────────────────────────────────
+
+    @Test
+    fun `the field is number 30 on DeviceRequest`() {
+        // Lite runtime, no descriptors: read the wire. Tag 30, varint = (30 << 3) | 0 = 240 = F0 01.
+        val bytes = rist.v1.DeviceRequest.newBuilder().setNewConversation(true).build().toByteArray()
+        assertEquals(listOf(0xF0, 0x01, 0x01), bytes.map { it.toInt() and 0xff })
+    }
+
+    @Test
+    fun `nothing is pending until the user asks`() {
+        assertFalse(Config.newConversationPendingFor(ctx(), Config.sessionId(ctx())))
+    }
+
+    @Test
+    fun `a pending new conversation is tied to its session and cleared only for it`() {
+        val first = Config.startNewConversation(ctx())
+        assertEquals(first, Config.sessionId(ctx()))
+        assertTrue(Config.newConversationPendingFor(ctx(), first))
+        val second = Config.startNewConversation(ctx())
+        // A reply to a request sent before the second tap must not clear the second tap.
+        Config.clearNewConversation(ctx(), first)
+        assertTrue(Config.newConversationPendingFor(ctx(), second))
+        Config.clearNewConversation(ctx(), second)
+        assertFalse(Config.newConversationPendingFor(ctx(), second))
+    }
+
+    @Test
+    fun `a change of account drops the flag rather than ending the new account's conversation`() {
+        Config.onPairedAccount(ctx(), "acct-1")
+        Config.startNewConversation(ctx())
+        Config.onPairedAccount(ctx(), "acct-2")
+        assertFalse(Config.newConversationPendingFor(ctx(), Config.sessionId(ctx())))
+    }
+
+    private fun reply(text: String) = okhttp3.mockwebserver.MockResponse().setResponseCode(200)
+        .setHeader("Content-Type", "application/x-protobuf")
+        .setBody(okio.Buffer().write(rist.v1.DeviceResponse.newBuilder()
+            .setSpeech(rist.v1.Speech.newBuilder().setText(text)).build().toByteArray()))
+
+    private fun sent(server: okhttp3.mockwebserver.MockWebServer): rist.v1.DeviceRequest =
+        rist.v1.DeviceRequest.parseFrom(
+            server.takeRequest(5, java.util.concurrent.TimeUnit.SECONDS)!!.body.readByteArray())
+
+    @Test
+    fun `the next request carries new_conversation, and the one after a reply does not`() {
+        val server = okhttp3.mockwebserver.MockWebServer()
+        server.start()
+        try {
+            Config.setBackendEndpoint(ctx(), server.url("/v1/device").toString())
+            val before = Config.sessionId(ctx())
+            Config.startNewConversation(ctx())
+            val now = Config.sessionId(ctx())
+            assertNotEquals("session_id rotates too", before, now)
+
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(500))
+            server.enqueue(reply("hi"))
+            server.enqueue(reply("again"))
+            assertEquals(null, Uploader(ctx()).sendText("hello"))
+            val failed = sent(server)
+            assertTrue(failed.newConversation)
+            assertTrue("no reply yet: still pending", Config.newConversationPendingFor(ctx(), now))
+
+            Uploader(ctx()).sendText("hello")
+            val answered = sent(server)
+            assertTrue(answered.newConversation)
+            assertEquals(now, answered.sessionId)
+            assertFalse(Config.newConversationPendingFor(ctx(), now))
+
+            Uploader(ctx()).sendText("and then")
+            val next = sent(server)
+            assertFalse("only until a reply", next.newConversation)
+            assertEquals("the conversation goes on in the same session", now, next.sessionId)
+        } finally {
+            Config.clearBackendOverride(ctx())
+            runCatching { server.shutdown() }
+        }
     }
 }
