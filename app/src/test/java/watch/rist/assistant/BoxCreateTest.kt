@@ -153,12 +153,17 @@ class BoxCreateTest {
     @Test
     fun `a one-tap tile is added by touch edit, and the reply's new box replaces the placeholder`() {
         HomeBoxes.apply(app, set("a"))
+        // The reply is held until the placeholder has been seen: answered at once, it could land first
+        // and replace the placeholder before the assertion looked (flaky on a busy CI runner).
+        val seen = java.util.concurrent.CountDownLatch(1)
         boxesReply = { e ->
+            seen.await(5, java.util.concurrent.TimeUnit.SECONDS)
             editReply(set("a").toBuilder().setVersion(5).addBoxes(command("new", e.getAdd(0).command)).build())
         }
         val a = home()
         submitCommand(a, "Check my email, then text Sam")
         assertNotNull("the placeholder is up at once", placeholder(a))
+        seen.countDown()
         waitFor("the new box") { BoxCreate.waiting().isEmpty() }
         HomeBoxes.awaitFlushForTest()
         a.renderBoxes(); settle()
