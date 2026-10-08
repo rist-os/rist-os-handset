@@ -4,12 +4,15 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
 import android.os.IBinder
+import android.telephony.TelephonyManager
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,6 +30,7 @@ class WakeService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var loop: Job? = null
     private var netCallback: ConnectivityManager.NetworkCallback? = null
+    private var travelReceiver: BroadcastReceiver? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -35,6 +39,7 @@ class WakeService : Service() {
         if (loop?.isActive != true) {
             loop = scope.launch { WakeLoop.run(applicationContext) }
             watchNetwork()
+            watchTravel()
             Log.i(TAG, "wake loop started")
         } else {
             // A second start is a nudge (boot, update, the app opening): poll now.
@@ -55,7 +60,30 @@ class WakeService : Service() {
             .onFailure { Log.w(TAG, "no network callback; relying on backoff", it) }
     }
 
+    // Landing (airplane mode off) or a new network country: the time zone may have changed.
+    // Registered here, not in the manifest: implicit broadcasts like these do not reliably reach
+    // a manifest receiver, and this service runs for as long as the phone is on.
+    private fun watchTravel() {
+        if (travelReceiver != null) return
+        val r = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                runCatching { AutoTimeZone.onTravelSign(context.applicationContext, intent) }
+                    .onFailure { Log.w(TAG, "travel sign not handled", it) }
+            }
+        }
+        val filter = IntentFilter(Intent.ACTION_AIRPLANE_MODE_CHANGED).apply {
+            addAction(TelephonyManager.ACTION_NETWORK_COUNTRY_CHANGED)
+        }
+        runCatching {
+            androidx.core.content.ContextCompat.registerReceiver(
+                this, r, filter, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
+            travelReceiver = r
+        }.onFailure { Log.w(TAG, "no travel receiver; the hourly time zone check remains", it) }
+    }
+
     override fun onDestroy() {
+        travelReceiver?.let { runCatching { unregisterReceiver(it) } }
+        travelReceiver = null
         netCallback?.let { cb ->
             runCatching { getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(cb) }
         }

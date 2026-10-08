@@ -55,6 +55,112 @@ class BatteryPolicyTest {
         assertTrue(AutoTimeZone.gpsAllowed(force = true, lastGpsAttemptMs = 1_000L, nowElapsedMs = 2_000L))
     }
 
+    // ── a travel sign forces a full time zone check at once ───────────────────────────────
+
+    @Test fun `airplane mode turning off is a travel sign, turning on is not`() {
+        val a = android.content.Intent.ACTION_AIRPLANE_MODE_CHANGED
+        assertEquals("airplane-off", AutoTimeZone.travelSign(a, airplaneOn = false, country = null))
+        assertEquals(null, AutoTimeZone.travelSign(a, airplaneOn = true, country = null))
+        assertEquals(null, AutoTimeZone.travelSign(a, airplaneOn = null, country = null))
+    }
+
+    @Test fun `a new network country is a travel sign, losing service is not`() {
+        val c = android.telephony.TelephonyManager.ACTION_NETWORK_COUNTRY_CHANGED
+        assertEquals("country:mx", AutoTimeZone.travelSign(c, airplaneOn = null, country = "MX"))
+        assertEquals(null, AutoTimeZone.travelSign(c, airplaneOn = null, country = ""))
+        assertEquals(null, AutoTimeZone.travelSign(c, airplaneOn = null, country = null))
+        assertEquals(null, AutoTimeZone.travelSign("some.other.ACTION", airplaneOn = false, country = "mx"))
+    }
+
+    @Test fun `only a repeat of the same sign within ten minutes is held back`() {
+        val gap = AutoTimeZone.TRAVEL_REPEAT_GAP_MS
+        assertTrue(AutoTimeZone.travelSignDue(null, 5_000L))
+        assertFalse(AutoTimeZone.travelSignDue(5_000L, 5_000L + gap - 1))
+        assertTrue(AutoTimeZone.travelSignDue(5_000L, 5_000L + gap))
+    }
+
+    private fun travelIntents(): Triple<android.content.Intent, android.content.Intent, android.content.Intent> {
+        val landed = android.content.Intent(android.content.Intent.ACTION_AIRPLANE_MODE_CHANGED).putExtra("state", false)
+        val takeoff = android.content.Intent(android.content.Intent.ACTION_AIRPLANE_MODE_CHANGED).putExtra("state", true)
+        val mexico = android.content.Intent(android.telephony.TelephonyManager.ACTION_NETWORK_COUNTRY_CHANGED)
+            .putExtra(android.telephony.TelephonyManager.EXTRA_NETWORK_COUNTRY, "mx")
+        return Triple(landed, takeoff, mexico)
+    }
+
+    @Test fun `landing and then a new country each check at once, only a repeat waits`() {
+        val ctx = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        Config.usePlainPrefsForTest(ctx)
+        AutoTimeZone.resetTravelForTest()
+        try {
+            val (landed, takeoff, mexico) = travelIntents()
+            assertFalse(AutoTimeZone.onTravelSign(ctx, takeoff))
+            assertTrue("landing checks at once", AutoTimeZone.onTravelSign(ctx, landed))
+            assertTrue("a new country right after landing checks too", AutoTimeZone.onTravelSign(ctx, mexico))
+            assertFalse("the same country again is a repeat", AutoTimeZone.onTravelSign(ctx, mexico))
+            assertFalse("landing again is a repeat", AutoTimeZone.onTravelSign(ctx, landed))
+        } finally {
+            AutoTimeZone.resetTravelForTest()
+            Config.forgetPrefsForTest()
+        }
+    }
+
+    @Test fun `a country with one time decides the zone, one with several does not`() {
+        val now = 1_760_000_000_000L
+        assertEquals("Europe/London", AutoTimeZone.zoneForCountry("gb", now))
+        assertEquals("Asia/Tokyo", AutoTimeZone.zoneForCountry("JP", now))
+        assertEquals(null, AutoTimeZone.zoneForCountry("mx", now))
+        assertEquals(null, AutoTimeZone.zoneForCountry("us", now))
+        assertEquals(null, AutoTimeZone.zoneForCountry("zz", now))
+    }
+
+    private class FakeZone(var zone: String) : AutoTimeZone.SystemZone {
+        val sets = mutableListOf<String>()
+        override fun current() = zone
+        override fun canSet(ctx: android.content.Context) = true
+        override fun set(ctx: android.content.Context, zone: String): Boolean { sets += zone; this.zone = zone; return true }
+        override fun handBack(ctx: android.content.Context) {}
+    }
+
+    @Test fun `the network country sets the zone only when the clock shows another time`() {
+        val ctx = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        Config.usePlainPrefsForTest(ctx)
+        val saved = AutoTimeZone.system
+        val fake = FakeZone("America/New_York")
+        AutoTimeZone.system = fake
+        try {
+            Config.setAutoTimeZone(ctx, true)
+            val now = 1_760_000_000_000L
+            AutoTimeZone.setFromCountry(ctx, "jp", now)
+            assertEquals(listOf("Asia/Tokyo"), fake.sets)
+            AutoTimeZone.setFromCountry(ctx, "mx", now)
+            assertEquals("several zones: left to the location check", listOf("Asia/Tokyo"), fake.sets)
+            AutoTimeZone.setFromCountry(ctx, "jp", now)
+            assertEquals("already right: nothing set", listOf("Asia/Tokyo"), fake.sets)
+            Config.setAutoTimeZone(ctx, false)
+            fake.zone = "America/New_York"
+            AutoTimeZone.setFromCountry(ctx, "jp", now)
+            assertEquals("the owner chose the phone's own setting", listOf("Asia/Tokyo"), fake.sets)
+        } finally {
+            AutoTimeZone.system = saved
+            Config.forgetPrefsForTest()
+        }
+    }
+
+    @Test fun `the wake service listens for landing and for a new network country`() {
+        val ctx = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>()
+        Config.usePlainPrefsForTest(ctx)
+        val controller = Robolectric.buildService(WakeService::class.java).create()
+        try {
+            controller.startCommand(0, 1)
+            val actions = shadowOf(ctx).registeredReceivers.flatMap { w -> w.intentFilter.actionsIterator().asSequence().toList() }
+            assertTrue(actions.toString(), android.content.Intent.ACTION_AIRPLANE_MODE_CHANGED in actions)
+            assertTrue(actions.toString(), android.telephony.TelephonyManager.ACTION_NETWORK_COUNTRY_CHANGED in actions)
+        } finally {
+            controller.destroy()
+            Config.forgetPrefsForTest()
+        }
+    }
+
     // ── the wake poll ─────────────────────────────────────────────────────────────────────
 
     @Test fun `offline, a failed poll waits for the network instead of retrying every minute`() {
