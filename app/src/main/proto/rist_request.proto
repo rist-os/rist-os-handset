@@ -247,6 +247,10 @@ message WakeSignal {
 
   // v24: the same rule as DeviceResponse.location_off, on every 200 wake.
   optional bool location_off = 14;
+
+  // v27: when the account's next scheduled instruction runs, unix ms; 0 = none. Only on a wake
+  // that declared `wake_hold_v2`. The phone sets an exact alarm just after it and polls then.
+  uint64 next_due_at_epoch_ms = 15;
 }
 
 message PendingAction {
