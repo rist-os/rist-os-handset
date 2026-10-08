@@ -59,6 +59,8 @@ object LocationProvider {
     )
 
     fun cached(ctx: Context): Fix? {
+        // The account's location switch is off: no fix is read for the assistant at all.
+        if (LocationSwitch.isOff(ctx)) return null
         debugFix?.let { return it.copy(timeMs = System.currentTimeMillis()) }
         if (!hasPermission(ctx)) return null
         val manager = lm(ctx) ?: return null
@@ -100,6 +102,8 @@ object LocationProvider {
         onGps: () -> Unit = {},
     ): Fix? {
         if (!hasPermission(ctx)) return null
+        // No GPS and no network lookup (the Wi-Fi location relay) while the switch is off.
+        if (LocationSwitch.isOff(ctx)) return null
         val manager = lm(ctx) ?: return cached(ctx)
 
         var best: Fix? = cached(ctx)

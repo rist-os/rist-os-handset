@@ -116,6 +116,7 @@ object AutoTimeZone {
     fun consider(ctx: Context, fix: LocationProvider.Fix?, nowMs: Long = System.currentTimeMillis()) {
         // Debug level: this runs on every request, and the reasons matter only when it misbehaves.
         if (fix == null) { Log.d(TAG, "skip: no fix"); return }
+        if (LocationSwitch.isOff(ctx)) { Log.d(TAG, "skip: the account's location switch is off"); return }
         if (!Config.isAutoTimeZone(ctx)) { Log.d(TAG, "skip: set to the phone's own setting"); return }
         if (nowMs - fix.timeMs > MAX_FIX_AGE_MS) { Log.d(TAG, "skip: fix is ${(nowMs - fix.timeMs) / 60_000} min old"); return }
         if (fix.accuracyM > MAX_ACCURACY_M) { Log.d(TAG, "skip: fix accuracy ${fix.accuracyM} m"); return }
@@ -182,6 +183,8 @@ object AutoTimeZone {
             "location permission=${LocationProvider.hasPermission(ctx)} zone=${system.current()}")
         if (!Config.isAutoTimeZone(ctx) || !system.canSet(ctx)) return
         if (!LocationProvider.hasPermission(ctx)) return
+        // The zone stays as it is while the account's location switch is off.
+        if (LocationSwitch.isOff(ctx)) return
         val now = System.currentTimeMillis()
         var fix = LocationProvider.cached(ctx)
         if (fix == null || now - fix.timeMs > REFRESH_AFTER_MS) {
@@ -246,6 +249,8 @@ object AutoTimeZone {
      * after a flight that never switched the phone off. Returns whether anything was started.
      */
     fun onTravelSign(ctx: Context, intent: Intent): Boolean {
+        // No zone from where the phone is while the account's location switch is off.
+        if (LocationSwitch.isOff(ctx)) return false
         val airplaneOn = if (intent.hasExtra("state")) intent.getBooleanExtra("state", false) else null
         val country = intent.getStringExtra(TelephonyManager.EXTRA_NETWORK_COUNTRY)
         val key = travelSign(intent.action, airplaneOn, country) ?: return false
@@ -272,6 +277,7 @@ object AutoTimeZone {
     /** Sets the country's zone when it alone decides and the clock shows a different time now. */
     internal fun setFromCountry(ctx: Context, country: String, nowMs: Long = System.currentTimeMillis()) {
         if (!Config.isAutoTimeZone(ctx) || !system.canSet(ctx)) return
+        if (LocationSwitch.isOff(ctx)) return
         val zone = zoneForCountry(country, nowMs) ?: return
         val current = system.current()
         if (TimeZone.getTimeZone(zone).getOffset(nowMs) == TimeZone.getTimeZone(current).getOffset(nowMs)) return
