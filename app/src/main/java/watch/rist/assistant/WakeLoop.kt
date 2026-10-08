@@ -23,9 +23,10 @@ import kotlin.random.Random
  * The wake channel: a GET the backend holds open and answers the moment it has something, so mail
  * reaches the phone within seconds instead of on the next turn.
  *
- * The held connection (`wake_hold_v2`): the backend holds for up to 25 minutes and an idle answer
- * says "ask again now", so there is no gap in which the phone cannot hear anything, and one radio
- * wake-up per event or per hold. A backend that does not know it holds for 55 s and says wait
+ * The held connection (`wake_hold_v2`): the backend holds for up to 210 seconds and an idle answer
+ * says "ask again now", so there is no gap in which the phone cannot hear anything. The hold is
+ * short enough that one that died silently is noticed (hold + grace = 230 s) before the legacy
+ * 240 s gap would have ended: nothing arrives later than on the legacy cycle. A backend that does not know it holds for 55 s and says wait
  * 240 s, which this loop follows as before. `next_due_at_epoch_ms` sets an exact alarm for the next
  * scheduled instruction ([DueAlarm]), which drops the hold and polls on a fresh connection.
  *
@@ -42,12 +43,15 @@ object WakeLoop {
 
     /** Declared on every poll: hold me until there is something to say (backend v27). */
     internal const val HOLD_V2_COMPONENT = "wake_hold_v2"
-    /** The hold asked for, at most. The backend caps it too. */
-    internal const val HOLD_MAX_S = 1500L
-    /** Never asked for less: below this a hold costs as much radio as the legacy cycle. */
-    internal const val HOLD_MIN_S = 240L
+    /**
+     * The hold asked for, at most. [HOLD_MAX_S] + [HOLD_GRACE_S] stays under the legacy 240 s idle
+     * gap, so a hold that died silently never delays anything past the legacy worst case.
+     */
+    internal const val HOLD_MAX_S = 210L
+    /** Never asked for less, on a network that drops idle connections fast. */
+    internal const val HOLD_MIN_S = 60L
     /** Read timeout beyond the hold asked for, before the hold counts as silently dropped. */
-    internal const val HOLD_GRACE_S = 45L
+    internal const val HOLD_GRACE_S = 20L
     /** Holds that ran their full length before the hold asked for grows again. */
     internal const val HOLD_GROW_AFTER = 3
     /** The CPU stays awake this long after an answer, so the next poll goes out before sleep. */
@@ -273,7 +277,8 @@ object WakeLoop {
                         Outcome.Refused
                     }
                     Billing.PAYMENT_REQUIRED -> Outcome.Lapsed(Billing.lapseWithLine(resp))
-                    // A newer poll from this phone replaced this hold (the server read nothing).
+                    // A newer poll from this phone replaced this hold (the server read nothing);
+                    // that poll delivers. Ordinary backoff, so two loops cannot ping-pong.
                     204 -> Outcome.Retry("HTTP 204 superseded")
                     else -> Outcome.Retry("HTTP ${resp.code}")
                 }
@@ -408,8 +413,8 @@ object WakeLoop {
                 }
                 is Outcome.Retry -> {
                     when {
-                        // Dropped by a due alarm, or replaced by a newer poll: ask again now.
-                        takeRefresh() || out.why.endsWith("superseded") -> {
+                        // Dropped by a due alarm: ask again now.
+                        takeRefresh() -> {
                             Log.i(TAG, "polling again now (${out.why})")
                         }
                         // The hold died without a word: the network is fine, the mapping was not.

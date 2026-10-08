@@ -47,8 +47,8 @@ class WakeHoldTest {
 
     @Test
     fun `every poll declares the held connection and the hold it wants`() {
-        val u = WakeLoop.wakeUrl("https://api.example/v1/device", emptyList(), 8, holdS = 1500)!!.toHttpUrl()
-        assertEquals("1500", u.queryParameter("hold_s"))
+        val u = WakeLoop.wakeUrl("https://api.example/v1/device", emptyList(), 8, holdS = 210)!!.toHttpUrl()
+        assertEquals("210", u.queryParameter("hold_s"))
         assertEquals(WakeLoop.HOLD_V2_COMPONENT, u.queryParameter("components"))
         val withBoxes = WakeLoop.wakeUrl("https://api.example/v1/device", emptyList(), 8,
             boxesVersion = 3, holdS = 600)!!.toHttpUrl()
@@ -57,8 +57,16 @@ class WakeHoldTest {
 
     @Test
     fun `the read timeout outlasts the hold asked for`() {
-        assertEquals(1500 + WakeLoop.HOLD_GRACE_S, WakeLoop.readTimeoutS(1500))
+        assertEquals(WakeLoop.HOLD_MAX_S + WakeLoop.HOLD_GRACE_S, WakeLoop.readTimeoutS(WakeLoop.HOLD_MAX_S))
         assertEquals(WakeLoop.READ_TIMEOUT_S, WakeLoop.readTimeoutS(10))
+    }
+
+    @Test
+    fun `a hold that died silently is noticed before the legacy idle gap would have ended`() {
+        // Legacy worst case for a notice: the backend's 240 s idle poll_after_s.
+        val legacyGapS = 240L
+        assertTrue(WakeLoop.readTimeoutS(WakeLoop.HOLD_MAX_S) <= legacyGapS)
+        assertTrue(WakeLoop.readTimeoutS(WakeLoop.HOLD_MIN_S) <= legacyGapS)
     }
 
     @Test
@@ -66,7 +74,7 @@ class WakeHoldTest {
         val t = WakeLoop.HoldTuner()
         assertEquals(WakeLoop.HOLD_MAX_S, t.holdS)
         t.onSilentDrop()
-        assertEquals(750L, t.holdS)
+        assertEquals(WakeLoop.HOLD_MAX_S / 2, t.holdS)
         repeat(5) { t.onSilentDrop() }
         assertEquals(WakeLoop.HOLD_MIN_S, t.holdS)
         // An answer that came early (a notice) proves nothing about how long the path holds.
@@ -74,14 +82,16 @@ class WakeHoldTest {
         assertEquals(WakeLoop.HOLD_MIN_S, t.holdS)
         repeat(WakeLoop.HOLD_GROW_AFTER) { t.onAnswered(t.holdS * 1000) }
         assertEquals(WakeLoop.HOLD_MIN_S * 3 / 2, t.holdS)
+        repeat(WakeLoop.HOLD_GROW_AFTER) { t.onSilentDrop(); }
+        assertEquals(WakeLoop.HOLD_MIN_S, t.holdS)
         repeat(40) { t.onAnswered(t.holdS * 1000) }
         assertEquals(WakeLoop.HOLD_MAX_S, t.holdS)
     }
 
     @Test
     fun `only a timeout after the whole hold counts as a silent drop`() {
-        assertTrue(WakeLoop.isSilentDrop(1_545_000, 1500))
-        assertFalse("a connect timeout is a bad network, not a dropped hold", WakeLoop.isSilentDrop(5_000, 1500))
+        assertTrue(WakeLoop.isSilentDrop(230_000, 210))
+        assertFalse("a connect timeout is a bad network, not a dropped hold", WakeLoop.isSilentDrop(5_000, 210))
     }
 
     @Test
@@ -96,7 +106,7 @@ class WakeHoldTest {
     }
 
     @Test
-    fun `a hold the server replaced is asked again at once`() {
+    fun `a hold the server replaced is reported as superseded`() {
         server.enqueue(MockResponse().setResponseCode(204))
         val out = WakeLoop.exchange(OkHttpClient(), server.url("/v1/device/wake").toString(), "Bearer t", "d", emptyList())
         assertTrue(out is WakeLoop.Outcome.Retry && out.why.endsWith("superseded"))
