@@ -63,6 +63,7 @@ object Config {
     private const val KEY_BOX_EDIT_QUEUE = "box_edit_queue"
     private const val KEY_ITEM_CHECK_QUEUE = "item_check_queue"
     private const val KEY_CHECKLIST_BOXES_SEEN = "checklist_boxes_seen"
+    private const val KEY_NOTE_EDIT_QUEUE = "note_edit_queue"
     private const val KEY_CONTACTS_SYNC_OFF = "contacts_sync_off"
     private const val KEY_CONTACTS_REFUSED = "contacts_refused"
     private const val KEY_CONTACTS_CURSOR = "contacts_cursor"
@@ -363,6 +364,10 @@ object Config {
     /** List ticks not yet accepted by the backend, latest state per item, as a JSON array. */
     fun itemCheckQueue(ctx: Context): String = prefs(ctx).getString(KEY_ITEM_CHECK_QUEUE, "") ?: ""
     fun setItemCheckQueue(ctx: Context, json: String) { prefs(ctx).edit().putString(KEY_ITEM_CHECK_QUEUE, json).apply() }
+
+    /** Note edits not yet accepted by the backend, latest text per note, as a JSON array. */
+    fun noteEditQueue(ctx: Context): String = prefs(ctx).getString(KEY_NOTE_EDIT_QUEUE, "") ?: ""
+    fun setNoteEditQueue(ctx: Context, json: String) { prefs(ctx).edit().putString(KEY_NOTE_EDIT_QUEUE, json).apply() }
 
     /** Whether a box list has arrived since this phone first declared checklists. */
     fun checklistBoxesSeen(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_CHECKLIST_BOXES_SEEN, false)

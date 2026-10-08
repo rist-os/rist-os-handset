@@ -6,6 +6,7 @@ import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import rist.v1.Checklist
+import rist.v1.NoteCard
 import java.io.File
 
 enum class EntryState { RECORDING, SENT, WAITING, ANSWERED, FAILED }
@@ -22,6 +23,8 @@ data class TranscriptEntry(
     var pinned: Boolean = false,
     /** Lists the reply showed with checkboxes, with the ticks made on them since. */
     var checklists: List<Checklist> = emptyList(),
+    /** Notes the reply showed as editable cards, with the edits saved on them since. */
+    var noteCards: List<NoteCard> = emptyList(),
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", localId).put("at", at).put("prompt", prompt)
@@ -30,6 +33,9 @@ data class TranscriptEntry(
         .apply {
             if (checklists.isNotEmpty()) put("checklists", JSONArray().also { arr ->
                 checklists.forEach { arr.put(Base64.encodeToString(it.toByteArray(), Base64.NO_WRAP)) }
+            })
+            if (noteCards.isNotEmpty()) put("noteCards", JSONArray().also { arr ->
+                noteCards.forEach { arr.put(Base64.encodeToString(it.toByteArray(), Base64.NO_WRAP)) }
             })
         }
 
@@ -46,6 +52,11 @@ data class TranscriptEntry(
             checklists = o.optJSONArray("checklists")?.let { arr ->
                 (0 until arr.length()).mapNotNull {
                     runCatching { Checklist.parseFrom(Base64.decode(arr.getString(it), Base64.NO_WRAP)) }.getOrNull()
+                }
+            } ?: emptyList(),
+            noteCards = o.optJSONArray("noteCards")?.let { arr ->
+                (0 until arr.length()).mapNotNull {
+                    runCatching { NoteCard.parseFrom(Base64.decode(arr.getString(it), Base64.NO_WRAP)) }.getOrNull()
                 }
             } ?: emptyList(),
         )
@@ -132,11 +143,13 @@ object Transcript {
         state: EntryState? = null, prompt: String? = null,
         answer: String? = null, requestId: String? = null, error: String? = null,
         checklists: List<Checklist>? = null,
+        noteCards: List<NoteCard>? = null,
     ) {
         ensureLoaded(ctx)
         val e = entries.firstOrNull { it.localId == localId } ?: return
         state?.let { e.state = it }
         checklists?.let { e.checklists = it }
+        noteCards?.let { e.noteCards = it }
         prompt?.let { e.prompt = it }
         answer?.let { e.answer = it }
         requestId?.let { e.requestId = it }
@@ -167,6 +180,44 @@ object Transcript {
         if (e.pinned == pinned) return
         e.pinned = pinned
         save(ctx)
+    }
+
+    /** The [index]th note card of entry [localId] as it stands now (edits saved on it included). */
+    @Synchronized
+    fun noteCard(ctx: Context, localId: Long, index: Int): NoteCard? {
+        ensureLoaded(ctx)
+        return entries.firstOrNull { it.localId == localId }?.noteCards?.getOrNull(index)
+    }
+
+    /** The user saved [text] as note [noteId]: every card holding the note shows it. */
+    @Synchronized
+    fun setNoteText(ctx: Context, noteId: String, text: String) {
+        ensureLoaded(ctx)
+        var changed = false
+        for (e in entries) {
+            if (e.noteCards.none { it.noteId == noteId && it.text != text }) continue
+            e.noteCards = e.noteCards.map { if (it.noteId == noteId) it.toBuilder().setText(text).build() else it }
+            changed = true
+        }
+        if (changed) save(ctx)
+    }
+
+    /**
+     * The backend saved [text], sent for note [oldId], as note [newId] at [version] (a new note
+     * when the old one had changed). Every card showing that text follows it there.
+     */
+    @Synchronized
+    fun noteSaved(ctx: Context, oldId: String, newId: String, version: String, text: String) {
+        ensureLoaded(ctx)
+        var changed = false
+        for (e in entries) {
+            if (e.noteCards.none { it.noteId == oldId && it.text == text }) continue
+            e.noteCards = e.noteCards.map {
+                if (it.noteId == oldId && it.text == text) it.toBuilder().setNoteId(newId).setVersion(version).build() else it
+            }
+            changed = true
+        }
+        if (changed) save(ctx)
     }
 
     /** Every reply card holding [itemId] now shows it as [checked]. */

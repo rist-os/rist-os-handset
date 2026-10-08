@@ -37,6 +37,7 @@ object DeviceProfile {
         design: Boolean = DesignSync.declared(),
         fontIds: List<String> = emptyList(),
         checklists: Boolean = Checklists.declared(),
+        noteEdit: Boolean = NoteEdits.declared(),
         textsOnRequest: Boolean = false,
     ): Capabilities =
         Capabilities.newBuilder()
@@ -59,6 +60,8 @@ object DeviceProfile {
             .apply { if (design) addComponents(DesignSync.COMPONENT).addAllComponents(Fonts.capsEntries(fontIds)) }
             // Whether this phone draws lists with checkboxes; without it lists come as markdown.
             .apply { if (checklists) addComponents(Checklists.COMPONENT) }
+            // Whether this phone edits notes in place; without it notes are only spoken.
+            .apply { if (noteEdit) addComponents(NoteEdits.COMPONENT) }
             // Whether this phone answers inbound_sms_request: the owner's switch, and the permission.
             .apply { if (textsOnRequest) addComponents(TextsOnRequest.COMPONENT) }
             .setMaxImageBytes(MAX_IMAGE_BYTES)
