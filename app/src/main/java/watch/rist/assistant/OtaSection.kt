@@ -444,9 +444,12 @@ internal fun otaPersistentFailureText(v: OtaStatusView): String {
 }
 
 internal fun otaEngineFaultText(reason: OtaEngine.Reason): String = when (reason) {
-    OtaEngine.Reason.NO_SYSTEM_API,
-    OtaEngine.Reason.NO_CALLBACK_CLASS ->
+    OtaEngine.Reason.NO_SYSTEM_API ->
         "this copy of Rist was installed over the top of the system, not built into it"
+    // A copy installed from a computer (push.sh) replaces the built-in one and cannot apply updates.
+    OtaEngine.Reason.NO_CALLBACK_CLASS ->
+        "a developer copy of Rist is installed over the built-in one. Remove the developer copy " +
+            "before updating"
     OtaEngine.Reason.SERVICE_NOT_VISIBLE ->
         "the system's update service will not talk to Rist on this build"
     OtaEngine.Reason.BIND_REFUSED,

@@ -757,6 +757,7 @@ class Uploader(private val ctx: Context) {
         runCatching { Enrolment.onReinstated(ctx) }
         // Before the fences below: a turn that switches location off must not arm any.
         runCatching { LocationSwitch.onResponse(ctx, resp.hasLocationOff(), resp.locationOff) }
+        runCatching { DeveloperMode.onResponse(ctx, resp.hasDeveloperMode(), resp.developerMode, endpoint) }
         if (resp.hasFeatures()) runCatching { Features.apply(ctx, resp.features) }
         runCatching { ContactsSync.onCursor(ctx, resp.contactsCursor) }
         if (resp.hasBoxes()) runCatching { HomeBoxes.apply(ctx, resp.boxes) }

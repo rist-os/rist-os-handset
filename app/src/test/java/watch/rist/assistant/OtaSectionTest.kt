@@ -371,6 +371,8 @@ class OtaSectionTest {
         }
         assertTrue(otaHeadline(view(engineFault = OtaEngine.Reason.NO_CALLBACK_CLASS))
             .contains("cannot install them"))
+        assertTrue(otaHeadline(view(engineFault = OtaEngine.Reason.NO_CALLBACK_CLASS))
+            .contains("Remove the developer copy before updating"))
     }
 
     private fun classBytes(simpleName: String): ByteArray {

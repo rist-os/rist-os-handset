@@ -1,6 +1,6 @@
 // The device <-> backend contract, schema v18, with the proposed v19 features fields, the
 // proposed home boxes fields, the v23 checklist messages, the v25 note edit messages and the v26
-// texts-on-request fields.
+// texts-on-request fields and the v28 developer mode fields.
 // Copied from the backend's canonical file; change it there first.
 
 syntax = "proto3";
@@ -199,6 +199,11 @@ message DeviceResponse {
   // v25 (notes edited in place): notes shown as cards the user taps to edit, from the show_notes
   // tool only. Sent only to a phone that lists "note_edit_v1" in caps.components.
   repeated NoteCard note_cards = 37;
+
+  // v28 (owner-only Developer mode): true = this account may turn on Developer mode (USB
+  // debugging) on this phone; present false = it may not, and it is turned off if on; absent =
+  // keep the last state. Set on the final response of every device turn.
+  optional bool developer_mode = 38;
 }
 
 message Notification {
@@ -251,6 +256,9 @@ message WakeSignal {
   // v27: when the account's next scheduled instruction runs, unix ms; 0 = none. Only on a wake
   // that declared `wake_hold_v2`. The phone sets an exact alarm just after it and polls then.
   uint64 next_due_at_epoch_ms = 15;
+
+  // v28: the same rule as DeviceResponse.developer_mode, on every 200 wake.
+  optional bool developer_mode = 16;
 }
 
 message PendingAction {
