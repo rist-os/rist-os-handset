@@ -2882,6 +2882,8 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
 
     private fun onNavFix(fix: LocationProvider.Fix) {
         if (currentNav == null) return
+        // The account's location switch went off mid-route: GPS stops and the last fix is forgotten.
+        if (LocationSwitch.isOff(this)) { stopNavLocationUpdates(); lastNavFix = null; navAnchor = null; updateNavHere(); return }
         lastNavFix = fix
         if (navMoved(navAnchor, fix)) {
             navAnchor = fix
