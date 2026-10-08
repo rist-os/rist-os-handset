@@ -16,7 +16,35 @@ class RistNotificationListener : NotificationListenerService() {
         NotificationHub.listenerConnected = false
     }
 
-    override fun onNotificationPosted(sbn: StatusBarNotification?) = refresh()
+    override fun onNotificationPosted(sbn: StatusBarNotification?, rankingMap: RankingMap?) {
+        refresh()
+        if (sbn != null) {
+            TextAlert.onPosted(this, sbn, factsFor(sbn, rankingMap)) { key ->
+                runCatching { cancelNotification(key) }
+            }
+        }
+    }
+
+    override fun onNotificationPosted(sbn: StatusBarNotification?) = onNotificationPosted(sbn, null)
+
+    /** Android's own verdict on the notification: Do Not Disturb, importance, the channel's sound. */
+    private fun factsFor(sbn: StatusBarNotification, map: RankingMap?): TextAlert.RankFacts? = runCatching {
+        val r = Ranking()
+        val m = map ?: currentRanking ?: return@runCatching null
+        if (!m.getRanking(sbn.key, r)) return@runCatching null
+        val ch = r.channel
+        TextAlert.RankFacts(
+            matchesInterruptionFilter = r.matchesInterruptionFilter(),
+            peekSuppressed = r.suppressedVisualEffects and
+                android.app.NotificationManager.Policy.SUPPRESSED_EFFECT_PEEK != 0,
+            importance = r.importance,
+            channelSound = ch?.sound,
+            channelVibrates = ch?.shouldVibrate() == true ||
+                (sbn.notification?.defaults ?: 0) and android.app.Notification.DEFAULT_VIBRATE != 0 ||
+                sbn.notification?.vibrate != null,
+            channelVibration = ch?.vibrationPattern,
+        )
+    }.getOrNull()
     override fun onNotificationRemoved(sbn: StatusBarNotification?) = refresh()
 
     override fun onCreate() {
