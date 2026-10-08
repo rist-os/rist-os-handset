@@ -64,13 +64,18 @@ infers the caller from the most recent missed call. **It can be wrong.**
   (`RIST_PUBLIC_BUILD=true`, which ships `/product/etc/rist/public-build`) turns them off once in
   `aosp/init/rist-provision-do.sh`, and the Device Owner sets `DISALLOW_DEBUGGING_FEATURES`, so
   they cannot be turned back on from Settings. The one exception is **Developer mode**
-  (`DeveloperMode.kt`): a Settings row that appears only when the backend says the account may use
-  it (`developer_mode`, schema v28), only works with a secure screen lock, and asks for that lock
-  when turned on. It lifts `DISALLOW_DEBUGGING_FEATURES` alone, and puts it back when turned off,
-  when the backend stops allowing it, or when the screen lock is removed. A computer still needs the
-  phone's own USB debugging approval, which needs the phone unlocked. The hidden "Exit kiosk"
-  corner exists only on dev images. On a dev image a handset with no screen lock needs only physical access and a cable for
-  an authorized adb shell.
+  (`DeveloperMode.kt`): a Settings row that appears only when Rist's own service says the account
+  may use it (`developer_mode`, schema v28), only works with a secure screen lock, and asks for that
+  lock when turned on. Because the endpoint is set on the phone, the word counts only from an https
+  host in `DeveloperMode.SERVICE_HOSTS` while the phone is still pointed at it; any other server's
+  answer is a "no". It lifts `DISALLOW_DEBUGGING_FEATURES` alone, and puts it back when turned off,
+  when the service stops allowing it, when the phone is pointed elsewhere, or when the screen lock is
+  removed; debugging found open while it is off is closed again. A phone that never hears from the
+  service again keeps its last state. A new computer still needs the phone's own USB debugging
+  approval, which needs the phone unlocked; a computer approved earlier stays approved until
+  Android's authorization timeout. The hidden "Exit kiosk" corner exists only on dev images. On a
+  dev image a handset with no screen lock needs only physical access and a cable for an authorized
+  adb shell.
 - **One Device Owner restriction is deliberately not set.** Applied and read back:
   `DISALLOW_SAFE_BOOT`, `DISALLOW_ADD_USER`, `DISALLOW_INSTALL_UNKNOWN_SOURCES`,
   `DISALLOW_UNINSTALL_APPS`, plus `DISALLOW_DEBUGGING_FEATURES` on public images. Not applied:

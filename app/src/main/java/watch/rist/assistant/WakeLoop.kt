@@ -98,7 +98,8 @@ object WakeLoop {
         ((pollAfterS.toLong() and 0xFFFF_FFFFL) * 1000).coerceIn(POLL_GAP_MIN_MS, POLL_GAP_MAX_MS)
 
     sealed class Outcome {
-        data class Signal(val signal: WakeSignal, val acked: List<String>) : Outcome()
+        /** [source]: the address that answered; [DeveloperMode] takes a word only from the service. */
+        data class Signal(val signal: WakeSignal, val acked: List<String>, val source: String = "") : Outcome()
         /** 401: the credential is dead. Enrolment clears it; the loop waits for a new one. */
         object Unauthorised : Outcome()
         /** 403 with the revoked header: revoked. Asked again only every [REVOKED_RECHECK_MS]. */
@@ -269,7 +270,7 @@ object WakeLoop {
         return try {
             call.execute().use { resp ->
                 when (resp.code) {
-                    200 -> Outcome.Signal(WakeSignal.parseFrom(resp.body?.bytes() ?: ByteArray(0)), acks)
+                    200 -> Outcome.Signal(WakeSignal.parseFrom(resp.body?.bytes() ?: ByteArray(0)), acks, url)
                     401 -> Outcome.Unauthorised
                     403 -> if (Enrolment.isExplicitRevocation(403, resp.header(Enrolment.REVOKED_HEADER))) {
                         Outcome.Revoked
@@ -296,14 +297,14 @@ object WakeLoop {
      * Takes a signal in exactly as a turn's reply is taken in: the acks it carried are cleared,
      * new notifications are stored (upsert on id), badges are set, including to zero.
      */
-    internal fun apply(ctx: Context, signal: WakeSignal, acked: List<String>) {
+    internal fun apply(ctx: Context, signal: WakeSignal, acked: List<String>, source: String = "") {
         if (acked.isNotEmpty()) NotificationQueue.markAcked(ctx, acked)
         val fresh = NotificationQueue.unheldIds(ctx, signal.notificationsList)
         if (signal.notificationsCount > 0) NotificationQueue.store(ctx, signal.notificationsList)
         NotificationQueue.setMailUnread(ctx, signal.mailUnread)
         if (signal.hasFeatures()) runCatching { Features.apply(ctx, signal.features) }
         runCatching { LocationSwitch.onWake(ctx, signal.hasLocationOff(), signal.locationOff) }
-        runCatching { DeveloperMode.onWake(ctx, signal.hasDeveloperMode(), signal.developerMode) }
+        runCatching { DeveloperMode.onWake(ctx, signal.hasDeveloperMode(), signal.developerMode, source) }
         if (signal.hasBoxes()) runCatching { HomeBoxes.apply(ctx, signal.boxes) }
         if (signal.hasDesign()) runCatching { DesignSync.apply(ctx, signal.design) }
         if (signal.hasSettings() && DesignSync.declared()) runCatching { SettingsApply.handle(ctx, signal.settings) }
@@ -381,7 +382,7 @@ object WakeLoop {
                     tuner.onAnswered(elapsed)
                     refusedToken = null
                     runCatching { Enrolment.onReinstated(ctx) }
-                    runCatching { apply(ctx, out.signal, out.acked) }
+                    runCatching { apply(ctx, out.signal, out.acked, out.source) }
                         .onFailure { Log.w(TAG, "could not take a signal in", it) }
                     backoff = BACKOFF_MIN_MS
                     // Ours to set and we honour it (0 while draining, 240 when idle), but never

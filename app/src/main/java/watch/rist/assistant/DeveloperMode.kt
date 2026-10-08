@@ -6,6 +6,7 @@ import android.content.SharedPreferences
 import android.os.UserManager
 import android.provider.Settings
 import android.util.Log
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /**
  * Developer mode: USB debugging on a public image, for an account the backend allows (schema v28,
@@ -13,7 +14,9 @@ import android.util.Log
  *
  * Public images keep adb and Developer options shut with `DISALLOW_DEBUGGING_FEATURES`. Developer
  * mode lifts only that restriction, and only while all of these hold:
- *  - the backend says this account may (`developer_mode` true; a phone never told assumes not),
+ *  - Rist's own service says this account may (`developer_mode` true; a phone never told assumes
+ *    not). Anyone can point a public image at a server of their own, so the word counts only when
+ *    it came from, and the phone is still pointed at, one of [SERVICE_HOSTS] over https,
  *  - the phone has a secure lock screen,
  *  - Rist is the Device Owner,
  * and it is turned on only right after the user confirms the device credential. When any of the
@@ -32,9 +35,22 @@ object DeveloperMode {
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    /** The backend's last word: this account may use Developer mode. */
+    /**
+     * The only hosts whose `developer_mode` counts. A server the user set up would say true; a word
+     * from anywhere else is taken as a "no".
+     */
+    internal val SERVICE_HOSTS = setOf("api.rist.watch")
+
+    /** Whether [url] is Rist's own service: https, on exactly one of [SERVICE_HOSTS]. */
+    internal fun isServiceUrl(url: String): Boolean {
+        val u = url.trim().toHttpUrlOrNull() ?: return false
+        return u.isHttps && u.host.lowercase() in SERVICE_HOSTS
+    }
+
+    /** The service's last word (this account may use Developer mode), while still pointed at it. */
     fun isAllowed(ctx: Context): Boolean =
-        runCatching { prefs(ctx).getBoolean(KEY_ALLOWED, false) }.getOrDefault(false)
+        runCatching { prefs(ctx).getBoolean(KEY_ALLOWED, false) }.getOrDefault(false) &&
+            runCatching { isServiceUrl(Config.backendUrl(ctx)) }.getOrDefault(false)
 
     /** The user turned Developer mode on and it has not been turned off since. */
     fun isOn(ctx: Context): Boolean =
@@ -76,15 +92,22 @@ object DeveloperMode {
     fun debuggingLifted(ctx: Context): Boolean =
         debuggingLifted(BuildVariant.isPublic(), isOn(ctx), isAllowed(ctx), isDeviceSecure(ctx))
 
-    /** From a turn's final response. */
-    fun onResponse(ctx: Context, present: Boolean, value: Boolean) = take(ctx, present, value, "turn")
+    /** From a turn's final response; [source] is the address that answered. */
+    fun onResponse(ctx: Context, present: Boolean, value: Boolean, source: String) =
+        take(ctx, present, value, source, "turn")
 
-    /** From a wake answer. */
-    fun onWake(ctx: Context, present: Boolean, value: Boolean) = take(ctx, present, value, "wake")
+    /** From a wake answer; [source] is the address that answered. */
+    fun onWake(ctx: Context, present: Boolean, value: Boolean, source: String) =
+        take(ctx, present, value, source, "wake")
 
-    private fun take(ctx: Context, present: Boolean, value: Boolean, from: String) {
-        val was = isAllowed(ctx)
-        val now = next(was, present, value)
+    /** What one message says (present, value): anything from a host not the service says "no". */
+    internal fun heard(present: Boolean, value: Boolean, source: String): Pair<Boolean, Boolean> =
+        if (isServiceUrl(source)) present to value else true to false
+
+    private fun take(ctx: Context, present: Boolean, value: Boolean, source: String, from: String) {
+        val (said, word) = heard(present, value, source)
+        val was = runCatching { prefs(ctx).getBoolean(KEY_ALLOWED, false) }.getOrDefault(false)
+        val now = next(was, said, word)
         if (now != was) {
             runCatching { prefs(ctx).edit().putBoolean(KEY_ALLOWED, now).commit() }
                 .onFailure { Log.w(TAG, "could not store the backend's word", it) }
@@ -133,13 +156,23 @@ object DeveloperMode {
      */
     fun enforce(ctx: Context) {
         val on = isOn(ctx)
-        if (!on) return
-        val allowed = isAllowed(ctx)
-        val secure = isDeviceSecure(ctx)
-        if (mustTurnOff(on, allowed, secure)) {
-            turnOff(ctx, if (!allowed) "the account is no longer allowed" else "the screen lock was removed")
+        if (on) {
+            val allowed = isAllowed(ctx)
+            val secure = isDeviceSecure(ctx)
+            if (mustTurnOff(on, allowed, secure)) {
+                turnOff(ctx, if (!allowed) "the account is no longer allowed" else "the screen lock was removed")
+            }
+            return
+        }
+        // Off, yet debugging open on a public image (a re-apply that failed, a crash half way).
+        if (mustReclose(BuildVariant.isPublic(), KioskManager.isDeviceOwner(ctx), restrictionInForce(ctx))) {
+            turnOff(ctx, "USB debugging was open while Developer mode was off")
         }
     }
+
+    /** Developer mode is off: a public image's Device Owner must be holding the restriction. */
+    internal fun mustReclose(publicBuild: Boolean, deviceOwner: Boolean, restricted: Boolean): Boolean =
+        publicBuild && deviceOwner && !restricted
 
     /** True while USB debugging is actually blocked on this phone (what the row reports). */
     fun restrictionInForce(ctx: Context): Boolean = runCatching {
