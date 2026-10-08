@@ -69,6 +69,9 @@ object Config {
     private const val KEY_CONTACTS_CURSOR = "contacts_cursor"
     private const val KEY_CONTACTS_NEEDS_FULL = "contacts_needs_full"
     private const val KEY_CONTACTS_SYNCED_AT = "contacts_synced_at"
+    private const val KEY_CONTACTS_PUSH_TAG = "contacts_push_tag"
+    private const val KEY_CONTACTS_ADOPT = "contacts_adopt"
+    private const val KEY_TEXTS_ON_ASK_OFF = "texts_on_ask_off"
     private const val KEY_REMOVED_NOTICE_SHOWN = "removed_notice_shown"
     private const val KEY_COMMS_RESULTS = "comms_results"
     private const val KEY_VOICEMAILS = "voicemails"
@@ -389,6 +392,28 @@ object Config {
     /** Wall-clock ms of the last pull applied; 0 = never. */
     fun contactsSyncedAt(ctx: Context): Long = prefs(ctx).getLong(KEY_CONTACTS_SYNCED_AT, 0L)
     fun setContactsSyncedAt(ctx: Context, v: Long) { prefs(ctx).edit().putLong(KEY_CONTACTS_SYNCED_AT, v).apply() }
+
+    /**
+     * This install's tag for the keys of people made on the phone. Raw-contact ids restart on a
+     * wiped or different phone, so a bare id could name somebody else's record on the backend.
+     */
+    fun contactsPushTag(ctx: Context): String {
+        prefs(ctx).getString(KEY_CONTACTS_PUSH_TAG, null)?.takeIf { it.isNotBlank() }?.let { return it }
+        val tag = UUID.randomUUID().toString().replace("-", "").take(12)
+        prefs(ctx).edit().putString(KEY_CONTACTS_PUSH_TAG, tag).apply()
+        return tag
+    }
+
+    /** Device-account contacts the backend has taken, as "rawId:version" entries, until the Rist copy replaces them. */
+    fun contactsAdopt(ctx: Context): String = prefs(ctx).getString(KEY_CONTACTS_ADOPT, "") ?: ""
+    fun setContactsAdopt(ctx: Context, v: String) { prefs(ctx).edit().putString(KEY_CONTACTS_ADOPT, v).apply() }
+
+    /**
+     * The owner's "Let Rist read recent texts and calls when you ask" switch. On by default: the
+     * texts go only when the backend asks during a turn the owner started, never on their own.
+     */
+    fun textsOnAsk(ctx: Context): Boolean = !prefs(ctx).getBoolean(KEY_TEXTS_ON_ASK_OFF, false)
+    fun setTextsOnAsk(ctx: Context, on: Boolean) { prefs(ctx).edit().putBoolean(KEY_TEXTS_ON_ASK_OFF, !on).apply() }
 
     fun removedNoticeShown(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_REMOVED_NOTICE_SHOWN, false)
     fun setRemovedNoticeShown(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_REMOVED_NOTICE_SHOWN, v).apply() }
