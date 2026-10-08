@@ -119,6 +119,38 @@ class LocationSwitchTest {
     }
 
     @Test
+    fun `while off landing or a new network country changes nothing`() {
+        val real = AutoTimeZone.system
+        val sets = mutableListOf<String>()
+        AutoTimeZone.system = object : AutoTimeZone.SystemZone {
+            override fun current() = "America/New_York"
+            override fun canSet(ctx: Context) = true
+            override fun set(ctx: Context, zone: String): Boolean { sets += zone; return true }
+            override fun handBack(ctx: Context) {}
+        }
+        AutoTimeZone.resetTravelForTest()
+        try {
+            Config.setAutoTimeZone(app, true)
+            LocationSwitch.onWake(app, present = true, value = true)
+            val landed = android.content.Intent(android.content.Intent.ACTION_AIRPLANE_MODE_CHANGED).putExtra("state", false)
+            val japan = android.content.Intent(android.telephony.TelephonyManager.ACTION_NETWORK_COUNTRY_CHANGED)
+                .putExtra(android.telephony.TelephonyManager.EXTRA_NETWORK_COUNTRY, "jp")
+            assertFalse(AutoTimeZone.onTravelSign(app, landed))
+            assertFalse(AutoTimeZone.onTravelSign(app, japan))
+            AutoTimeZone.setFromCountry(app, "jp", 1_760_000_000_000L)
+            assertTrue(sets.isEmpty())
+            // On again: the same country sets the zone.
+            LocationSwitch.onResponse(app, present = true, value = false)
+            AutoTimeZone.setFromCountry(app, "jp", 1_760_000_000_000L)
+            assertEquals(listOf("Asia/Tokyo"), sets)
+        } finally {
+            AutoTimeZone.system = real
+            AutoTimeZone.resetTravelForTest()
+            Config.setAutoTimeZonePending(app, null, 0L)
+        }
+    }
+
+    @Test
     fun `while off the time zone is not taken from a fix`() {
         val real = AutoTimeZone.system
         val sets = mutableListOf<String>()

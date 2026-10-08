@@ -249,6 +249,8 @@ object AutoTimeZone {
      * after a flight that never switched the phone off. Returns whether anything was started.
      */
     fun onTravelSign(ctx: Context, intent: Intent): Boolean {
+        // No zone from where the phone is while the account's location switch is off.
+        if (LocationSwitch.isOff(ctx)) return false
         val airplaneOn = if (intent.hasExtra("state")) intent.getBooleanExtra("state", false) else null
         val country = intent.getStringExtra(TelephonyManager.EXTRA_NETWORK_COUNTRY)
         val key = travelSign(intent.action, airplaneOn, country) ?: return false
@@ -275,6 +277,7 @@ object AutoTimeZone {
     /** Sets the country's zone when it alone decides and the clock shows a different time now. */
     internal fun setFromCountry(ctx: Context, country: String, nowMs: Long = System.currentTimeMillis()) {
         if (!Config.isAutoTimeZone(ctx) || !system.canSet(ctx)) return
+        if (LocationSwitch.isOff(ctx)) return
         val zone = zoneForCountry(country, nowMs) ?: return
         val current = system.current()
         if (TimeZone.getTimeZone(zone).getOffset(nowMs) == TimeZone.getTimeZone(current).getOffset(nowMs)) return
