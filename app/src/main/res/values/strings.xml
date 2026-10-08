@@ -186,6 +186,8 @@
     <string name="release_to_cancel">Release to cancel</string>
     <string name="settings_gear_desc">Settings</string>
     <string name="app_settings_short">SETTINGS</string>
+    <!-- The gear menu's entry for the notifications page; short enough for the 64dp column. -->
+    <string name="app_notifications_short">NOTICES</string>
     <string name="app_drawer_desc">Apps</string>
     <string name="app_drawer_close_desc">Close apps</string>
     <string name="app_torch">TORCH</string>
