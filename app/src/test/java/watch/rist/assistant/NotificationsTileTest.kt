@@ -30,7 +30,10 @@ import rist.v1.BoxSet
 import rist.v1.HomeBox
 import java.util.concurrent.CopyOnWriteArrayList
 
-/** The feed's heading, and the built-in Notifications tile that leads the home row. */
+/**
+ * The feed's heading, and the built-in Notifications tile that leads the home row while anything
+ * is new, and the gear menu's entry that keeps what was already read in reach.
+ */
 @RunWith(RobolectricTestRunner::class)
 class NotificationsTileTest {
 
@@ -123,8 +126,11 @@ class NotificationsTileTest {
         assertFalse(feedHeading(a).contains("Calls", ignoreCase = true))
     }
 
+    private fun noTile(a: Activity) = row(a).findViewWithTag<View>(BoxBoard.NOTIFICATIONS_TAG)
+
     @Test
     fun `the Notifications tile comes first, before the boxes, the Add and the All tiles`() {
+        NotificationQueue.store(app, listOf(notice("n1")))
         hold("a", "b")
         val a = home()
         val tags = order(a)
@@ -134,28 +140,126 @@ class NotificationsTileTest {
     }
 
     @Test
-    fun `a notice already seen but still listed is counted, and not as new`() {
+    fun `with nothing new the tile is not shown, though a notice already read is still listed`() {
         NotificationQueue.store(app, listOf(notice("n1")))
         NotificationQueue.markRead(app, listOf("n1"))
-        hold("a")
+        hold("a", "b")
         val a = home()
-        assertEquals("1", shownCount(a))
-        assertEquals("None new", tile(a).findViewWithTag<TextView>(BoxBoard.DETAIL_TAG).text.toString())
+        assertEquals(1, CommsFeedView.listedCount(app))
+        assertEquals(0, CommsFeedView.waitingCount(app))
+        assertEquals(null, noTile(a))
+        assertEquals(listOf(BoxBoard.TILE_TAG_PREFIX + "a", BoxBoard.TILE_TAG_PREFIX + "b"), order(a).take(2))
     }
 
     @Test
-    fun `with no boxes the row is the Notifications tile and Add`() {
+    fun `a new one beside one already read, the tile counts both and one of them new`() {
+        NotificationQueue.store(app, listOf(notice("n1"), notice("n2")))
+        NotificationQueue.markRead(app, listOf("n1"))
+        hold("a")
+        val a = home()
+        assertEquals("2", shownCount(a))
+        assertEquals("1 new", tile(a).findViewWithTag<TextView>(BoxBoard.DETAIL_TAG).text.toString())
+    }
+
+    @Test
+    fun `with no boxes and something new the row is the Notifications tile and Add`() {
+        NotificationQueue.store(app, listOf(notice("n1")))
         val a = home()
         assertEquals(listOf(BoxBoard.NOTIFICATIONS_TAG, BoxBoard.ADD_TAG), order(a))
     }
 
     @Test
-    fun `the tile also leads the All tiles grid`() {
+    fun `with no boxes and nothing new the row is the Add square alone, at the row's end`() {
+        val a = home()
+        val list = row(a)
+        assertEquals(1, list.childCount)
+        assertEquals(null, noTile(a))
+        val add = requireNotNull(list.findViewWithTag<View>(BoxBoard.ADD_TAG)) { "no Add square" }
+        assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, list.getChildAt(0).layoutParams.width)
+        assertTrue(add.contentDescription.toString().startsWith("Add"))
+    }
+
+    @Test
+    fun `the tile appears the moment something arrives, at the start of the row`() {
+        hold("a", "b")
+        val a = home()
+        assertEquals(null, noTile(a))
+
+        NotificationQueue.store(app, listOf(notice("n1")))
+        settle()
+        assertEquals(BoxBoard.NOTIFICATIONS_TAG, order(a).first())
+        assertEquals("1", shownCount(a))
+        assertEquals(listOf(BoxBoard.TILE_TAG_PREFIX + "a", BoxBoard.TILE_TAG_PREFIX + "b"), order(a).drop(1).take(2))
+    }
+
+    @Test
+    fun `with no boxes, the lone Add square makes room for the tile when something arrives`() {
+        val a = home()
+        NotificationQueue.store(app, listOf(notice("n1")))
+        settle()
+        assertEquals(listOf(BoxBoard.NOTIFICATIONS_TAG, BoxBoard.ADD_TAG), order(a))
+        assertEquals(BoxBoard.TILE_DP, row(a).getChildAt(1).layoutParams.width / app.resources.displayMetrics.density, 1f)
+    }
+
+    @Test
+    fun `the tile goes once everything is read, and comes back for the next arrival`() {
+        NotificationQueue.store(app, listOf(notice("n1")))
         hold("a")
+        val c = Robolectric.buildActivity(MainActivity::class.java).setup().also { settle() }
+        val a = c.get()
+        assertNotNull(noTile(a))
+
+        // Read on the page, by opening its card: back home, no tile, though it is still listed.
+        page(a).window.decorView.findViewWithTag<View>(CommsFeedView.NOTICE_CARD_TAG).performClick()
+        settle()
+        assertEquals(1, CommsFeedView.listedCount(app))
+        c.pause().resume(); settle()
+        assertEquals(0, CommsFeedView.waitingCount(app))
+        assertEquals(null, noTile(a))
+        assertEquals(BoxBoard.TILE_TAG_PREFIX + "a", order(a).first())
+
+        NotificationQueue.store(app, listOf(notice("n2")))
+        settle()
+        assertEquals(BoxBoard.NOTIFICATIONS_TAG, order(a).first())
+        assertEquals("1 new", tile(a).findViewWithTag<TextView>(BoxBoard.DETAIL_TAG).text.toString())
+    }
+
+    @Test
+    fun `the tile also leads the All tiles grid, and is not there with nothing new`() {
+        hold("a")
+        val empty = Robolectric.buildActivity(AllBoxesActivity::class.java).setup().get()
+        settle()
+        val none = empty.window.decorView.findViewWithTag<RecyclerView>(AllBoxesActivity.TAG_GRID)
+        assertEquals(BoxBoard.TILE_TAG_PREFIX + "a", none.getChildAt(0).tag)
+        assertEquals(null, none.findViewWithTag<View>(BoxBoard.NOTIFICATIONS_TAG))
+
+        NotificationQueue.store(app, listOf(notice("n1")))
         val g = Robolectric.buildActivity(AllBoxesActivity::class.java).setup().get()
         settle()
         val grid = g.window.decorView.findViewWithTag<RecyclerView>(AllBoxesActivity.TAG_GRID)
         assertEquals(BoxBoard.NOTIFICATIONS_TAG, grid.getChildAt(0).tag)
+    }
+
+    @Test
+    fun `the gear menu opens the notifications page while any are listed, read or not`() {
+        val a0 = home()
+        a0.findViewById<View>(R.id.settingsGear).performClick(); settle()
+        assertEquals(View.GONE, a0.findViewById<View>(R.id.drawerNotifications).visibility)
+
+        NotificationQueue.store(app, listOf(notice("n1")))
+        NotificationQueue.markRead(app, listOf("n1"))
+        val a = home()
+        assertEquals(null, noTile(a))
+        a.findViewById<View>(R.id.settingsGear).performClick(); settle()
+        val entry = a.findViewById<View>(R.id.drawerNotifications)
+        assertEquals(View.VISIBLE, entry.visibility)
+        assertEquals("Notifications", entry.contentDescription)
+        entry.performClick(); settle()
+        val started = shadowOf(a).nextStartedActivity
+        assertEquals(NotificationsActivity::class.java.name, started.component?.className)
+        val list = Robolectric.buildActivity(NotificationsActivity::class.java, started).setup().get()
+        settle()
+        assertNotNull(list.window.decorView.findViewWithTag<View>(CommsFeedView.NOTICE_CARD_TAG))
     }
 
     private fun homeFeed(a: Activity): ViewGroup = a.findViewById(R.id.commsFeed)
@@ -203,7 +307,7 @@ class NotificationsTileTest {
         assertEquals("3", shownCount(a))
         assertEquals(null, homeFeed(a).findViewWithTag<View>(CommsFeedView.NOTICE_CARD_TAG))
 
-        // CLEAR ALL on the tile's page: the tile goes to nothing at once.
+        // CLEAR ALL on the tile's page: nothing is new any more.
         val list = page(a)
         assertNotNull(list.findViewById<ViewGroup>(R.id.commsFeed).findViewWithTag<View>(CommsFeedView.NOTICE_CARD_TAG))
         val bar = list.findViewById<ViewGroup>(R.id.commsFeed).getChildAt(0) as ViewGroup
@@ -211,9 +315,9 @@ class NotificationsTileTest {
         bar.getChildAt(1).performClick()
         settle()
         assertEquals(0, CommsFeedView.waitingCount(app))
-        // Back on the home screen, the tile reads the cleared count.
+        // Back on the home screen, with nothing new, the tile is gone.
         c.pause().resume(); settle()
-        assertEquals("0", shownCount(a))
+        assertEquals(null, noTile(a))
     }
 
     @Test
@@ -263,6 +367,7 @@ class NotificationsTileTest {
 
     @Test
     fun `the tile cannot be moved, edited or deleted, and never reaches the backend`() {
+        NotificationQueue.store(app, listOf(notice("n1")))
         hold("a", "b")
         val a = home()
         val t = tile(a)

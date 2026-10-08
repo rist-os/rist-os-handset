@@ -1139,6 +1139,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         launch(R.id.drawerCam)   { AppLauncher.launchCamera(this) }
         launch(R.id.drawerPics)  { AppLauncher.launchGallery(this) }
         launch(R.id.drawerMaps)  { AppLauncher.launchMaps(this) }
+        launch(R.id.drawerNotifications) { startActivity(NotificationsActivity.intent(this)) }
         findViewById<View>(R.id.drawerSettings)?.setOnClickListener {
             closeAppDrawer()
             startActivity(
@@ -1198,7 +1199,13 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         NotificationHub.applyBadge(findViewById(R.id.drawerBadgeMaps), c.maps)
         NotificationHub.applyBadge(findViewById(R.id.drawerBadgeSet),  c.settings)
         findViewById<View>(R.id.drawerVoicemail)?.visibility = View.GONE
+        showDrawerNotifications(runCatching { CommsFeedView.listedCount(this) }.getOrDefault(0))
     }.let { }
+
+    /** The gear menu's way back to notifications already read, while any are listed. */
+    private fun showDrawerNotifications(listed: Int) {
+        findViewById<View>(R.id.drawerNotifications)?.visibility = if (listed > 0) View.VISIBLE else View.GONE
+    }
 
     private fun drawerCounts(): DrawerBadges.Counts {
         val w = runCatching { CommsFeedView.waiting(this) }.getOrNull()
@@ -1845,6 +1852,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
     /** The feed was drawn: the Notifications tile shows the same count, without asking again. */
     override fun onFeedWaiting(waiting: Int, listed: Int) {
         if (::boxBoard.isInitialized) boxBoard.showWaiting(waiting, listed)
+        showDrawerNotifications(listed)
     }
 
     internal fun openAllBoxes() {
