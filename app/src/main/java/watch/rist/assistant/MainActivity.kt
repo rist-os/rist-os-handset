@@ -2784,6 +2784,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
     private fun startNavLocationUpdates() {
         stopNavLocationUpdates()
         if (!LocationProvider.hasPermission(this)) { navigating = false; updateNavHere(); return }
+        if (LocationSwitch.isOff(this)) { navigating = false; updateNavHere(); return }
         val lm = getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return
 
         LocationProvider.cached(this)?.let { onNavFix(it) }

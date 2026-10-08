@@ -182,6 +182,10 @@ message DeviceResponse {
   // Proposed (design and settings): this account's whole look.
   DesignSpec design = 34;
 
+  // v24 (the account's location switch): true = share no location; present false = share again;
+  // absent = keep the last state. Set on the final response of every device turn.
+  optional bool location_off = 36;
+
   // v23 (checkable list items): lists shown with checkboxes under the answer, from the show_list
   // tool only. Sent only to a phone that lists "checklist_v1" in caps.components.
   repeated Checklist checklists = 35;
@@ -234,6 +238,9 @@ message WakeSignal {
   DesignSpec design = 12;
   // Proposed (design and settings): a settings resend, as DeviceResponse.settings.
   SettingsCommand settings = 13;
+
+  // v24: the same rule as DeviceResponse.location_off, on every 200 wake.
+  optional bool location_off = 14;
 }
 
 message PendingAction {

@@ -380,6 +380,13 @@ object Geofences {
 
     fun pendingCrossings(ctx: Context): List<GeofenceCrossing> = loadQueue(ctx).sortedBy { it.atMs }
 
+    // Crossings never reported are forgotten, fixes and all.
+    fun dropCrossings(ctx: Context, why: String) {
+        if (loadQueue(ctx).isEmpty()) return
+        saveQueue(ctx, emptyList())
+        Log.i(TAG, "dropped every unreported crossing: $why")
+    }
+
     fun ackCrossings(ctx: Context, ids: Collection<String>) {
         if (ids.isEmpty()) return
         val keep = loadQueue(ctx).filterNot { it.id in ids }

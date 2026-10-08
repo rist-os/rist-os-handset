@@ -115,6 +115,7 @@ object AutoTimeZone {
     fun consider(ctx: Context, fix: LocationProvider.Fix?, nowMs: Long = System.currentTimeMillis()) {
         // Debug level: this runs on every request, and the reasons matter only when it misbehaves.
         if (fix == null) { Log.d(TAG, "skip: no fix"); return }
+        if (LocationSwitch.isOff(ctx)) { Log.d(TAG, "skip: the account's location switch is off"); return }
         if (!Config.isAutoTimeZone(ctx)) { Log.d(TAG, "skip: set to the phone's own setting"); return }
         if (nowMs - fix.timeMs > MAX_FIX_AGE_MS) { Log.d(TAG, "skip: fix is ${(nowMs - fix.timeMs) / 60_000} min old"); return }
         if (fix.accuracyM > MAX_ACCURACY_M) { Log.d(TAG, "skip: fix accuracy ${fix.accuracyM} m"); return }
@@ -166,6 +167,8 @@ object AutoTimeZone {
             "location permission=${LocationProvider.hasPermission(ctx)} zone=${system.current()}")
         if (!Config.isAutoTimeZone(ctx) || !system.canSet(ctx)) return
         if (!LocationProvider.hasPermission(ctx)) return
+        // The zone stays as it is while the account's location switch is off.
+        if (LocationSwitch.isOff(ctx)) return
         val now = System.currentTimeMillis()
         var fix = LocationProvider.cached(ctx)
         if (fix == null || now - fix.timeMs > REFRESH_AFTER_MS) {
