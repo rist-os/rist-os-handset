@@ -80,6 +80,63 @@ class OtaStatusWordingTest {
         }
     }
 
+    private fun resource(name: String): String =
+        checkNotNull(javaClass.classLoader?.getResourceAsStream("ota/$name")) {
+            "missing test resource ota/$name"
+        }.use { it.readBytes().toString(Charsets.UTF_8) }
+
+    // Same fixtures as OtaSchedulerTest: a signed manifest for 2026072400, expiring at 1784937600.
+    private val manifestNow = 1784937600L - 3600
+
+    private fun refuse(local: OtaPolicy.LocalBuild, at: Long): OtaScheduler.Step.Refused {
+        val step = OtaScheduler.evaluate(resource("manifest.json"), resource("manifest.json.minisig"),
+            at, local, "stable", resource("test.pub"))
+        return step as OtaScheduler.Step.Refused
+    }
+
+    private fun stateView(at: Long): OtaStatusView = OtaStatusView(
+        build = "2026080100", device = "stallion", channel = "stable",
+        baseUrl = "https://ota.example.com",
+        lastCheckAtSeconds = OtaState.lastCheckAtSeconds(app()),
+        lastResult = OtaState.lastResult(app()),
+        nextCheckAtSeconds = at + 3600, readyBuild = "", applyingBuild = "",
+        engineFault = null, nowSeconds = at,
+        failures = OtaState.failures(app()),
+        lastSuccessAtSeconds = OtaState.lastSuccessAtSeconds(app()),
+    )
+
+    @Test
+    fun `repeated rollback refusals are successful checks and never raise the warning`() {
+        val newer = OtaPolicy.LocalBuild("stallion", "2026080100", 1784937599L)
+        repeat(OTA_PERSISTENT_FAILURES + 2) { i ->
+            val step = refuse(newer, manifestNow + i)
+            assertEquals(OtaPolicy.Refusal.ROLLBACK, step.policy)
+            assertEquals(OtaScheduler.POLL_INTERVAL_SECONDS,
+                OtaScheduler.recordRefusal(app(), manifestNow + i, step))
+        }
+        val v = stateView(manifestNow + 10)
+        assertEquals(0, v.failures)
+        assertEquals("", otaHeadline(v))
+        assertTrue(otaLastCheckLine(v).endsWith("Up to date."))
+    }
+
+    @Test
+    fun `repeated expired manifests still count as failures and raise the warning`() {
+        val older = OtaPolicy.LocalBuild("stallion", "2026072200", 1784749407L)
+        OtaState.noteSuccess(app(), 0L)
+        repeat(OTA_PERSISTENT_FAILURES) { i ->
+            val at = 1784937600L + 1 + i
+            val step = refuse(older, at)
+            assertEquals(OtaScheduler.Stage.SIGNATURE, step.stage)
+            assertTrue(step.detail.startsWith("EXPIRED"))
+            OtaScheduler.recordRefusal(app(), at, step)
+        }
+        val v = stateView(1784937600L + 10)
+        assertEquals(OTA_PERSISTENT_FAILURES, v.failures)
+        assertTrue(otaHeadline(v).contains("not receiving security updates"))
+        assertTrue(otaLastCheckLine(v).endsWith("Update currently unavailable."))
+    }
+
     @Test
     fun `network failures say to try again later`() {
         for (s in listOf("unreachable: HTTP 503", "check failed: SocketTimeoutException",
