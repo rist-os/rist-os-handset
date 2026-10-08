@@ -1,0 +1,40 @@
+From 7157000000000000000000000000000000000009 Mon Sep 17 00:00:00 2001
+From: RistOS Build <build@ristos.org>
+Date: Thu, 8 Oct 2026 00:00:00 -0600
+Subject: [PATCH] rist: do not pull LocalContactsBackup into the image
+
+Seedvault lists LocalContactsBackup (package app.grapheneos.backup.contacts)
+in its `required:`. aosp/rist.mk names LocalContactsBackup in
+ETC.RistAssistant.OVERRIDES, but that filter only reaches modules Make
+expands itself; a module that arrives through another module's `required:`
+is installed anyway. rist.2026100700 shipped both
+system/app/LocalContactsBackup/LocalContactsBackup.apk and
+system/etc/default-permissions/default-permissions_app.grapheneos.backup.contacts.xml.
+
+Drop the edge at its source. Seedvault itself (com.stevesoltys.seedvault)
+is unchanged and keeps working; only its contacts backup goes, which is
+what the override list already intended.
+
+tools/check_debrand.py fails the release if either file, or any APK whose
+package is a GrapheneOS package outside the keep-list, is still in
+target_files.
+
+Apply from the packages/apps/Seedvault git project with `git am`;
+independent of the other patches. Context is from the GrapheneOS tag
+2026091900 (Seedvault 4b9bf6220b1b).
+---
+ Android.bp | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/Android.bp b/Android.bp
+index c0b118d..430f2a5 100644
+--- a/Android.bp
++++ b/Android.bp
+@@ -61,7 +61,6 @@ android_app {
+     certificate: "platform",
+     privileged: true,
+     required: [
+-        "LocalContactsBackup",
+         "com.stevesoltys.backup_allowlist",
+         "com.stevesoltys.backup_default-permissions",
+         "com.stevesoltys.backup_privapp_allowlist"
