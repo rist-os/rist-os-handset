@@ -382,6 +382,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                     answer = reply?.speech?.text?.takeIf { it.isNotBlank() } ?: text,
                     requestId = reply?.requestId.orEmpty(),
                     checklists = reply?.checklistsList,
+                    noteCards = reply?.noteCardsList,
                     error = if (answered) "" else if (userCancelled) "cancelled" else st.ifBlank { "no reply" },
                 )
             }
@@ -1709,6 +1710,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                     answer = reply?.speech?.text.orEmpty(),
                     requestId = reply?.requestId.orEmpty(),
                     checklists = reply?.checklistsList,
+                    noteCards = reply?.noteCardsList,
                     error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
                 )
             }
@@ -1798,6 +1800,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                     answer = answer,
                     requestId = reply?.requestId.orEmpty(),
                     checklists = reply?.checklistsList,
+                    noteCards = reply?.noteCardsList,
                     error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
                 )
             }
@@ -1917,6 +1920,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                     answer = reply?.speech?.text.orEmpty(),
                     requestId = reply?.requestId.orEmpty(),
                     checklists = reply?.checklistsList,
+                    noteCards = reply?.noteCardsList,
                     error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
                 )
             }
@@ -2041,6 +2045,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                     answer = reply?.speech?.text.orEmpty(),
                     requestId = reply?.requestId.orEmpty(),
                     checklists = reply?.checklistsList,
+                    noteCards = reply?.noteCardsList,
                     error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
                 )
             }
@@ -2082,6 +2087,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                 answer = reply?.speech?.text.orEmpty(),
                 requestId = reply?.requestId.orEmpty(),
                 checklists = reply?.checklistsList,
+                noteCards = reply?.noteCardsList,
                 error = if (reply != null) "" else failure.ifBlank { "no reply" },
             )
         }
@@ -2189,6 +2195,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                     answer = reply?.speech?.text.orEmpty(),
                     requestId = reply?.requestId.orEmpty(),
                     checklists = reply?.checklistsList,
+                    noteCards = reply?.noteCardsList,
                     error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
                 )
             }
@@ -2268,7 +2275,8 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                 contentDescription = (if (e.pinned) "Pinned. " else "") + e.prompt
                 // A swipe that starts on a checklist row, a picture or a button is still a
                 // swipe: the column takes it from the child, which hears a cancel, not a click.
-                if (swipe != null) intercept = { ev -> swipe.onTouch(entryRow, ev) }
+                // Not while one of its notes is open for editing: a drag there selects text.
+                if (swipe != null) intercept = { ev -> !NoteCardView.isEditing(e.localId) && swipe.onTouch(entryRow, ev) }
                 val taps = android.view.GestureDetector(this@MainActivity,
                     object : android.view.GestureDetector.SimpleOnGestureListener() {
                         // Claiming the down is what delivers the second tap; the scroll view
@@ -2279,7 +2287,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                 setOnTouchListener { _, ev ->
                     // Once the swipe owns the gesture the tap detector hears a cancel, so the
                     // end of a swipe is never taken for half of a double tap.
-                    if (swipe != null && swipe.onTouch(entryRow, ev)) {
+                    if (swipe != null && !NoteCardView.isEditing(e.localId) && swipe.onTouch(entryRow, ev)) {
                         taps.onTouchEvent(MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL })
                         true
                     } else taps.onTouchEvent(ev)
@@ -2343,6 +2351,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                 if (live) liveStatusView = this
             })
             if (e.state == EntryState.ANSWERED) ChecklistView.addCards(col, e, t, tf)
+            if (e.state == EntryState.ANSWERED) NoteCardView.addCards(col, e, t, tf)
             keptPhotos[e.localId]?.forEach { photo -> photoCard(photo, t, muted, tf, d)?.let { col.addView(it) } }
             if (live) col.addView(TextView(this).apply {
                 text = getString(R.string.stop_turn)
