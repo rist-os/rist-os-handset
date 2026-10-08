@@ -55,6 +55,8 @@ ifeq (,$(shell grep -l 'define module-overrides' $(_rist_main_mk)))
 endif
 
 # Module names, not package names. GmsCompatLib must stay out of this list.
+# Only reaches modules named in PRODUCT_PACKAGES: one pulled in by another module's required:
+# still ships (LocalContactsBackup via Seedvault did). aosp/patches/0009 drops that edge.
 _rist_debrand_modules := \
     InfoApp \
     SetupWizard2 \

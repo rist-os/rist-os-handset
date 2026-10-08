@@ -87,6 +87,7 @@ hints_for() {
     0004-*) echo "frameworks/base" ;;
     0006-*) echo "frameworks/base" ;;
     0008-*) echo "frameworks/base" ;;
+    0009-*) echo "packages/apps/Seedvault" ;;
     *)      echo "" ;;
   esac
 }

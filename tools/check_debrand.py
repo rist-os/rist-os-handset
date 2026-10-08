@@ -6,6 +6,7 @@ import hashlib
 import io
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -36,7 +37,6 @@ GRAPHENEOS_PKG_KEEPLIST = (
     "overlay.grapheneos",
     "init.pixel.grapheneos.rc",
     "init.zumapro.grapheneos.rc",
-    "default-permissions_app.grapheneos.backup.contacts.xml",
 )
 
 
@@ -301,6 +301,109 @@ def check_bundled_apps(art):
     return Result("bundled apps", "fail", lines)
 
 
+APK_ROOTS = ("SYSTEM/", "SYSTEM_EXT/", "PRODUCT/", "VENDOR/", "ODM/")
+
+
+def _axml_string(buf, pool_off, idx):
+    """String `idx` of the string pool chunk at `pool_off`, or None."""
+    (_t, _h, _size, count, _styles, flags, strings_start,
+     _ss) = struct.unpack_from("<HHIIIIII", buf, pool_off)
+    if idx < 0 or idx >= count:
+        return None
+    off = struct.unpack_from("<I", buf, pool_off + 28 + 4 * idx)[0]
+    p = pool_off + strings_start + off
+    if flags & 0x100:
+        n = buf[p]
+        p += 2 if n & 0x80 else 1
+        n = buf[p]
+        if n & 0x80:
+            n = ((n & 0x7F) << 8) | buf[p + 1]
+            p += 2
+        else:
+            p += 1
+        return buf[p:p + n].decode("utf-8", "replace")
+    n = struct.unpack_from("<H", buf, p)[0]
+    p += 2
+    if n & 0x8000:
+        n = ((n & 0x7FFF) << 16) | struct.unpack_from("<H", buf, p)[0]
+        p += 2
+    return buf[p:p + 2 * n].decode("utf-16-le", "replace")
+
+
+def manifest_package(axml):
+    """The package attribute of a compiled AndroidManifest.xml. Raises ValueError."""
+    if len(axml) < 8 or struct.unpack_from("<H", axml, 0)[0] != 0x0003:
+        raise ValueError("not a compiled XML document")
+    pos = struct.unpack_from("<H", axml, 2)[0]
+    pool = None
+    while pos + 8 <= len(axml):
+        ctype, hsize, csize = struct.unpack_from("<HHI", axml, pos)
+        if csize < 8:
+            break
+        if ctype == 0x0001 and pool is None:
+            pool = pos
+        elif ctype == 0x0102 and pool is not None:
+            name_idx = struct.unpack_from("<I", axml, pos + 20)[0]
+            if _axml_string(axml, pool, name_idx) == "manifest":
+                a_start, a_size, a_count = struct.unpack_from("<HHH", axml, pos + 24)
+                base = pos + hsize + a_start
+                for i in range(a_count):
+                    a = base + i * a_size
+                    a_name, a_raw = struct.unpack_from("<II", axml, a + 4)
+                    if _axml_string(axml, pool, a_name) != "package":
+                        continue
+                    dtype, data = struct.unpack_from("<BI", axml, a + 15)
+                    if a_raw != 0xFFFFFFFF:
+                        return _axml_string(axml, pool, a_raw)
+                    if dtype == 0x03:
+                        return _axml_string(axml, pool, data)
+                raise ValueError("<manifest> carries no package attribute")
+        pos += csize
+    raise ValueError("no <manifest> element")
+
+
+def check_app_packages(art):
+    """Every APK's PACKAGE name, not its file name: LocalContactsBackup.apk is app.grapheneos.*."""
+    apks = sorted(n for n in art.names()
+                  if n.replace("\\", "/").startswith(APK_ROOTS) and n.endswith(".apk"))
+    if not apks:
+        return Result("app packages", "unchecked", [
+            "no APK under %s in %s -- nothing was read." % ("/".join(APK_ROOTS), art.path),
+        ])
+    found, unreadable = [], []
+    for n in apks:
+        try:
+            with zipfile.ZipFile(io.BytesIO(art.read(n))) as z:
+                pkg = manifest_package(z.read("AndroidManifest.xml"))
+        except (zipfile.BadZipFile, KeyError, ValueError, struct.error, IndexError) as e:
+            unreadable.append("%s (%s)" % (n, e))
+            continue
+        low = (pkg or "").lower()
+        if "grapheneos" in low and not any(k in low for k in GRAPHENEOS_PKG_KEEPLIST):
+            found.append("%s  [%s]" % (n, pkg))
+    lines = []
+    state = "pass"
+    if found:
+        state = "fail"
+        lines.append("FAIL      %d APK(s) install a GrapheneOS package that should be gone:" % len(found))
+        for f in found[:25]:
+            lines.append("            %s" % f)
+        lines.append("          A file name proves nothing: the module is named for what it does,")
+        lines.append("          the package is named for GrapheneOS. A module pulled in by another")
+        lines.append("          module's required: is not removed by ETC.RistAssistant.OVERRIDES;")
+        lines.append("          drop the edge with a patch under aosp/patches/ (see 0009).")
+    if unreadable:
+        if state != "fail":
+            state = "unchecked"
+        lines.append("UNCHECKED %d APK(s) whose manifest could not be read:" % len(unreadable))
+        for u in unreadable[:25]:
+            lines.append("            %s" % u)
+    if state == "pass":
+        lines.append("ok        %d APKs read; none installs a GrapheneOS package outside the keep-list"
+                     % len(apks))
+    return Result("app packages", state, lines)
+
+
 PROP_FILES = ("SYSTEM/build.prop", "PRODUCT/etc/build.prop",
               "SYSTEM_EXT/etc/build.prop", "VENDOR/build.prop",
               "SYSTEM/system_ext/etc/build.prop")
@@ -488,7 +591,7 @@ def check_flash_scripts(art):
 
 
 CHECKS = (check_boot_logo, check_bootanimation, check_recovery_text,
-          check_bundled_apps, check_props, check_camera_extensions,
+          check_bundled_apps, check_app_packages, check_props, check_camera_extensions,
           check_flash_scripts)
 
 
@@ -555,6 +658,34 @@ def _mkzip(entries, compress=zipfile.ZIP_STORED):
     return buf.getvalue()
 
 
+def _axml(pkg, utf8=False):
+    """A minimal compiled AndroidManifest.xml: <manifest package="pkg"/>."""
+    strings = ["manifest", "package", pkg]
+    data, offsets = b"", []
+    for s in strings:
+        offsets.append(len(data))
+        if utf8:
+            b = s.encode("utf-8")
+            data += bytes([len(s), len(b)]) + b + b"\0"
+        else:
+            data += struct.pack("<H", len(s)) + s.encode("utf-16-le") + b"\0\0"
+    data += b"\0" * (-len(data) % 4)
+    hdr = 28
+    start = hdr + 4 * len(strings)
+    pool = struct.pack("<HHIIIIII", 0x0001, hdr, start + len(data), len(strings), 0,
+                       0x100 if utf8 else 0, start, 0)
+    pool += b"".join(struct.pack("<I", o) for o in offsets) + data
+    attr = struct.pack("<IIIHBBI", 0xFFFFFFFF, 1, 2, 8, 0, 0x03, 2)
+    elem_body = struct.pack("<IIIIHHHHHH", 1, 0xFFFFFFFF, 0xFFFFFFFF, 0, 20, 20, 1, 0, 0, 0) + attr
+    elem = struct.pack("<HHI", 0x0102, 16, 8 + len(elem_body)) + elem_body
+    body = pool + elem
+    return struct.pack("<HHI", 0x0003, 8, 8 + len(body)) + body
+
+
+def _apk_of(pkg, utf8=False):
+    return _mkzip([("AndroidManifest.xml", _axml(pkg, utf8)), ("classes.dex", b"dex\n035\0")])
+
+
 def _clean_tree(root):
     def put(rel, data):
         full = os.path.join(root, rel)
@@ -566,7 +697,8 @@ def _clean_tree(root):
         mask = fh.read()
     with open(os.path.join(BOOTLOGO_DIR, "android-logo-shine.png"), "rb") as fh:
         shine = fh.read()
-    put(FRAMEWORK_RES, _mkzip([(LOGO_ENTRIES[0], mask), (LOGO_ENTRIES[1], shine)]))
+    put(FRAMEWORK_RES, _mkzip([("AndroidManifest.xml", _axml("android")),
+                               (LOGO_ENTRIES[0], mask), (LOGO_ENTRIES[1], shine)]))
 
     with open(BOOTANIM_ZIP, "rb") as fh:
         anim = fh.read()
@@ -578,7 +710,9 @@ def _clean_tree(root):
     put("SYSTEM/build.prop", b"ro.build.fingerprint=google/stallion/stallion:17/CP2A/x\n")
 
     for _label, _part, _rel in CAMERA_KEEP:
-        put(_PART_VARIANTS[_part][0] + _rel, b"PK\x03\x04")
+        put(_PART_VARIANTS[_part][0] + _rel,
+            _apk_of("com.google.pixel.camera.services") if _rel.endswith(".apk") else b"PK\x03\x04")
+    put("SYSTEM/priv-app/Seedvault/Seedvault.apk", _apk_of("com.stevesoltys.seedvault", utf8=True))
     return root
 
 
@@ -664,7 +798,23 @@ def selftest():
     case("InfoApp survived the override", 1, "app.grapheneos.info",
          lambda r: w(r, "PRODUCT/app/InfoApp/app.grapheneos.info.apk", b"PK\x03\x04"))
     case("kept packages do not trip it", 0, "PASS: no GrapheneOS branding",
-         lambda r: w(r, "PRODUCT/app/Camera/app.grapheneos.camera.apk", b"PK\x03\x04"))
+         lambda r: w(r, "PRODUCT/app/Camera/app.grapheneos.camera.apk",
+                     _apk_of("app.grapheneos.camera")))
+    case("a kept package under a plain file name passes", 0, "PASS: no GrapheneOS branding",
+         lambda r: w(r, "SYSTEM/app/NetworkLocation/NetworkLocation.apk",
+                     _apk_of("app.grapheneos.networklocation")))
+    case("LocalContactsBackup.apk is app.grapheneos.*", 1, "app.grapheneos.backup.contacts",
+         lambda r: w(r, "SYSTEM/app/LocalContactsBackup/LocalContactsBackup.apk",
+                     _apk_of("app.grapheneos.backup.contacts")))
+    case("same, with a UTF-8 string pool", 1, "app.grapheneos.backup.contacts",
+         lambda r: w(r, "SYSTEM/app/LocalContactsBackup/LocalContactsBackup.apk",
+                     _apk_of("app.grapheneos.backup.contacts", utf8=True)))
+    case("its default-permissions XML alone", 1,
+         "default-permissions_app.grapheneos.backup.contacts.xml",
+         lambda r: w(r, "SYSTEM/etc/default-permissions/"
+                        "default-permissions_app.grapheneos.backup.contacts.xml", b"<exceptions/>"))
+    case("an APK whose manifest cannot be read", 2, "could not be read",
+         lambda r: w(r, "PRODUCT/app/Broken/Broken.apk", b"PK\x03\x04"))
 
     case("PixelCameraServices survived the override", 1,
          "PRODUCT/priv-app/PixelCameraServices/PixelCameraServices.apk",
