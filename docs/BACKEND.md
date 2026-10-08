@@ -25,7 +25,8 @@ authoritative when this page and it disagree.
 ```proto
 message DeviceRequest {
   string device_id  = 1;   // stable per OS install
-  string session_id = 2;   // groups a conversation
+  string session_id = 2;   // groups requests; no idle limit, replaced only by the user
+                           // (New conversation) or a change of account
   uint64 timestamp  = 3;
   oneof input {
     AudioInput audio = 4;  // push-to-talk capture
@@ -35,6 +36,8 @@ message DeviceRequest {
   string       auth_token = 8;   // static bearer, empty until one is set
   Capabilities caps       = 9;   // what this device can render
   Location     location   = 11;  // always present; timezone-only without a fix
+  bool new_conversation = 30;  // v29: the user asked for a new conversation; set on
+                               // every request until one is answered
   // ... plus SMS, comms results, voicemail, geofence and notification fields
 }
 ```
@@ -150,7 +153,11 @@ Two other routes exist:
 
 - **Serve `POST /v1/enroll`.** What the app does on its own: a JSON route, not protobuf. It redeems
   a **pairing code the user types into Settings** — you mint the code, they read it across, the
-  device posts `{nonce, device_id, label}` and stores the token you return. The same route also
+  device posts `{nonce, device_id, label, stable_id}` and stores the token you return.
+  `stable_id` is the lowercase hex SHA-256 of `rist-stable-id-v1:` followed by the hardware
+  serial, so it survives a factory reset; it is left out when the serial cannot be read, and the
+  raw serial is never sent, stored or logged. A `409` (device limit, or held by another account)
+  and a `403` are final: the device does not retry them. The same route also
   redeems an SMS nonce, which is the older path and is no longer triggered automatically. See
   `Enrolment.kt`. You do not need this to run a backend.
 

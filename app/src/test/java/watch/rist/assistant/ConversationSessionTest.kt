@@ -125,7 +125,19 @@ class ConversationSessionTest {
             Config.newConversationPendingFor(ctx(), Config.sessionId(ctx())))
     }
 
-    // ── new_conversation (v28, DeviceRequest field 30) ─────────────────────────────────────────
+    @Test
+    fun `settings New conversation clears the conversation shown on screen, pinned answers kept`() {
+        Transcript.clearForTest(ctx())
+        val kept = Transcript.begin(ctx(), "pinned question", EntryState.ANSWERED)
+        Transcript.setPinned(ctx(), kept, true)
+        Transcript.begin(ctx(), "my locker is number 41", EntryState.ANSWERED)
+        val a = Robolectric.buildActivity(SettingsActivity::class.java).create().get()
+        a.findViewById<TextView>(R.id.newConversation).performClick()
+        assertEquals(listOf(kept), Transcript.all(ctx()).map { it.localId })
+        Transcript.clearForTest(ctx())
+    }
+
+    // ── new_conversation (v29, DeviceRequest field 30) ─────────────────────────────────────────
 
     @Test
     fun `the field is number 30 on DeviceRequest`() {

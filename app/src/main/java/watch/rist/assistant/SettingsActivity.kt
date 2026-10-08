@@ -556,20 +556,24 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     /**
-     * The id this phone pairs under (the server's device_id), shortened, for matching against the
-     * Phones list on the website. Read-only; a tap copies the full id.
+     * The only user-driven way to end a conversation. No confirmation dialog: it acts, then says so.
+     * The earlier conversation leaves the home screen too (pinned answers stay); the server keeps it.
      */
-    /** The only user-driven way to end a conversation. No confirmation dialog: it acts, then says so. */
     private fun bindNewConversation() {
         val button = findViewById<TextView>(R.id.newConversation) ?: return
         val status = findViewById<TextView>(R.id.newConversationStatus)
         asButton(button, Themes.current(this), primary = false)
         button.setOnClickListener {
             Config.startNewConversation(applicationContext)
+            runCatching { Transcript.clear(applicationContext) }
             status?.text = getString(R.string.new_conversation_started)
         }
     }
 
+    /**
+     * The id this phone pairs under (the server's device_id), shortened, for matching against the
+     * Phones list on the website. Read-only; a tap copies the full id.
+     */
     private fun bindDeviceInfo() {
         val id = Config.deviceId(this)
         val version = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "?"
