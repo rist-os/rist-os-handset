@@ -6,6 +6,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
+import android.telephony.TelephonyManager
 import android.util.Log
 import java.util.TimeZone
 
@@ -115,6 +116,7 @@ object AutoTimeZone {
     fun consider(ctx: Context, fix: LocationProvider.Fix?, nowMs: Long = System.currentTimeMillis()) {
         // Debug level: this runs on every request, and the reasons matter only when it misbehaves.
         if (fix == null) { Log.d(TAG, "skip: no fix"); return }
+        if (LocationSwitch.isOff(ctx)) { Log.d(TAG, "skip: the account's location switch is off"); return }
         if (!Config.isAutoTimeZone(ctx)) { Log.d(TAG, "skip: set to the phone's own setting"); return }
         if (nowMs - fix.timeMs > MAX_FIX_AGE_MS) { Log.d(TAG, "skip: fix is ${(nowMs - fix.timeMs) / 60_000} min old"); return }
         if (fix.accuracyM > MAX_ACCURACY_M) { Log.d(TAG, "skip: fix accuracy ${fix.accuracyM} m"); return }
@@ -158,22 +160,133 @@ object AutoTimeZone {
     }
 
     /**
+     * Least time between two GPS attempts made for the time zone alone. Between them the check
+     * uses the cached fix (from any app, a turn, navigation) and the network provider when the
+     * owner turned network location on. A zone is a region; it does not need a satellite fix
+     * every hour, and an hourly cold GPS start indoors runs the receiver for ten seconds to learn
+     * nothing.
+     */
+    internal const val GPS_MIN_GAP_MS = 6L * 60 * 60 * 1000
+
+    @Volatile private var lastGpsAttemptMs = 0L
+
+    /** Whether this check may wake GPS: forced checks (boot, the setting turned on) always may. */
+    internal fun gpsAllowed(force: Boolean, lastGpsAttemptMs: Long, nowElapsedMs: Long): Boolean =
+        force || lastGpsAttemptMs == 0L || nowElapsedMs - lastGpsAttemptMs >= GPS_MIN_GAP_MS
+
+    /**
      * Looks up the zone with the freshest fix it can get cheaply. May block for a location
      * request of up to about fifteen seconds, so never on the main thread.
      */
-    fun checkBlocking(ctx: Context) {
+    fun checkBlocking(ctx: Context, force: Boolean = false) {
         Log.i(TAG, "check: from location=${Config.isAutoTimeZone(ctx)} owner=${system.canSet(ctx)} " +
             "location permission=${LocationProvider.hasPermission(ctx)} zone=${system.current()}")
         if (!Config.isAutoTimeZone(ctx) || !system.canSet(ctx)) return
         if (!LocationProvider.hasPermission(ctx)) return
+        // The zone stays as it is while the account's location switch is off.
+        if (LocationSwitch.isOff(ctx)) return
         val now = System.currentTimeMillis()
         var fix = LocationProvider.cached(ctx)
         if (fix == null || now - fix.timeMs > REFRESH_AFTER_MS) {
+            val elapsed = SystemClock.elapsedRealtime()
+            val gps = gpsAllowed(force, lastGpsAttemptMs, elapsed)
+            // Counted only when GPS is really asked: a network fix that answered first must not
+            // use up the allowance a later check (abroad, no data for network location) needs.
             fix = LocationProvider.freshBlocking(ctx, maxAgeS = (REFRESH_AFTER_MS / 1000).toInt(),
-                minAccuracyM = 0f, timeoutMs = 5_000) ?: fix
+                minAccuracyM = MAX_ACCURACY_M, timeoutMs = 5_000, allowGps = gps,
+                onGps = { lastGpsAttemptMs = elapsed }) ?: fix
         }
         consider(ctx, fix, now)
     }
+
+    /**
+     * The same travel sign again within this long is not acted on, so a flapping signal at a
+     * border cannot hold GPS on. A different sign (landing, then a new country) always is.
+     */
+    internal const val TRAVEL_REPEAT_GAP_MS = 10L * 60 * 1000
+
+    private val lastTravelSign = HashMap<String, Long>()
+
+    /**
+     * What a broadcast says about a possible change of place, as a key, or null when it says
+     * nothing: airplane mode turned off (landed), or the network country changed to a known one
+     * (crossed a border, or came back into service abroad). Losing service reports a blank
+     * country; that says nothing. Two signs with the same key are repeats of one another.
+     */
+    internal fun travelSign(action: String?, airplaneOn: Boolean?, country: String?): String? = when (action) {
+        Intent.ACTION_AIRPLANE_MODE_CHANGED -> if (airplaneOn == false) "airplane-off" else null
+        TelephonyManager.ACTION_NETWORK_COUNTRY_CHANGED ->
+            country?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }?.let { "country:$it" }
+        else -> null
+    }
+
+    /** The first sign with this key, or the same one [TRAVEL_REPEAT_GAP_MS] after it was last acted on. */
+    internal fun travelSignDue(lastMs: Long?, nowElapsedMs: Long): Boolean =
+        lastMs == null || nowElapsedMs - lastMs >= TRAVEL_REPEAT_GAP_MS
+
+    /**
+     * The zone a network country alone decides: every place in it keeps the same time now, so
+     * the country is enough to put the clock right before any fix. Null for a country whose
+     * zones differ (Mexico, the US), which only a location can settle. Android gives apps the
+     * network country but not the carrier's own zone (NITZ), so this is the nearest to it.
+     */
+    internal fun zoneForCountry(country: String, nowMs: Long): String? {
+        val ids = runCatching {
+            android.icu.util.TimeZone.getAvailableIDs(
+                android.icu.util.TimeZone.SystemTimeZoneType.CANONICAL_LOCATION,
+                country.trim().uppercase(java.util.Locale.ROOT), null,
+            ).toList()
+        }.getOrDefault(emptyList()).filter { settable(it) }
+        if (ids.isEmpty()) return null
+        val offsets = ids.map { TimeZone.getTimeZone(it).getOffset(nowMs) }.toSet()
+        return if (offsets.size == 1) ids.first() else null
+    }
+
+    /**
+     * A travel sign: puts the clock right from the network country when that alone decides the
+     * zone, then starts a full check at once (GPS allowed, inside the six-hour allowance). The
+     * hourly check alone could leave the clock, and alarms set by it, on the old zone for hours
+     * after a flight that never switched the phone off. Returns whether anything was started.
+     */
+    fun onTravelSign(ctx: Context, intent: Intent): Boolean {
+        // No zone from where the phone is while the account's location switch is off.
+        if (LocationSwitch.isOff(ctx)) return false
+        val airplaneOn = if (intent.hasExtra("state")) intent.getBooleanExtra("state", false) else null
+        val country = intent.getStringExtra(TelephonyManager.EXTRA_NETWORK_COUNTRY)
+        val key = travelSign(intent.action, airplaneOn, country) ?: return false
+        val now = SystemClock.elapsedRealtime()
+        synchronized(lastTravelSign) {
+            val last = lastTravelSign[key]
+            if (!travelSignDue(last, now)) {
+                Log.d(TAG, "travel sign $key ignored: the same one came ${(now - (last ?: now)) / 1000}s ago")
+                return false
+            }
+            lastTravelSign[key] = now
+        }
+        Log.i(TAG, "travel sign $key; checking the zone now")
+        val app = ctx.applicationContext
+        Thread({
+            runCatching {
+                if (country != null && key.startsWith("country:")) setFromCountry(app, country)
+                checkBlocking(app, force = true)
+            }.onFailure { Log.w(TAG, "travel check failed", it) }
+        }, "RistAutoTzTravel").start()
+        return true
+    }
+
+    /** Sets the country's zone when it alone decides and the clock shows a different time now. */
+    internal fun setFromCountry(ctx: Context, country: String, nowMs: Long = System.currentTimeMillis()) {
+        if (!Config.isAutoTimeZone(ctx) || !system.canSet(ctx)) return
+        if (LocationSwitch.isOff(ctx)) return
+        val zone = zoneForCountry(country, nowMs) ?: return
+        val current = system.current()
+        if (TimeZone.getTimeZone(zone).getOffset(nowMs) == TimeZone.getTimeZone(current).getOffset(nowMs)) return
+        val ok = system.set(ctx, zone)
+        Config.setAutoTimeZonePending(ctx, null, 0L)
+        Log.i(TAG, "time zone $current -> $zone from the network country: ${if (ok) "set" else "REFUSED by the OS"}")
+    }
+
+    internal fun resetTravelForTest() { synchronized(lastTravelSign) { lastTravelSign.clear() } }
 
     @Volatile private var lastBackgroundCheckMs = 0L
 
@@ -189,7 +302,7 @@ object AutoTimeZone {
         }
         lastBackgroundCheckMs = now
         val app = ctx.applicationContext
-        Thread({ runCatching { checkBlocking(app) }.onFailure { Log.w(TAG, "check failed", it) } },
+        Thread({ runCatching { checkBlocking(app, force) }.onFailure { Log.w(TAG, "check failed", it) } },
             "RistAutoTz").start()
     }
 

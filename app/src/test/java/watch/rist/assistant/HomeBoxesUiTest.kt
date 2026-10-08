@@ -100,10 +100,11 @@ class HomeBoxesUiTest {
     private fun tile(a: android.app.Activity, id: String): ViewGroup {
         val root = a.window.decorView
         root.findViewWithTag<ViewGroup>(BoxBoard.TILE_TAG_PREFIX + id)?.let { return it }
-        // The row scrolls sideways: bring the box on screen. The Notifications tile is first.
+        // The row scrolls sideways: bring the box on screen. With nothing new there is no
+        // Notifications tile ahead of it.
         val at = HomeBoxes.boxes(app).indexOfFirst { it.id == id }
         val row = a.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.boxList)
-        if (at >= 0 && row != null) { row.scrollToPosition(at + 1); settle() }
+        if (at >= 0 && row != null) { row.scrollToPosition(at); settle() }
         return requireNotNull(root.findViewWithTag<ViewGroup>(BoxBoard.TILE_TAG_PREFIX + id)) { "no tile for $id" }
     }
 
@@ -195,7 +196,7 @@ class HomeBoxesUiTest {
         assertEquals("Couldn't update", text(tile(a, "e"), BoxBoard.DETAIL_TAG))
         assertEquals("Not on yet", text(tile(a, "o"), BoxBoard.DETAIL_TAG))
         // The row scrolls: the last tiles are drawn once it is scrolled to them.
-        a.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.boxList).scrollToPosition(6)
+        a.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.boxList).scrollToPosition(5)
         settle()
         assertEquals("Check my email", text(tile(a, "c"), BoxBoard.VALUE_TAG))
         assertEquals("Command box: Check my email. Double tap to send.", tile(a, "c").contentDescription)

@@ -165,6 +165,23 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
     }
     private var lastNavFix: LocationProvider.Fix? = null
     private var navigating = false
+    // Where the phone last moved, and when (elapsed ms): the idle pause below measures from here.
+    private var navAnchor: LocationProvider.Fix? = null
+    private var navMovedAtMs = 0L
+    private var homeStarted = false
+    private val navIdleHandler = Handler(Looper.getMainLooper())
+    private val navIdleCheck = object : Runnable {
+        override fun run() {
+            if (!navigating) return
+            if (navGpsShouldPause(navMapShown(), navMovedAtMs, SystemClock.elapsedRealtime())) {
+                Log.i(TAG, "navigation: map hidden and no movement for " +
+                    "${NAV_IDLE_PAUSE_MS / 60_000} min; GPS paused until the map is shown")
+                stopNavLocationUpdates()
+                return
+            }
+            navIdleHandler.postDelayed(this, NAV_IDLE_CHECK_MS)
+        }
+    }
     private var rerouting = false
 
     // Thumbnails of photos sent this session, by transcript entry. The store keeps only the
@@ -382,6 +399,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                     answer = reply?.speech?.text?.takeIf { it.isNotBlank() } ?: text,
                     requestId = reply?.requestId.orEmpty(),
                     checklists = reply?.checklistsList,
+                    noteCards = reply?.noteCardsList,
                     error = if (answered) "" else if (userCancelled) "cancelled" else st.ifBlank { "no reply" },
                 )
             }
@@ -603,6 +621,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         staleHandler.removeCallbacksAndMessages(null)
         torchHandler.removeCallbacksAndMessages(null)
         stopNavLocationUpdates()
+        navIdleHandler.removeCallbacksAndMessages(null)
         if (::navMap.isInitialized) navMap.release()
         pendingMediaStart = null
         torchCameraId?.let { id ->
@@ -616,6 +635,11 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
 
     override fun onStart() {
         super.onStart()
+        homeStarted = true
+        // GPS paused while the map was out of sight comes back with it.
+        if (currentNav != null && !navigating && ::navBox.isInitialized && navBox.visibility == View.VISIBLE) {
+            startNavLocationUpdates()
+        }
         val lbm = LocalBroadcastManager.getInstance(this)
         lbm.registerReceiver(pushReceiver, IntentFilter(PushService.ACTION_PUSH_MESSAGE))
         lbm.registerReceiver(replyReceiver, IntentFilter(RecordService.ACTION_ASSISTANT_REPLY))
@@ -648,8 +672,8 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
 
     /**
      * The home screen is singleTask: a HOME press or a launch while it is already up comes here
-     * instead of stacking a second copy. Nothing is read from the launch intent, in onCreate or
-     * here; onResume redraws as for any return.
+     * instead of stacking a second copy. Nothing is read from the launch intent but a typed turn
+     * from this app's own screens (see [turnIntent]), which onResume sends.
      */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -660,6 +684,8 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         super.onResume()
         Config.importTokenFileIfPresent(applicationContext)
         AutoTimeZone.checkInBackground(applicationContext)
+        // Back from the Contacts app: send what the owner added or changed there.
+        runCatching { ContactsPush.nudge(applicationContext, "back in Rist") }
         CarrierVoicemail.listen(this)
         CarrierVoicemail.refresh(this)
         if (navigating) runCatching {
@@ -685,6 +711,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         renderCommandStrip()
         CommsFeedView.render(this)
         renderBoxes()
+        sendTurnFromIntent()
         cmdHandler.removeCallbacks(cmdTicker)
         if (DeviceCommands.anythingRunning()) cmdHandler.post(cmdTicker)
         enterKioskIfOwner()
@@ -889,6 +916,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
 
     override fun onStop() {
         super.onStop()
+        homeStarted = false
         if (appDrawerOpen) closeAppDrawer()
         runCatching { navSensorManager?.unregisterListener(compassListener) }
         cmdHandler.removeCallbacks(cmdTicker)
@@ -1139,6 +1167,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         launch(R.id.drawerCam)   { AppLauncher.launchCamera(this) }
         launch(R.id.drawerPics)  { AppLauncher.launchGallery(this) }
         launch(R.id.drawerMaps)  { AppLauncher.launchMaps(this) }
+        launch(R.id.drawerNotifications) { startActivity(NotificationsActivity.intent(this)) }
         findViewById<View>(R.id.drawerSettings)?.setOnClickListener {
             closeAppDrawer()
             startActivity(
@@ -1198,7 +1227,13 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         NotificationHub.applyBadge(findViewById(R.id.drawerBadgeMaps), c.maps)
         NotificationHub.applyBadge(findViewById(R.id.drawerBadgeSet),  c.settings)
         findViewById<View>(R.id.drawerVoicemail)?.visibility = View.GONE
+        showDrawerNotifications(runCatching { CommsFeedView.listedCount(this) }.getOrDefault(0))
     }.let { }
+
+    /** The gear menu's way back to notifications already read, while any are listed. */
+    private fun showDrawerNotifications(listed: Int) {
+        findViewById<View>(R.id.drawerNotifications)?.visibility = if (listed > 0) View.VISIBLE else View.GONE
+    }
 
     private fun drawerCounts(): DrawerBadges.Counts {
         val w = runCatching { CommsFeedView.waiting(this) }.getOrNull()
@@ -1701,6 +1736,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                     answer = reply?.speech?.text.orEmpty(),
                     requestId = reply?.requestId.orEmpty(),
                     checklists = reply?.checklistsList,
+                    noteCards = reply?.noteCardsList,
                     error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
                 )
             }
@@ -1790,6 +1826,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                     answer = answer,
                     requestId = reply?.requestId.orEmpty(),
                     checklists = reply?.checklistsList,
+                    noteCards = reply?.noteCardsList,
                     error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
                 )
             }
@@ -1845,6 +1882,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
     /** The feed was drawn: the Notifications tile shows the same count, without asking again. */
     override fun onFeedWaiting(waiting: Int, listed: Int) {
         if (::boxBoard.isInitialized) boxBoard.showWaiting(waiting, listed)
+        showDrawerNotifications(listed)
     }
 
     internal fun openAllBoxes() {
@@ -1908,6 +1946,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                     answer = reply?.speech?.text.orEmpty(),
                     requestId = reply?.requestId.orEmpty(),
                     checklists = reply?.checklistsList,
+                    noteCards = reply?.noteCardsList,
                     error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
                 )
             }
@@ -2032,6 +2071,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                     answer = reply?.speech?.text.orEmpty(),
                     requestId = reply?.requestId.orEmpty(),
                     checklists = reply?.checklistsList,
+                    noteCards = reply?.noteCardsList,
                     error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
                 )
             }
@@ -2073,6 +2113,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                 answer = reply?.speech?.text.orEmpty(),
                 requestId = reply?.requestId.orEmpty(),
                 checklists = reply?.checklistsList,
+                noteCards = reply?.noteCardsList,
                 error = if (reply != null) "" else failure.ifBlank { "no reply" },
             )
         }
@@ -2180,6 +2221,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                     answer = reply?.speech?.text.orEmpty(),
                     requestId = reply?.requestId.orEmpty(),
                     checklists = reply?.checklistsList,
+                    noteCards = reply?.noteCardsList,
                     error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
                 )
             }
@@ -2259,7 +2301,8 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                 contentDescription = (if (e.pinned) "Pinned. " else "") + e.prompt
                 // A swipe that starts on a checklist row, a picture or a button is still a
                 // swipe: the column takes it from the child, which hears a cancel, not a click.
-                if (swipe != null) intercept = { ev -> swipe.onTouch(entryRow, ev) }
+                // Not while one of its notes is open for editing: a drag there selects text.
+                if (swipe != null) intercept = { ev -> !NoteCardView.isEditing(e.localId) && swipe.onTouch(entryRow, ev) }
                 val taps = android.view.GestureDetector(this@MainActivity,
                     object : android.view.GestureDetector.SimpleOnGestureListener() {
                         // Claiming the down is what delivers the second tap; the scroll view
@@ -2270,7 +2313,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                 setOnTouchListener { _, ev ->
                     // Once the swipe owns the gesture the tap detector hears a cancel, so the
                     // end of a swipe is never taken for half of a double tap.
-                    if (swipe != null && swipe.onTouch(entryRow, ev)) {
+                    if (swipe != null && !NoteCardView.isEditing(e.localId) && swipe.onTouch(entryRow, ev)) {
                         taps.onTouchEvent(MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL })
                         true
                     } else taps.onTouchEvent(ev)
@@ -2334,6 +2377,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                 if (live) liveStatusView = this
             })
             if (e.state == EntryState.ANSWERED) ChecklistView.addCards(col, e, t, tf)
+            if (e.state == EntryState.ANSWERED) NoteCardView.addCards(col, e, t, tf)
             keptPhotos[e.localId]?.forEach { photo -> photoCard(photo, t, muted, tf, d)?.let { col.addView(it) } }
             if (live) col.addView(TextView(this).apply {
                 text = getString(R.string.stop_turn)
@@ -2775,6 +2819,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
     private fun startNavLocationUpdates() {
         stopNavLocationUpdates()
         if (!LocationProvider.hasPermission(this)) { navigating = false; updateNavHere(); return }
+        if (LocationSwitch.isOff(this)) { navigating = false; updateNavHere(); return }
         val lm = getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return
 
         LocationProvider.cached(this)?.let { onNavFix(it) }
@@ -2803,6 +2848,10 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                     NAV_GPS_MIN_TIME_MS, NAV_GPS_MIN_DIST_M, listener, Looper.getMainLooper()
                 )
                 navigating = true
+                navAnchor = null
+                navMovedAtMs = SystemClock.elapsedRealtime()
+                navIdleHandler.removeCallbacks(navIdleCheck)
+                navIdleHandler.postDelayed(navIdleCheck, NAV_IDLE_CHECK_MS)
                 navSensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
                 navRotationSensor = navSensorManager?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
                 navRotationSensor?.let {
@@ -2826,11 +2875,22 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         runCatching { navSensorManager?.unregisterListener(compassListener) }
         navLocationListener = null
         navigating = false
+        navIdleHandler.removeCallbacks(navIdleCheck)
     }
+
+    /** The map is on screen: the home screen is started and the map is expanded, not the pill. */
+    private fun navMapShown(): Boolean =
+        homeStarted && ::navBox.isInitialized && navBox.visibility == View.VISIBLE
 
     private fun onNavFix(fix: LocationProvider.Fix) {
         if (currentNav == null) return
+        // The account's location switch went off mid-route: GPS stops and the last fix is forgotten.
+        if (LocationSwitch.isOff(this)) { stopNavLocationUpdates(); lastNavFix = null; navAnchor = null; updateNavHere(); return }
         lastNavFix = fix
+        if (navMoved(navAnchor, fix)) {
+            navAnchor = fix
+            navMovedAtMs = SystemClock.elapsedRealtime()
+        }
         if ((fix.speedMps ?: 0f) > 1.5f) navMovingUntil = System.currentTimeMillis() + 4000
         if (navRouteLoaded && navRnHandle != 0L) {
             Ristnav.nUpdate(navRnHandle, fix.lat, fix.lon, navRnOut)
@@ -2942,7 +3002,30 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
+    /** A turn another of this app's screens asked home to send; taken off the intent once sent. */
+    private fun sendTurnFromIntent() {
+        val i = intent ?: return
+        if (i.getStringExtra(EXTRA_TURN_KEY) != TURN_KEY) return
+        i.removeExtra(EXTRA_TURN_KEY)
+        AllBoxesActivity.turnFrom(i)?.let { sendBoxTurn(it) }
+    }
+
     internal companion object {
+        private const val EXTRA_TURN_KEY = "rist_turn_key"
+
+        // Known only inside this process: the activity is exported, and another app's intent
+        // must never be able to send a turn as the owner.
+        private val TURN_KEY: String = java.util.UUID.randomUUID().toString()
+
+        /** Brings home up and has it send [turn], as a tile tap would. */
+        internal fun turnIntent(ctx: Context, turn: HomeBoxes.Turn): Intent =
+            Intent(ctx, MainActivity::class.java)
+                .putExtra(EXTRA_TURN_KEY, TURN_KEY)
+                .putExtra(AllBoxesActivity.EXTRA_TEXT, turn.text)
+                .putExtra(AllBoxesActivity.EXTRA_TOOL, turn.targetToolId)
+                .putExtra(AllBoxesActivity.EXTRA_BOX, turn.boxId)
+                .putExtra(AllBoxesActivity.EXTRA_PROMPT, turn.prompt)
+
         private const val PHOTO_OPEN_GUARD_MS = 1_000L
         private const val TAG = "RistMain"
 
@@ -3024,6 +3107,30 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
 
         private const val NAV_GPS_MIN_TIME_MS = 2_000L
         private const val NAV_GPS_MIN_DIST_M = 5f
+
+        /**
+         * Navigation GPS runs at full rate (a fix every two seconds) so turns are spoken with the
+         * screen off. Left running with the map out of sight and the phone not moving (arrived
+         * and never closed it, or minimised and forgotten), it would hold GPS on for hours. After
+         * this long it pauses; showing the map again starts it.
+         */
+        internal const val NAV_IDLE_PAUSE_MS = 10L * 60 * 1000
+        private const val NAV_IDLE_CHECK_MS = 60_000L
+        /** Moving: farther than this (or the fix's error) from where it last moved, or faster than walking pace. */
+        internal const val NAV_MOVED_M = 50f
+        internal const val NAV_MOVING_MPS = 1.5f
+
+        internal fun navGpsShouldPause(mapShown: Boolean, movedAtMs: Long, nowMs: Long): Boolean =
+            !mapShown && nowMs - movedAtMs >= NAV_IDLE_PAUSE_MS
+
+        internal fun navMoved(anchor: LocationProvider.Fix?, fix: LocationProvider.Fix): Boolean {
+            if (anchor == null) return true
+            if ((fix.speedMps ?: 0f) > NAV_MOVING_MPS) return true
+            val out = FloatArray(1)
+            Location.distanceBetween(anchor.lat, anchor.lon, fix.lat, fix.lon, out)
+            // GPS wanders indoors; a jump inside the fix's own error is not movement.
+            return out[0] > maxOf(NAV_MOVED_M, fix.accuracyM)
+        }
 
         // Speak + advance a maneuver within this many meters of its point.
         private const val TURN_TRIGGER_M = 40f

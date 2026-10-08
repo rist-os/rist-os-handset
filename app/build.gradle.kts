@@ -74,6 +74,8 @@ android {
 
 tasks.withType<Test>().configureEach {
     maxHeapSize = "2g"
+    // Forks are separate JVMs, so static test state stays per-fork. On a 4-core/16 GB runner: 2 x 2g.
+    maxParallelForks = (Runtime.getRuntime().availableProcessors() / 2).coerceAtLeast(1)
 }
 
 // OtaEngineCallback.kt subclasses @SystemApi UpdateEngineCallback, absent from the public android.jar; Soong-only.

@@ -101,13 +101,14 @@ class HomeBoxesLayoutTest {
             val a = Robolectric.buildActivity(MainActivity::class.java).setup().get()
             settle()
             val list = a.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.boxList)
-            // Position 0 is the built-in Notifications tile, so a box sits one past its index.
-            for (b in long()) {
-                list.scrollToPosition(long().indexOf(b) + 1); settle()
+            // Nothing is new, so there is no Notifications tile: a box sits at its own index.
+            // One list: long() stamps the clock, so a second call across a second boundary finds no b.
+            for ((i, b) in long().withIndex()) {
+                list.scrollToPosition(i); settle()
                 val tile = requireNotNull(list.findViewWithTag<ViewGroup>(BoxBoard.TILE_TAG_PREFIX + b.id)) { b.id }
                 assertContained(tile, BoxBoard.TILE_DP, scale)
             }
-            list.scrollToPosition(long().size + 1); settle()
+            list.scrollToPosition(long().size); settle()
             val creating = requireNotNull(list.findViewWithTag<ViewGroup>(BoxBoard.CREATING_TAG)) { "placeholder" }
             assertEquals("square", creating.height, creating.width)
             assertContained(creating, BoxBoard.TILE_DP, scale)

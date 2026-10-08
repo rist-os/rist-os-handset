@@ -2,6 +2,7 @@ package watch.rist.assistant
 
 import android.content.Context
 import android.media.AudioManager
+import android.net.ConnectivityManager
 import android.os.VibrationEffect
 import android.os.VibratorManager
 import android.util.Log
@@ -101,6 +102,25 @@ object WakeLoop {
             .build().toString()
     }
 
+    /** With no network at all, a retry cannot succeed; wait this long, or for the network to come back. */
+    internal const val OFFLINE_RETRY_MS = 15L * 60 * 1000
+
+    /**
+     * The wait before a retry. Offline, retrying every minute only wakes the phone to fail: the
+     * network callback in [WakeService] kicks the loop the moment a network appears, so the wait
+     * is long. [hasNetwork] null (unknown) keeps the backoff.
+     */
+    internal fun retryWaitMs(backoffMs: Long, hasNetwork: Boolean?): Long =
+        if (hasNetwork == false) maxOf(backoffMs, OFFLINE_RETRY_MS) else backoffMs
+
+    /** Null unless a network callback is registered to end the long offline wait early. */
+    private fun hasNetwork(ctx: Context): Boolean? {
+        if (!WakeService.networkWatched) return null
+        return runCatching {
+            ctx.getSystemService(ConnectivityManager::class.java)?.let { it.activeNetwork != null }
+        }.getOrNull()
+    }
+
     /** Exponential, 1s to 60s, with jitter so a fleet does not come back in step. */
     internal fun nextBackoff(current: Long, random: Random = Random): Long {
         val doubled = (current * 2).coerceIn(BACKOFF_MIN_MS, BACKOFF_MAX_MS)
@@ -121,6 +141,7 @@ object WakeLoop {
         // Box edits made offline go first, so the version asked about is the one they produced.
         if (HomeBoxes.declared()) runCatching { HomeBoxes.flush(ctx) }
         if (Checklists.declared()) runCatching { Checklists.flush(ctx) }
+        if (NoteEdits.declared()) runCatching { NoteEdits.flush(ctx) }
         if (DesignSync.declared()) {
             DesignSync.migrateLegacyTheme(ctx)
             runCatching { DesignSync.flush(ctx) }
@@ -172,6 +193,7 @@ object WakeLoop {
         if (signal.notificationsCount > 0) NotificationQueue.store(ctx, signal.notificationsList)
         NotificationQueue.setMailUnread(ctx, signal.mailUnread)
         if (signal.hasFeatures()) runCatching { Features.apply(ctx, signal.features) }
+        runCatching { LocationSwitch.onWake(ctx, signal.hasLocationOff(), signal.locationOff) }
         if (signal.hasBoxes()) runCatching { HomeBoxes.apply(ctx, signal.boxes) }
         if (signal.hasDesign()) runCatching { DesignSync.apply(ctx, signal.design) }
         if (signal.hasSettings() && DesignSync.declared()) runCatching { SettingsApply.handle(ctx, signal.settings) }
@@ -275,8 +297,9 @@ object WakeLoop {
                     waitOrKick(NO_TOKEN_RECHECK_MS)
                 }
                 is Outcome.Retry -> {
-                    Log.i(TAG, "retry in ${backoff}ms (${out.why})")
-                    waitOrKick(backoff)
+                    val wait = retryWaitMs(backoff, hasNetwork(ctx))
+                    Log.i(TAG, "retry in ${wait}ms (${out.why})")
+                    waitOrKick(wait)
                     backoff = nextBackoff(backoff)
                 }
                 Outcome.NotReady -> waitOrKick(NO_TOKEN_RECHECK_MS)

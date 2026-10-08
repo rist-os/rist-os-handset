@@ -1,5 +1,6 @@
 // The device <-> backend contract, schema v18, with the proposed v19 features fields, the
-// proposed home boxes fields and the v23 checklist messages.
+// proposed home boxes fields, the v23 checklist messages, the v25 note edit messages and the v26
+// texts-on-request fields.
 // Copied from the backend's canonical file; change it there first.
 
 syntax = "proto3";
@@ -85,6 +86,10 @@ message DeviceRequest {
   DesignState design_state = 26;
   // Proposed (design and settings): the SettingsCommand.version this phone last applied, 0 for none.
   uint64 settings_version = 27;
+  // v26: this request answers inbound_sms_request; inbound_sms then holds every text of the window.
+  bool inbound_sms_answered = 28;
+  // v26: incoming and missed calls of the same window, only with inbound_sms_answered.
+  repeated RecentCall recent_calls = 29;
 }
 
 message Location { double lat = 1; double lon = 2; string label = 3; uint32 accuracy_m = 4;
@@ -163,7 +168,8 @@ message DeviceResponse {
 
   repeated string geofence_ack = 26;
 
-  reserved 27;
+  // v26: re-send this turn once with inbound_sms_answered, the texts and the calls.
+  InboundSmsRequest inbound_sms_request = 27;
 
   repeated Notification notifications = 28;
 
@@ -182,9 +188,17 @@ message DeviceResponse {
   // Proposed (design and settings): this account's whole look.
   DesignSpec design = 34;
 
+  // v24 (the account's location switch): true = share no location; present false = share again;
+  // absent = keep the last state. Set on the final response of every device turn.
+  optional bool location_off = 36;
+
   // v23 (checkable list items): lists shown with checkboxes under the answer, from the show_list
   // tool only. Sent only to a phone that lists "checklist_v1" in caps.components.
   repeated Checklist checklists = 35;
+
+  // v25 (notes edited in place): notes shown as cards the user taps to edit, from the show_notes
+  // tool only. Sent only to a phone that lists "note_edit_v1" in caps.components.
+  repeated NoteCard note_cards = 37;
 }
 
 message Notification {
@@ -230,6 +244,9 @@ message WakeSignal {
   DesignSpec design = 12;
   // Proposed (design and settings): a settings resend, as DeviceResponse.settings.
   SettingsCommand settings = 13;
+
+  // v24: the same rule as DeviceResponse.location_off, on every 200 wake.
+  optional bool location_off = 14;
 }
 
 message PendingAction {
@@ -314,6 +331,21 @@ message InboundSms {
   string body       = 3;
 
   int64  sent_at_ms = 4;
+}
+
+// v26: the backend asking for this turn's texts. Presence is the ask.
+message InboundSmsRequest {
+  uint32 window_s = 1;
+  string reason   = 2;
+}
+
+// v26: one call that reached the SIM.
+message RecentCall {
+  string id          = 1;
+  string number      = 2;
+  int64  at_ms       = 3;
+  string kind        = 4;   // incoming | missed | rejected
+  uint32 duration_s  = 5;
 }
 
 // Correlates an inbound call the server placed.
@@ -771,4 +803,47 @@ message ItemCheck {
 // The body of POST /v1/device/items, at most 50 checks. The phone reads only the HTTP status.
 message ItemCheckBatch {
   repeated ItemCheck checks = 1;
+}
+
+// v25 (notes edited in place): one note on screen. `text` is the body, verbatim, plain text.
+message NoteCard {
+  // Opaque; what a NoteEdit names.
+  string note_id = 1;
+  // Shown above the text, not edited here ("" = none).
+  string title   = 2;
+  string text    = 3;
+  // Opaque; sent back as NoteEdit.base_version. Compared for equality only.
+  string version = 4;
+}
+
+// v25: the whole new text of one note, sent when the user ticks the edit.
+message NoteEdit {
+  // Minted on the phone; echoed in NoteSaved.
+  string edit_id      = 1;
+  string note_id      = 2;
+  // The version the user started from. If the note changed since, the backend keeps the note and
+  // saves this text as a new note beside it: the words are never lost.
+  string base_version = 3;
+  // Never empty.
+  string text         = 4;
+  uint64 at_epoch_ms  = 5;
+}
+
+// The body of POST /v1/device/notes, at most 20 edits.
+message NoteEditBatch {
+  repeated NoteEdit edits = 1;
+}
+
+// Where one edit's text now lives: the card takes this note id and version.
+message NoteSaved {
+  string edit_id = 1;
+  string note_id = 2;
+  string version = 3;
+  // The note had changed or gone since base_version: the text was saved as a new note.
+  bool   copied  = 4;
+}
+
+// The reply to POST /v1/device/notes (200).
+message NoteEditReply {
+  repeated NoteSaved saved = 1;
 }

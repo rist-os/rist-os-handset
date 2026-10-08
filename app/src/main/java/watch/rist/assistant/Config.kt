@@ -63,11 +63,15 @@ object Config {
     private const val KEY_BOX_EDIT_QUEUE = "box_edit_queue"
     private const val KEY_ITEM_CHECK_QUEUE = "item_check_queue"
     private const val KEY_CHECKLIST_BOXES_SEEN = "checklist_boxes_seen"
+    private const val KEY_NOTE_EDIT_QUEUE = "note_edit_queue"
     private const val KEY_CONTACTS_SYNC_OFF = "contacts_sync_off"
     private const val KEY_CONTACTS_REFUSED = "contacts_refused"
     private const val KEY_CONTACTS_CURSOR = "contacts_cursor"
     private const val KEY_CONTACTS_NEEDS_FULL = "contacts_needs_full"
     private const val KEY_CONTACTS_SYNCED_AT = "contacts_synced_at"
+    private const val KEY_CONTACTS_PUSH_TAG = "contacts_push_tag"
+    private const val KEY_CONTACTS_ADOPT = "contacts_adopt"
+    private const val KEY_TEXTS_ON_ASK_OFF = "texts_on_ask_off"
     private const val KEY_REMOVED_NOTICE_SHOWN = "removed_notice_shown"
     private const val KEY_COMMS_RESULTS = "comms_results"
     private const val KEY_VOICEMAILS = "voicemails"
@@ -361,6 +365,10 @@ object Config {
     fun itemCheckQueue(ctx: Context): String = prefs(ctx).getString(KEY_ITEM_CHECK_QUEUE, "") ?: ""
     fun setItemCheckQueue(ctx: Context, json: String) { prefs(ctx).edit().putString(KEY_ITEM_CHECK_QUEUE, json).apply() }
 
+    /** Note edits not yet accepted by the backend, latest text per note, as a JSON array. */
+    fun noteEditQueue(ctx: Context): String = prefs(ctx).getString(KEY_NOTE_EDIT_QUEUE, "") ?: ""
+    fun setNoteEditQueue(ctx: Context, json: String) { prefs(ctx).edit().putString(KEY_NOTE_EDIT_QUEUE, json).apply() }
+
     /** Whether a box list has arrived since this phone first declared checklists. */
     fun checklistBoxesSeen(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_CHECKLIST_BOXES_SEEN, false)
     fun setChecklistBoxesSeen(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_CHECKLIST_BOXES_SEEN, v).apply() }
@@ -384,6 +392,28 @@ object Config {
     /** Wall-clock ms of the last pull applied; 0 = never. */
     fun contactsSyncedAt(ctx: Context): Long = prefs(ctx).getLong(KEY_CONTACTS_SYNCED_AT, 0L)
     fun setContactsSyncedAt(ctx: Context, v: Long) { prefs(ctx).edit().putLong(KEY_CONTACTS_SYNCED_AT, v).apply() }
+
+    /**
+     * This install's tag for the keys of people made on the phone. Raw-contact ids restart on a
+     * wiped or different phone, so a bare id could name somebody else's record on the backend.
+     */
+    fun contactsPushTag(ctx: Context): String {
+        prefs(ctx).getString(KEY_CONTACTS_PUSH_TAG, null)?.takeIf { it.isNotBlank() }?.let { return it }
+        val tag = UUID.randomUUID().toString().replace("-", "").take(12)
+        prefs(ctx).edit().putString(KEY_CONTACTS_PUSH_TAG, tag).apply()
+        return tag
+    }
+
+    /** Device-account contacts the backend has taken, as "rawId:version" entries, until the Rist copy replaces them. */
+    fun contactsAdopt(ctx: Context): String = prefs(ctx).getString(KEY_CONTACTS_ADOPT, "") ?: ""
+    fun setContactsAdopt(ctx: Context, v: String) { prefs(ctx).edit().putString(KEY_CONTACTS_ADOPT, v).apply() }
+
+    /**
+     * The owner's "Let Rist read recent texts and calls when you ask" switch. On by default: the
+     * texts go only when the backend asks during a turn the owner started, never on their own.
+     */
+    fun textsOnAsk(ctx: Context): Boolean = !prefs(ctx).getBoolean(KEY_TEXTS_ON_ASK_OFF, false)
+    fun setTextsOnAsk(ctx: Context, on: Boolean) { prefs(ctx).edit().putBoolean(KEY_TEXTS_ON_ASK_OFF, !on).apply() }
 
     fun removedNoticeShown(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_REMOVED_NOTICE_SHOWN, false)
     fun setRemovedNoticeShown(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_REMOVED_NOTICE_SHOWN, v).apply() }

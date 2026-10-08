@@ -33,6 +33,7 @@ import rist.v1.HomeBox
 import rist.v1.Speech
 import java.time.Duration
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -48,6 +49,10 @@ class BoxCreateTest {
     @Volatile private var reply: () -> MockResponse = { ok(DeviceResponse.newBuilder()) }
     private val edits = CopyOnWriteArrayList<BoxEdit>()
     @Volatile private var boxesReply: (BoxEdit) -> MockResponse = { MockResponse().setResponseCode(503) }
+    /** Held shut, a turn or edit gets no reply until [release]: a slow machine cannot outrun a check. */
+    @Volatile private var replies = CountDownLatch(0)
+    private fun holdReplies() { replies = CountDownLatch(1) }
+    private fun release() = replies.countDown()
 
     private fun editReply(s: BoxSet) = MockResponse().setResponseCode(200)
         .setHeader("Content-Type", "application/x-protobuf")
@@ -77,6 +82,7 @@ class BoxCreateTest {
                 if (request.requestUrl?.encodedPath == "/v1/device/boxes") {
                     val e = BoxEdit.parseFrom(body)
                     edits += e
+                    replies.await(10, TimeUnit.SECONDS)
                     return boxesReply(e)
                 }
                 val req = DeviceRequest.parseFrom(body)
@@ -85,6 +91,7 @@ class BoxCreateTest {
                     return MockResponse().setResponseCode(404)
                 }
                 turns += req
+                replies.await(10, TimeUnit.SECONDS)
                 return reply()
             }
         }
@@ -95,6 +102,7 @@ class BoxCreateTest {
 
     @After
     fun tidy() {
+        release()
         HomeBoxes.awaitFlushForTest()
         server.shutdown()
         HomeBoxes.resetForTest(app)
@@ -157,8 +165,10 @@ class BoxCreateTest {
             editReply(set("a").toBuilder().setVersion(5).addBoxes(command("new", e.getAdd(0).command)).build())
         }
         val a = home()
+        holdReplies()
         submitCommand(a, "Check my email, then text Sam")
         assertNotNull("the placeholder is up at once", placeholder(a))
+        release()
         waitFor("the new box") { BoxCreate.waiting().isEmpty() }
         HomeBoxes.awaitFlushForTest()
         a.renderBoxes(); settle()
@@ -253,10 +263,8 @@ class BoxCreateTest {
         val a = home()
         submit(a, "the temperature here every thirty minutes please")
         val p = requireNotNull(placeholder(a)) { "no placeholder" }
-        assertEquals(listOf(BoxBoard.NOTIFICATIONS_TAG, BoxBoard.TILE_TAG_PREFIX + "a", BoxBoard.CREATING_TAG), order(a).take(3))
-        row(a).scrollToPosition(3)
-        settle()
-        assertEquals(order(a).indexOf(BoxBoard.CREATING_TAG) + 1, order(a).indexOf(BoxBoard.ADD_TAG))
+        // Nothing is new, so no Notifications tile leads the row.
+        assertEquals(listOf(BoxBoard.TILE_TAG_PREFIX + "a", BoxBoard.CREATING_TAG, BoxBoard.ADD_TAG), order(a).take(3))
         assertEquals("New tile", p.findViewWithTag<TextView>(BoxBoard.LABEL_TAG).text.toString())
         assertEquals("the temperature here every…", p.findViewWithTag<TextView>(BoxBoard.DETAIL_TAG).text.toString())
         assertNotNull(p.findViewWithTag<View>(BoxBoard.SPINNER_TAG))
@@ -284,8 +292,10 @@ class BoxCreateTest {
         HomeBoxes.apply(app, set("a"))
         reply = { ok(DeviceResponse.newBuilder().setBoxes(set("a", "fresh"))) }
         val a = home()
+        holdReplies()
         submit(a, "my next meeting")
         assertNotNull(placeholder(a))
+        release()
         waitFor("the new box") { BoxCreate.waiting().isEmpty() }
         a.renderBoxes(); settle()
         assertNull(placeholder(a))
