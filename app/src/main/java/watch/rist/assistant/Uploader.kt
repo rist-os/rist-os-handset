@@ -578,6 +578,8 @@ class Uploader(private val ctx: Context) {
                 .setLocation(req.location.toBuilder().setTimezone(deviceTimezone()))
                 .build()
         }
+        // The account's location switch is off: only the time zone name leaves the phone.
+        if (LocationSwitch.isOff(ctx)) req = LocationSwitch.scrub(req, deviceTimezone())
 
         if (endpoint.isBlank()) {
             lastFailure = "no assistant service is configured"
@@ -753,6 +755,8 @@ class Uploader(private val ctx: Context) {
         // sms_ack is ignored: nothing is held on the device to clear.
         runCatching { Billing.onServed(ctx, resp) }
         runCatching { Enrolment.onReinstated(ctx) }
+        // Before the fences below: a turn that switches location off must not arm any.
+        runCatching { LocationSwitch.onResponse(ctx, resp.hasLocationOff(), resp.locationOff) }
         if (resp.hasFeatures()) runCatching { Features.apply(ctx, resp.features) }
         runCatching { ContactsSync.onCursor(ctx, resp.contactsCursor) }
         if (resp.hasBoxes()) runCatching { HomeBoxes.apply(ctx, resp.boxes) }
@@ -762,7 +766,9 @@ class Uploader(private val ctx: Context) {
         // Ack before arm.
         if (resp.geofenceAckCount > 0) Geofences.ackCrossings(ctx, resp.geofenceAckList)
         // Presence is the instruction: absent = keep, present-but-empty = hold none.
-        if (resp.hasGeofences()) {
+        if (resp.hasGeofences() && LocationSwitch.isOff(ctx)) {
+            Geofences.dropAll(ctx, "the account's location switch is off")
+        } else if (resp.hasGeofences()) {
             val fix = if (LocationProvider.hasPermission(ctx)) LocationProvider.cached(ctx) else null
             Geofences.arm(ctx, resp.geofences.fencesList.map {
                 Geofences.arming(
@@ -807,7 +813,7 @@ class Uploader(private val ctx: Context) {
             "confirm=${resp.hasConfirm()} actions=${resp.actionsCount} " +
             "speech='${resp.speech.text.replace("\n", " ").take(200)}'")
         if (resp.hasLocationRequest() && !isResend) {
-            if (!LocationProvider.hasPermission(ctx)) return resp
+            if (!LocationProvider.hasPermission(ctx) || LocationSwitch.isOff(ctx)) return resp
             val lr = resp.locationRequest
             try { onLocationInterim?.invoke(resp) } catch (t: Throwable) { Log.w(TAG, "interim hook threw", t) }
 
