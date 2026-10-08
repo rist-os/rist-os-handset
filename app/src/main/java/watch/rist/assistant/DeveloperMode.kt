@@ -39,7 +39,7 @@ object DeveloperMode {
      * The only hosts whose `developer_mode` counts. A server the user set up would say true; a word
      * from anywhere else is taken as a "no".
      */
-    internal val SERVICE_HOSTS = setOf("api.rist.watch")
+    internal val SERVICE_HOSTS = setOf("api.rist.watch", "api.ristassist.com")
 
     /** Whether [url] is Rist's own service: https, on exactly one of [SERVICE_HOSTS]. */
     internal fun isServiceUrl(url: String): Boolean {
