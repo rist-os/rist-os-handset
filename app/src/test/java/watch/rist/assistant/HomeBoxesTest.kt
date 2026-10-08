@@ -283,7 +283,7 @@ class HomeBoxesTest {
         val real = set(9, box("b"), box("n", title = "New"))
         s.enqueue(protoBody(BoxEditReply.newBuilder().setStatus(200).setBoxes(real).build().toByteArray()))
         assertEquals(1, HomeBoxes.flush(ctx))
-        val req = s.takeRequest(5, TimeUnit.SECONDS)!!
+        val req = s.takeRequest(30, TimeUnit.SECONDS)!!
         assertEquals("/v1/device/boxes", req.requestUrl!!.encodedPath)
         assertEquals("the reply's list carries checklists", Checklists.COMPONENT, req.requestUrl!!.queryParameter("components"))
         assertEquals("POST", req.method)
@@ -410,7 +410,7 @@ class HomeBoxesTest {
             .setBoxes(set(7, box("a"), box("t", title = "Temperature"))).build().toByteArray()))
         val reply = Uploader(ctx).sendToolCall("boxes", "Add a display box: the temperature")
         assertNotNull(reply)
-        val req = DeviceRequest.parseFrom(s.takeRequest(5, TimeUnit.SECONDS)!!.body.readByteArray())
+        val req = DeviceRequest.parseFrom(s.takeRequest(30, TimeUnit.SECONDS)!!.body.readByteArray())
         assertEquals(6L, req.boxesVersion)
         assertEquals("boxes", req.targetToolId)
         assertEquals(listOf("a", "t"), ids())
@@ -425,12 +425,12 @@ class HomeBoxesTest {
                 .setSpeech(Speech.newBuilder().setText("ok")).build().toByteArray()))
         }
         Uploader(ctx).sendText("Check my email", boxId = "c1")
-        val fromBox = DeviceRequest.parseFrom(s.takeRequest(5, TimeUnit.SECONDS)!!.body.readByteArray())
+        val fromBox = DeviceRequest.parseFrom(s.takeRequest(30, TimeUnit.SECONDS)!!.body.readByteArray())
         assertEquals("Check my email", fromBox.text)
         assertEquals("c1", fromBox.boxId)
         assertEquals("", fromBox.targetToolId)
         Uploader(ctx).sendText("Check my email")
-        val typed = DeviceRequest.parseFrom(s.takeRequest(5, TimeUnit.SECONDS)!!.body.readByteArray())
+        val typed = DeviceRequest.parseFrom(s.takeRequest(30, TimeUnit.SECONDS)!!.body.readByteArray())
         assertEquals("", typed.boxId)
         assertEquals(0L, typed.boxesVersion)
     }

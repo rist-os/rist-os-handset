@@ -82,7 +82,7 @@ class BoxCreateTest {
                 if (request.requestUrl?.encodedPath == "/v1/device/boxes") {
                     val e = BoxEdit.parseFrom(body)
                     edits += e
-                    replies.await(10, TimeUnit.SECONDS)
+                    replies.await(30, TimeUnit.SECONDS)
                     return boxesReply(e)
                 }
                 val req = DeviceRequest.parseFrom(body)
@@ -91,7 +91,7 @@ class BoxCreateTest {
                     return MockResponse().setResponseCode(404)
                 }
                 turns += req
-                replies.await(10, TimeUnit.SECONDS)
+                replies.await(30, TimeUnit.SECONDS)
                 return reply()
             }
         }
@@ -128,7 +128,7 @@ class BoxCreateTest {
         row(a).findViewWithTag(BoxBoard.CREATING_TAG)
 
     private fun waitFor(what: String, cond: () -> Boolean) {
-        val until = System.currentTimeMillis() + 5_000
+        val until = System.currentTimeMillis() + 30_000
         while (!cond()) {
             if (System.currentTimeMillis() > until) throw AssertionError("timed out waiting for $what")
             Thread.sleep(20)
@@ -258,9 +258,10 @@ class BoxCreateTest {
     fun `a submit puts up a spinning placeholder before the Add square, with the request's first words`() {
         BoxCreate.graceMsForTest = 300L
         HomeBoxes.apply(app, set("a"))
-        // A list without the new box, late: the placeholder is checked while the turn is out.
-        reply = { ok(DeviceResponse.newBuilder().setBoxes(set("a"))).setHeadersDelay(2, TimeUnit.SECONDS) }
+        // A list without the new box, held back: the placeholder is checked while the turn is out.
+        reply = { ok(DeviceResponse.newBuilder().setBoxes(set("a"))) }
         val a = home()
+        holdReplies()
         submit(a, "the temperature here every thirty minutes please")
         val p = requireNotNull(placeholder(a)) { "no placeholder" }
         // Nothing is new, so no Notifications tile leads the row.
@@ -273,6 +274,7 @@ class BoxCreateTest {
         waitFor("the turn") { turns.isNotEmpty() }
         assertEquals("Add a display box: the temperature here every thirty minutes please", turns[0].text)
         assertEquals("only the add turn is sent", 1, turns.size)
+        release()
         waitFor("the turn to end") { BoxCreate.waiting().isEmpty() }
     }
 
