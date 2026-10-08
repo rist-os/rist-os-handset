@@ -321,7 +321,8 @@ class Uploader(private val ctx: Context) {
             caps = DeviceProfile.capabilities(ctx),
             text = text,
         ).toBuilder().setTargetToolId(toolId).apply { if (boxId.isNotBlank()) setBoxId(boxId) }.build()
-        val releaseSms = releasesInboundSms(toolId)
+        // The owner's texts switch off means no texts leave the phone, a direct tool call included.
+        val releaseSms = releasesInboundSms(toolId) && Config.textsOnAsk(ctx)
         Log.i(TAG, "tool_call target_tool_id='$toolId' inbound_sms=$releaseSms")
         return post(req, includeInboundSms = releaseSms)
     }
