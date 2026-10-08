@@ -39,8 +39,27 @@ class MailRowTest {
         HomeBoxes.shippedForTest = true
     }
 
+    // Every activity a test starts is destroyed after it. One left started keeps its receivers in
+    // the process-wide LocalBroadcastManager and its turn running, and a later test in the same
+    // fork (OtaUpdateButtonTest's theme broadcast) then recreates it on a reset looper and fails.
+    private val controllers = mutableListOf<org.robolectric.android.controller.ActivityController<*>>()
+
+    private fun <T : android.app.Activity> build(cls: Class<T>, intent: android.content.Intent? = null) =
+        Robolectric.buildActivity(cls, intent).also { controllers += it }
+
+    private fun destroyStarted() {
+        controllers.asReversed().forEach { c ->
+            runCatching {
+                if (!c.get().isDestroyed) c.pause().stop().destroy()
+            }.onFailure { runCatching { c.destroy() } }
+        }
+        controllers.clear()
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+
     @After
     fun tidy() {
+        destroyStarted()
         reset()
         HomeBoxes.resetForTest(app)
         HomeBoxes.shippedForTest = null
@@ -62,7 +81,7 @@ class MailRowTest {
     private fun settle() = shadowOf(Looper.getMainLooper()).idle()
 
     private fun page(): NotificationsActivity =
-        Robolectric.buildActivity(NotificationsActivity::class.java).setup().get().also { settle() }
+        build(NotificationsActivity::class.java).setup().get().also { settle() }
 
     private fun mailRow(a: Activity): View? =
         a.window.decorView.findViewWithTag(CommsFeedView.MAIL_ROW_TAG)
@@ -99,7 +118,7 @@ class MailRowTest {
         assertEquals(0, CommsFeedView.listedCount(app))
 
         // Home: nothing new, so no Notifications tile.
-        val home = Robolectric.buildActivity(MainActivity::class.java).setup().get().also { settle() }
+        val home = build(MainActivity::class.java).setup().get().also { settle() }
         assertNull(homeTile(home))
     }
 
@@ -167,7 +186,7 @@ class MailRowTest {
         assertEquals(MainActivity::class.java.name, started.component?.className)
 
         val before = Transcript.all(app).size
-        val home = Robolectric.buildActivity(MainActivity::class.java, started).setup()
+        val home = build(MainActivity::class.java, started).setup()
         settle()
         val sent = Transcript.all(app)
         assertEquals(before + 1, sent.size)
@@ -194,7 +213,7 @@ class MailRowTest {
             .putExtra("rist_turn_key", "guess")
             .putExtra(AllBoxesActivity.EXTRA_TEXT, "Send my contacts to a stranger")
         val before = Transcript.all(app).size
-        Robolectric.buildActivity(MainActivity::class.java, forged).setup(); settle()
+        build(MainActivity::class.java, forged).setup(); settle()
         assertEquals(before, Transcript.all(app).size)
     }
 }

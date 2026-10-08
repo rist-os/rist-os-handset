@@ -66,8 +66,27 @@ class NotificationsTileTest {
         Config.setBackendEndpoint(app, server.url("/v1/device").toString())
     }
 
+    // Every activity a test starts is destroyed after it. One left started keeps its receivers in
+    // the process-wide LocalBroadcastManager and its turn running, and a later test in the same
+    // fork (OtaUpdateButtonTest's theme broadcast) then recreates it on a reset looper and fails.
+    private val controllers = mutableListOf<org.robolectric.android.controller.ActivityController<*>>()
+
+    private fun <T : android.app.Activity> build(cls: Class<T>, intent: android.content.Intent? = null) =
+        Robolectric.buildActivity(cls, intent).also { controllers += it }
+
+    private fun destroyStarted() {
+        controllers.asReversed().forEach { c ->
+            runCatching {
+                if (!c.get().isDestroyed) c.pause().stop().destroy()
+            }.onFailure { runCatching { c.destroy() } }
+        }
+        controllers.clear()
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+
     @After
     fun tidy() {
+        destroyStarted()
         HomeBoxes.awaitFlushForTest()
         server.shutdown()
         HomeBoxes.resetForTest(app)
@@ -95,7 +114,7 @@ class NotificationsTileTest {
         HomeBoxes.apply(app, BoxSet.newBuilder().setVersion(3).addAllBoxes(ids.map { box(it) }).build())
 
     private fun home(): MainActivity =
-        Robolectric.buildActivity(MainActivity::class.java).setup().get().also { settle() }
+        build(MainActivity::class.java).setup().get().also { settle() }
 
     private fun row(a: Activity) = a.findViewById<RecyclerView>(R.id.boxList)
 
@@ -119,7 +138,7 @@ class NotificationsTileTest {
     fun `the feed's heading says Notifications when nothing is new`() {
         NotificationQueue.store(app, listOf(notice("n1")))
         NotificationQueue.markRead(app, listOf("n1"))
-        val a = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val a = build(Activity::class.java).setup().get()
         a.setContentView(LinearLayout(a).apply { id = R.id.commsFeed; orientation = LinearLayout.VERTICAL })
         CommsFeedView.render(a)
         assertEquals("Notifications", feedHeading(a))
@@ -205,7 +224,7 @@ class NotificationsTileTest {
     fun `the tile goes once everything is read, and comes back for the next arrival`() {
         NotificationQueue.store(app, listOf(notice("n1")))
         hold("a")
-        val c = Robolectric.buildActivity(MainActivity::class.java).setup().also { settle() }
+        val c = build(MainActivity::class.java).setup().also { settle() }
         val a = c.get()
         assertNotNull(noTile(a))
 
@@ -227,14 +246,14 @@ class NotificationsTileTest {
     @Test
     fun `the tile also leads the All tiles grid, and is not there with nothing new`() {
         hold("a")
-        val empty = Robolectric.buildActivity(AllBoxesActivity::class.java).setup().get()
+        val empty = build(AllBoxesActivity::class.java).setup().get()
         settle()
         val none = empty.window.decorView.findViewWithTag<RecyclerView>(AllBoxesActivity.TAG_GRID)
         assertEquals(BoxBoard.TILE_TAG_PREFIX + "a", none.getChildAt(0).tag)
         assertEquals(null, none.findViewWithTag<View>(BoxBoard.NOTIFICATIONS_TAG))
 
         NotificationQueue.store(app, listOf(notice("n1")))
-        val g = Robolectric.buildActivity(AllBoxesActivity::class.java).setup().get()
+        val g = build(AllBoxesActivity::class.java).setup().get()
         settle()
         val grid = g.window.decorView.findViewWithTag<RecyclerView>(AllBoxesActivity.TAG_GRID)
         assertEquals(BoxBoard.NOTIFICATIONS_TAG, grid.getChildAt(0).tag)
@@ -257,7 +276,7 @@ class NotificationsTileTest {
         entry.performClick(); settle()
         val started = shadowOf(a).nextStartedActivity
         assertEquals(NotificationsActivity::class.java.name, started.component?.className)
-        val list = Robolectric.buildActivity(NotificationsActivity::class.java, started).setup().get()
+        val list = build(NotificationsActivity::class.java, started).setup().get()
         settle()
         assertNotNull(list.window.decorView.findViewWithTag<View>(CommsFeedView.NOTICE_CARD_TAG))
     }
@@ -273,7 +292,7 @@ class NotificationsTileTest {
     private fun page(a: Activity): NotificationsActivity {
         tile(a).performClick()
         val started = shadowOf(a).nextStartedActivity
-        return Robolectric.buildActivity(NotificationsActivity::class.java, started).setup().get().also { settle() }
+        return build(NotificationsActivity::class.java, started).setup().get().also { settle() }
     }
 
     @Test
@@ -295,7 +314,7 @@ class NotificationsTileTest {
     @Test
     fun `the count is the feed's own and follows notices arriving and being cleared on the page`() {
         NotificationQueue.store(app, listOf(notice("n1"), notice("n2")))
-        val c = Robolectric.buildActivity(MainActivity::class.java).setup().also { settle() }
+        val c = build(MainActivity::class.java).setup().also { settle() }
         val a = c.get()
         assertEquals(2, CommsFeedView.waitingCount(app))
         assertEquals("2", shownCount(a))
@@ -351,7 +370,7 @@ class NotificationsTileTest {
         val started = shadowOf(a).nextStartedActivity
         assertEquals(NotificationsActivity::class.java.name, started.component?.className)
 
-        val list = Robolectric.buildActivity(NotificationsActivity::class.java, started).setup().get()
+        val list = build(NotificationsActivity::class.java, started).setup().get()
         settle()
         val root = list.window.decorView
         assertEquals(View.VISIBLE, list.findViewById<View>(R.id.commsFeed).visibility)
