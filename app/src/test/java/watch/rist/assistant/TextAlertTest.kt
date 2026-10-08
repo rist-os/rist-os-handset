@@ -44,11 +44,13 @@ class TextAlertTest {
         var call: Boolean = false,
         var on: Boolean = true,
         var isLocked: Boolean = false,
+        var isRinging: Boolean = false,
     ) : TextAlert.Env {
         override fun systemAlertsMuted(ctx: Context) = muted
         override fun ringerMode(ctx: Context) = ringer
         override fun interruptionFilterAllowsAll(ctx: Context) = allowsAll
-        override fun inCall(ctx: Context) = call
+        override fun inCall(ctx: Context) = call || isRinging
+        override fun ringing(ctx: Context) = isRinging
         override fun screenOn(ctx: Context) = on
         override fun locked(ctx: Context) = isLocked
         override fun defaultSmsPackage(ctx: Context) = AppLauncher.PKG_MESSAGING
@@ -212,6 +214,45 @@ class TextAlertTest {
         TextAlert.onPosted(app, sms(id = 2, sender = "Bob", text = "hi", whenMs = 2_000L), facts())
         assertEquals(1, host.views.size)
         assertEquals("Bob", texts(host.views.single(), TextAlertBanner.TAG_TITLE))
+    }
+
+    @Test
+    fun `a screen reader is told the banner appeared, without the text on a locked phone`() {
+        TextAlert.onPosted(app, sms(), facts())
+        val pane = card(requireNotNull(TextAlertBanner.current())).accessibilityPaneTitle?.toString()
+        assertNotNull("the banner is a pane, so TalkBack announces it", pane)
+        assertTrue(pane!!, pane.contains("Alice Example"))
+        TextAlertBanner.resetForTest(); TextAlertBanner.hostForTest = host
+        TextAlert.resetForTest(); TextAlert.envForTest = env; TextAlert.effectsForTest = fx
+        env.isLocked = true
+        TextAlert.onPosted(app, sms(), facts())
+        assertEquals("New message", card(requireNotNull(TextAlertBanner.current())).accessibilityPaneTitle?.toString())
+    }
+
+    @Test
+    fun `the banner stays as long as the accessibility time to take action asks`() {
+        val am = app.getSystemService(android.view.accessibility.AccessibilityManager::class.java)
+        org.robolectric.util.ReflectionHelpers.setField(am, "mInteractiveUiTimeout", 20_000)
+        try {
+            TextAlert.onPosted(app, sms(), facts())
+            idle(10_000)
+            assertNotNull("still up past six seconds", TextAlertBanner.current())
+            idle(11_000)
+            assertNull(TextAlertBanner.current())
+        } finally {
+            org.robolectric.util.ReflectionHelpers.setField(am, "mInteractiveUiTimeout", 0)
+        }
+    }
+
+    @Test
+    fun `while a call rings a text neither shows a banner nor sounds`() {
+        env.isRinging = true
+        val a = TextAlert.onPosted(app, sms(), facts())
+        assertEquals(TextAlert.Alerting.NONE, a)
+        assertNull("nothing over the call screen, nothing to tap that buries it", TextAlertBanner.current())
+        assertEquals(0, fx.sounds); assertEquals(0, fx.vibrations)
+        assertEquals(TextAlert.Alerting.NONE,
+            TextAlert.decide(true, facts(), AudioManager.RINGER_MODE_NORMAL, true, true, ringing = true))
     }
 
     // ---- sound and vibration by the phone's settings ----
