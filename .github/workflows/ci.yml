@@ -15,7 +15,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 25
     steps:
       # fetch-depth 0: preflight_publish.sh scans history; a shallow clone would silently pass.
       - uses: actions/checkout@v7
@@ -54,6 +54,7 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # Caches ~/.gradle, the local build cache included; main writes it, pull requests only read it.
       - name: Set up Gradle
         if: steps.scope.outputs.docs_only != 'true'
         uses: gradle/actions/setup-gradle@v6
@@ -131,10 +132,13 @@ jobs:
           done
           exit $rc
 
+      # The unit tests run once, against release (what ships): no test reads BuildConfig, and the
+      # debug variant differs only in its deploy asset and a cleartext network config, neither of
+      # which a test depends on. assembleDebug still proves the debug build compiles.
       - name: Build and test
         if: steps.scope.outputs.docs_only != 'true'
-        timeout-minutes: 40
-        run: ./gradlew :app:assembleDebug test --no-daemon --stacktrace
+        timeout-minutes: 20
+        run: ./gradlew :app:assembleDebug :app:testReleaseUnitTest --build-cache --no-daemon --stacktrace
 
       - name: Upload test reports on failure
         if: failure()
