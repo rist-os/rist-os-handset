@@ -183,6 +183,9 @@ object ContactsMirror {
                 if (r.id.isBlank()) continue
                 val claimed = claims[r.id]
                 val rawId = have[r.id] ?: claimed
+                // The phone's own row for this person, changed again since it was sent: written
+                // as a new row it would be a second copy once the push names the first.
+                if (rawId == null && held.byKey[r.externalKey]?.let { it in held.dirty } == true) { heldBack++; continue }
                 // An edit on the phone that no push has settled (it failed, was refused, or was made
                 // while the push was on the way) is not written over; the next push sends it.
                 if (rawId != null && rawId in held.dirty) { heldBack++; continue }

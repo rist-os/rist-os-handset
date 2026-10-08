@@ -116,7 +116,9 @@ object ContactsPush {
      */
     internal fun recordOf(p: Pending, key: String, nowMs: Long): ContactRecord? {
         val name = nameOf(p.rows)
-        if (name.isBlank()) return null
+        // A person the backend already has is sent without a name too (the backend keeps the one
+        // it holds): left unsent, the row would stay changed and hold back every pull of them.
+        if (name.isBlank() && p.sourceId.isBlank()) return null
         // The conflict clock is when the person changed, not when the push went: an edit made on
         // the phone before a later one on the backend must not win just because it was sent after.
         val changedAt = p.rows.maxOfOrNull { it.changedAtMs }?.takeIf { it in 1..nowMs } ?: nowMs
@@ -145,32 +147,51 @@ object ContactsPush {
         return p.sentMethodIds.filter { it.isNotBlank() && it !in present }
     }
 
-    /** What to send, in pages of at most [PAGE] records. Each page lists the rows it speaks for. */
+    /** The body size a page is kept under; the backend refuses a push over 1 MiB (413). */
+    internal const val PAGE_BYTES = 768 * 1024
+
+    /**
+     * What to send, in pages the backend takes: at most [PAGE] records, [PAGE] deleted people and
+     * [PAGE] removed methods each, and about [PAGE_BYTES]. A page over any of them is refused whole,
+     * every time, so nothing after it would ever go. Each page lists the rows it speaks for.
+     */
     internal fun pages(since: String, pending: List<Pending>, tag: String, nowMs: Long): List<Pair<ContactPush, List<Pending>>> {
         val out = ArrayList<Pair<ContactPush, List<Pending>>>()
         var push = ContactPush.newBuilder().setSince(since)
         var rows = ArrayList<Pending>()
         var records = 0
+        var deletes = 0
+        var goneMethods = 0
+        var bytes = 0
         fun close() {
             if (rows.isEmpty()) return
             out += push.build() to rows
             push = ContactPush.newBuilder().setSince(since)
             rows = ArrayList()
-            records = 0
+            records = 0; deletes = 0; goneMethods = 0; bytes = 0
         }
         for (p in pending) {
-            if (records >= PAGE) close()
             if (p.deleted) {
-                if (p.sourceId.isNotBlank()) push.addDeletedIds(p.sourceId)
+                if (p.sourceId.isNotBlank()) {
+                    if (deletes >= PAGE) close()
+                    push.addDeletedIds(p.sourceId)
+                    deletes++
+                    bytes += p.sourceId.length + 2
+                }
                 rows += p
                 continue
             }
             val key = if (p.device) deviceKey(tag, p.rawId) else ristKey(tag, p.rawId)
             val rec = recordOf(p, key, nowMs) ?: continue
+            val gone = if (p.device) emptyList() else goneMethodIds(p)
+            val size = rec.serializedSize + 4 + gone.sumOf { it.length + 2 }
+            if (records >= PAGE || goneMethods + gone.size > PAGE || bytes + size > PAGE_BYTES) close()
             push.addChanges(rec)
-            if (!p.device) push.addAllDeletedMethodIds(goneMethodIds(p))
+            push.addAllDeletedMethodIds(gone)
             rows += p
             records++
+            goneMethods += gone.size
+            bytes += size
         }
         close()
         return out

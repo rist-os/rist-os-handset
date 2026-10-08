@@ -46,15 +46,21 @@ object NoteEdits {
 
     @Volatile internal var clock: () -> Long = { System.currentTimeMillis() }
 
-    /** One note's new text, not yet accepted. [baseVersion] is the version the user started from. */
-    data class Edit(val editId: String, val noteId: String, val baseVersion: String, val text: String, val atMs: Long) {
+    /**
+     * One note's new text, not yet accepted. [baseVersion] is the version the user started from.
+     * [maybeSaved]: a send of it went out and no answer came back, so the backend may hold it.
+     */
+    data class Edit(
+        val editId: String, val noteId: String, val baseVersion: String, val text: String, val atMs: Long,
+        val maybeSaved: Boolean = false,
+    ) {
         fun toJson(): JSONObject = JSONObject().put("edit_id", editId).put("note_id", noteId)
-            .put("base", baseVersion).put("text", text).put("at", atMs)
+            .put("base", baseVersion).put("text", text).put("at", atMs).put("sent", maybeSaved)
 
         companion object {
             fun fromJson(o: JSONObject) = Edit(
                 o.optString("edit_id"), o.optString("note_id"), o.optString("base"),
-                o.optString("text"), o.optLong("at"),
+                o.optString("text"), o.optLong("at"), o.optBoolean("sent"),
             )
         }
     }
@@ -88,10 +94,12 @@ object NoteEdits {
         synchronized(this) {
             val q = queued(ctx)
             // A note edited again before the first edit went keeps the version the first started
-            // from: that is still what the backend holds.
+            // from: that is still what the backend holds. An edit that may already be saved stays
+            // queued ahead of the new one: sent alone from the old version, the new text would find
+            // the note changed (by that edit) and be saved as a copy.
             val base = q.firstOrNull { it.noteId == noteId }?.baseVersion ?: baseVersion
             val edit = Edit(java.util.UUID.randomUUID().toString(), noteId, base, text, clock())
-            store(ctx, q.filterNot { it.noteId == noteId } + edit)
+            store(ctx, q.filterNot { it.noteId == noteId && !it.maybeSaved } + edit)
         }
         runCatching { Transcript.setNoteText(ctx, noteId, text) }
         flushSoon(ctx, fromTap = true)
@@ -111,8 +119,11 @@ object NoteEdits {
     sealed class Sent {
         /** Saved. [reply] says where each text now lives; null if the body could not be read. */
         data class Accepted(val reply: NoteEditReply?) : Sent()
-        /** Offline, the credential, or the backend briefly unable: keep the edits. */
-        data class Later(val why: String) : Sent()
+        /**
+         * Offline, the credential, or the backend briefly unable: keep the edits. [maybeSaved]: the
+         * request went and nothing says it was not applied (a dropped connection, a gateway timeout).
+         */
+        data class Later(val why: String, val maybeSaved: Boolean = false) : Sent()
         /** 402: kept, and sent once the subscription is active again. */
         data class Lapsed(val lapse: Billing.Lapse) : Sent()
         /** 409 (notes off), a malformed batch, an endpoint this backend does not have: drop. */
@@ -140,12 +151,13 @@ object NoteEdits {
                     resp.isSuccessful -> Sent.Accepted(
                         runCatching { NoteEditReply.parseFrom(resp.body?.bytes() ?: ByteArray(0)) }.getOrNull())
                     resp.code == Billing.PAYMENT_REQUIRED -> Sent.Lapsed(Billing.lapseWithLine(resp))
+                    resp.code in setOf(500, 502, 504) -> Sent.Later("HTTP ${resp.code}", maybeSaved = true)
                     resp.code in setOf(401, 403, 408, 429) || resp.code >= 500 -> Sent.Later("HTTP ${resp.code}")
                     else -> Sent.Refused(resp.code)
                 }
             }
         } catch (t: Throwable) {
-            Sent.Later(t.javaClass.simpleName)
+            Sent.Later(t.javaClass.simpleName, maybeSaved = true)
         }
     }
 
@@ -165,14 +177,20 @@ object NoteEdits {
         val url = notesUrl(Config.backendUrl(ctx)) ?: return 0
         var done = 0
         while (true) {
-            val batch = queued(ctx).take(BATCH_MAX)
+            // One edit per note per batch, the oldest first: a newer one starts from what the older
+            // one saves, so it goes once that is known (the backend keeps only one per note).
+            val batch = queued(ctx).distinctBy { it.noteId }.take(BATCH_MAX)
             if (batch.isEmpty()) break
+            // Marked before it goes, so a newer edit made while it is on the way queues behind it.
+            markMaybeSaved(ctx, batch, true)
             when (val out = send(http, url, Uploader.bearer(ctx), Config.deviceId(ctx), batchOf(batch))) {
                 is Sent.Later -> {
                     Log.i(TAG, "${batch.size} edit(s) wait (${out.why})")
+                    if (!out.maybeSaved) markMaybeSaved(ctx, batch, false)
                     return done
                 }
                 is Sent.Lapsed -> {
+                    markMaybeSaved(ctx, batch, false)
                     Log.i(TAG, "${batch.size} edit(s) wait for the subscription (${out.lapse.reason})")
                     runCatching { Billing.onLapsed(ctx, out.lapse) }
                     if (fromTap) note(ctx, Billing.lineFor(out.lapse))
@@ -186,6 +204,11 @@ object NoteEdits {
                         if (saved.noteId.isBlank()) continue
                         copied = copied || saved.copied
                         runCatching { Transcript.noteSaved(ctx, edit.noteId, saved.noteId, saved.version, edit.text) }
+                        // A card already showing a newer text of the note follows the note too, so
+                        // its next edit names the note that text is about to be saved into.
+                        queued(ctx).firstOrNull { it.noteId == edit.noteId }?.let { newer ->
+                            runCatching { Transcript.noteSaved(ctx, edit.noteId, saved.noteId, saved.version, newer.text) }
+                        }
                         rebase(ctx, edit.noteId, saved.noteId, saved.version)
                     }
                     if (copied) note(ctx, ctx.getString(R.string.note_edit_saved_as_new))
@@ -212,6 +235,21 @@ object NoteEdits {
         val (gone, kept) = queued(ctx).partition { it.editId in ids }
         store(ctx, kept)
         return gone
+    }
+
+    /**
+     * Marks [sent] as possibly saved, or, with [maybe] false, as certainly not: then an edit that a
+     * newer one of the same note has since replaced leaves the queue, as an unsent one would.
+     */
+    @Synchronized
+    private fun markMaybeSaved(ctx: Context, sent: List<Edit>, maybe: Boolean) {
+        val ids = sent.map { it.editId }.toSet()
+        val q = queued(ctx)
+        if (q.none { it.editId in ids }) return
+        val marked = q.map { if (it.editId in ids) it.copy(maybeSaved = maybe) else it }
+        store(ctx, if (maybe) marked else marked.filterIndexed { i, e ->
+            e.editId !in ids || marked.drop(i + 1).none { it.noteId == e.noteId }
+        })
     }
 
     /** A newer edit of a note that was just saved starts from what was saved. */

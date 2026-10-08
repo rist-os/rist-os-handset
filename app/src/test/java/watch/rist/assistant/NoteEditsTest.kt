@@ -54,6 +54,7 @@ class NoteEditsTest {
                 if (request.requestUrl!!.encodedPath != "/v1/device/notes") return MockResponse().setResponseCode(404)
                 val batch = NoteEditBatch.parseFrom(request.body.readByteArray())
                 batches += batch
+                if (simulated) return simulate(batch)
                 val reply = NoteEditReply.newBuilder().addAllSaved(batch.editsList.map {
                     NoteSaved.newBuilder().setEditId(it.editId)
                         .setNoteId(if (copied) "copy-of-${it.noteId}" else it.noteId)
@@ -311,6 +312,101 @@ class NoteEditsTest {
         settle()
         val again = all(ctl.get().window.decorView, EditText::class.java, NoteCardView.TAG_EDIT).single()
         assertEquals("half typed", again.text.toString())
+    }
+
+    // ---- against the backend's rule (note_edits.apply_edit) ----
+
+    /** The backend's notes, by id. Version is a fingerprint of the text, as the backend's is. */
+    private val notes = java.util.concurrent.ConcurrentHashMap<String, String>()
+    @Volatile private var simulated = false
+    /** The edits are applied but the answer is lost (a gateway timing out on the backend). */
+    @Volatile private var dropAnswers = false
+    @Volatile private var duringRequest: (() -> Unit)? = null
+
+    private fun ver(text: String) = "v:$text"
+
+    private fun simulate(batch: NoteEditBatch): MockResponse {
+        if (status != 200) return MockResponse().setResponseCode(status)
+        duringRequest?.let { duringRequest = null; it() }
+        val latest = LinkedHashMap<String, rist.v1.NoteEdit>()
+        batch.editsList.forEach { latest.remove(it.noteId); latest[it.noteId] = it }
+        val reply = NoteEditReply.newBuilder()
+        for (e in latest.values) {
+            val body = notes[e.noteId]
+            val saved = when {
+                body == e.text -> NoteSaved.newBuilder().setNoteId(e.noteId).setVersion(ver(e.text))
+                body != null && ver(body) == e.baseVersion -> {
+                    notes[e.noteId] = e.text
+                    NoteSaved.newBuilder().setNoteId(e.noteId).setVersion(ver(e.text))
+                }
+                else -> {
+                    val id = "n${notes.size + 1}"
+                    notes[id] = e.text
+                    NoteSaved.newBuilder().setNoteId(id).setVersion(ver(e.text)).setCopied(true)
+                }
+            }
+            reply.addSaved(saved.setEditId(e.editId))
+        }
+        if (dropAnswers) return MockResponse().setResponseCode(504)
+        return MockResponse().setResponseCode(200).setBody(Buffer().write(reply.build().toByteArray()))
+    }
+
+    private fun tick(entry: Long, text: String) {
+        val now = Transcript.noteCard(ctx, entry, 0)!!
+        assertTrue(NoteEdits.save(ctx, now.noteId, now.version, text))
+        NoteEdits.awaitFlushForTest()
+    }
+
+    @Test
+    fun `an edit whose answer was lost and a second edit save one note, not a copy`() {
+        simulated = true
+        notes["n1"] = "milk"
+        val entry = answered(card("n1", "milk", ver("milk")))
+        dropAnswers = true
+        tick(entry, "milk, eggs")
+        assertEquals("the backend saved it; the phone never heard", "milk, eggs", notes["n1"])
+        dropAnswers = false
+        tick(entry, "milk, eggs, bread")
+
+        assertEquals("one note", mapOf("n1" to "milk, eggs, bread"), notes.toMap())
+        assertTrue(NoteEdits.queued(ctx).isEmpty())
+        assertEquals("n1", cards().single().noteId)
+        assertEquals(ver("milk, eggs, bread"), cards().single().version)
+    }
+
+    @Test
+    fun `a second edit made while the first is on the way and lost still saves one note`() {
+        simulated = true
+        notes["n1"] = "milk"
+        val entry = answered(card("n1", "milk", ver("milk")))
+        dropAnswers = true
+        duringRequest = { val now = Transcript.noteCard(ctx, entry, 0)!!; NoteEdits.save(ctx, now.noteId, now.version, "milk, eggs, bread") }
+        tick(entry, "milk, eggs")
+        NoteEdits.awaitFlushForTest()
+        dropAnswers = false
+        NoteEdits.flush(ctx)
+
+        assertEquals("one note", mapOf("n1" to "milk, eggs, bread"), notes.toMap())
+        assertTrue(NoteEdits.queued(ctx).isEmpty())
+    }
+
+    @Test
+    fun `after a copy the card follows it even with a newer edit on the way, so later edits are not copied again`() {
+        simulated = true
+        notes["n1"] = "milk"
+        val entry = answered(card("n1", "milk", ver("milk")))
+        notes["n1"] = "oat milk"                    // a voice edit lands after the card was drawn
+        status = 503
+        saveOffline("n1", ver("milk"), "milk, eggs")
+        status = 200
+        duringRequest = { val now = Transcript.noteCard(ctx, entry, 0)!!; NoteEdits.save(ctx, now.noteId, now.version, "milk, eggs, bread") }
+        NoteEdits.flush(ctx)
+        NoteEdits.awaitFlushForTest()
+
+        assertEquals(mapOf("n1" to "oat milk", "n2" to "milk, eggs, bread"), notes.toMap())
+        assertEquals("the card names the copy", "n2", cards().single().noteId)
+        tick(entry, "milk, eggs, bread, jam")
+        assertEquals("the third edit rewrites the copy", mapOf("n1" to "oat milk", "n2" to "milk, eggs, bread, jam"), notes.toMap())
     }
 
     @Test

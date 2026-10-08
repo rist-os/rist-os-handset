@@ -362,6 +362,8 @@ class ContactsSyncTest {
             put(ContactsContract.RawContacts.SOURCE_ID, "a")
         }
         contacts.insert(ContactsContract.RawContacts.CONTENT_URI, extra)
+        // The row was not written by the mirror, so it is changed and named: the push sends it first.
+        server.enqueue(page("c2", full = false, more = false, person("a", "Alice Example", "+12065550100")))
         server.enqueue(page("c2", full = true, more = false, person("a", "Alice Example", "+12065550100")))
         ContactsSync.requestSync(app, full = true, reason = "test", manual = true)
         assertEquals(1, contacts.raw.values.count { it.getAsString(ContactsContract.RawContacts.SOURCE_ID) == "a" })

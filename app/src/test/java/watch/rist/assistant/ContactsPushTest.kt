@@ -362,6 +362,91 @@ class ContactsPushTest {
     }
 
     @Test
+    fun `deletes and removed numbers are paged at the backend's limit too`() {
+        val deletes = (1..(ContactsPush.PAGE + 3)).map {
+            ContactsPush.Pending(rawId = it.toLong(), version = 1, device = false, sourceId = "s$it", deleted = true)
+        }
+        val pages = ContactsPush.pages("c", deletes, "t", 1L)
+        assertEquals(listOf(ContactsPush.PAGE, 3), pages.map { it.first.deletedIdsCount })
+        assertEquals(deletes.size, pages.sumOf { it.second.size })
+
+        val edits = (1..300).map {
+            ContactsPush.Pending(rawId = it.toLong(), version = 1, device = false, sourceId = "s$it",
+                sentMethodIds = listOf("m$it-a", "m$it-b"),
+                rows = listOf(ContactsPush.DataRow(StructuredName.CONTENT_ITEM_TYPE, d1 = "P$it")))
+        }
+        assertTrue(ContactsPush.pages("c", edits, "t", 1L).all { it.first.deletedMethodIdsCount <= ContactsPush.PAGE })
+    }
+
+    @Test
+    fun `a page stays under the backend's body limit`() {
+        val big = (1..400).map {
+            ContactsPush.Pending(rawId = it.toLong(), version = 1, device = true, rows = listOf(
+                ContactsPush.DataRow(StructuredName.CONTENT_ITEM_TYPE, d1 = "P$it"),
+                ContactsPush.DataRow(ContactsContract.CommonDataKinds.Note.CONTENT_ITEM_TYPE, d1 = "x".repeat(5_000)),
+            ))
+        }
+        val pages = ContactsPush.pages("c", big, "t", 1L)
+        assertTrue(pages.size > 1)
+        assertTrue(pages.all { it.first.serializedSize < 1_048_576 })
+        assertEquals(big.size, pages.sumOf { it.first.changesCount })
+    }
+
+    @Test
+    fun `more deletes than one page all reach the backend and leave the address book`() {
+        val people = (1..(ContactsPush.PAGE + 2)).map { person("p$it", "Person $it", "+1206555${1000 + it}") }
+        server.enqueue(page("c1", full = true, *people.toTypedArray()))
+        ContactsSync.syncBlocking(app)
+        take()
+        people.forEach { contacts.ownerDeletes(contacts.rawIdOfSource(it.id)) }
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                if (request.method == "POST" && ContactPush.parseFrom(request.body.readByteArray()).deletedIdsCount > ContactsPush.PAGE)
+                    return MockResponse().setResponseCode(413)
+                return page("c2", full = false)
+            }
+        }
+
+        ContactsSync.syncBlocking(app)
+
+        assertTrue("every deleted person left the phone", contacts.raw.isEmpty())
+        assertFalse(Config.contactsNeedsFull(app))
+    }
+
+    @Test
+    fun `a synced contact whose name was cleared on the phone is sent, so it does not hold every pull back`() {
+        synced()
+        val raw = contacts.rawIdOfSource("a")
+        contacts.ownerRenames(raw, "")
+        server.enqueue(page("c2", full = false, person("a", "Alice Example", "+12065550100", "+12065550101")))
+        server.enqueue(page("c2", full = false, person("a", "Alice Example", "+12065550100", "+12065550101")))
+
+        ContactsSync.syncBlocking(app)
+
+        val post = take()
+        assertEquals("POST", post.method)
+        assertEquals("a", pushOf(post).getChanges(0).id)
+        assertEquals("GET", take().method)
+        assertEquals(0, contacts.raw[raw]!!.getAsInteger(RawContacts.DIRTY))
+        assertFalse("no full pull owed", Config.contactsNeedsFull(app))
+        assertEquals("Alice Example", contacts.nameOf("a"))
+    }
+
+    @Test
+    fun `a pull does not add a second row for a phone-made contact changed again since it was sent`() {
+        synced()
+        val raw = contacts.ownerCreates(ContactsMirror.ACCOUNT_TYPE, "Sam Example", "+14255559212")
+        val key = ContactsPush.ristKey(tag, raw)
+        contacts.raw[raw]!!.put(RawContacts.SYNC3, key)   // sent; its id has not come back yet
+        contacts.raw[raw]!!.put(RawContacts.DIRTY, 1)     // and changed again since
+
+        val written = ContactsMirror.apply(app, false, listOf(person("s", "Sam Example", "+14255559212", key = key)), emptyList())
+
+        assertFalse("held for the next push", written)
+        assertEquals("Alice and the phone's Sam, no second Sam", 2, contacts.raw.size)
+    }
+
+    @Test
     fun `keys name this install, so a wiped phone cannot reuse another phone's`() {
         val tag = Config.contactsPushTag(app)
         assertEquals(tag, Config.contactsPushTag(app))
