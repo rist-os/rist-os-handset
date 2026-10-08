@@ -9,8 +9,9 @@ import rist.v1.Location
 /**
  * The account's location switch, set on the website and told to the phone on every turn and every
  * wake (`location_off`, schema v24). While it is off nothing about where the phone is leaves it:
- * no fix on a request (the time zone name still goes), no time zone taken from a fix, no place
- * reminders watched or crossings reported, and no network location lookup made for the assistant.
+ * no fix on a request (the time zone name still goes), no time zone taken from a fix (the phone's
+ * own automatic zone has the clock), no place reminders watched or crossings reported, and no
+ * network location lookup made for the assistant.
  *
  * Three states on the wire: present true (off), present false (on again), absent (keep what was
  * last said). The last state is kept across restarts; a phone never told assumes on.
@@ -20,6 +21,9 @@ object LocationSwitch {
     private const val TAG = "RistLocationSwitch"
     private const val PREFS = "rist.location.switch"
     private const val KEY_OFF = "location_off"
+
+    /** Local broadcast: the switch just went off, so anything holding the receiver stops now. */
+    const val ACTION_LOCATION_OFF = "watch.rist.assistant.LOCATION_SWITCH_OFF"
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -51,6 +55,14 @@ object LocationSwitch {
         Log.i(TAG, "location ${if (now) "OFF: sharing nothing" else "ON again: sharing resumes"} (from the $from)")
         if (now) {
             stopWatching(ctx)
+            runCatching { AutoTimeZone.onLocationSwitchOff(ctx) }
+                .onFailure { Log.w(TAG, "could not hand the time zone back", it) }
+            // Navigation GPS runs in the home screen and stops itself only on its next fix,
+            // which never comes while the phone stands still: tell it now.
+            runCatching {
+                androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(ctx.applicationContext)
+                    .sendBroadcast(android.content.Intent(ACTION_LOCATION_OFF))
+            }
         } else {
             // Fences come back from the backend on the next turn; the zone check can run now.
             runCatching { AutoTimeZone.checkInBackground(ctx, force = true) }
