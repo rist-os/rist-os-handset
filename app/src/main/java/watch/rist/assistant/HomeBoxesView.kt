@@ -33,10 +33,12 @@ import rist.v1.HomeBox
  * then be dragged, removed (with a five-second undo) or edited. Each box also carries move,
  * edit and delete as accessibility actions, so nothing needs a drag.
  *
- * The first tile is always Notifications: built into the phone, not one of the backend's boxes.
- * It shows how many calls, texts and notices are waiting, the same count the feed's heading
- * shows, and opens the feed full screen. It cannot be moved, edited or deleted, and since it is
- * never in the held list it is never part of an edit sent to the backend.
+ * While anything is new, the first tile is Notifications: built into the phone, not one of the
+ * backend's boxes. It shows how many calls, texts and notices are listed and how many are new,
+ * the same counts the feed shows, and opens the feed full screen. With nothing new it is not
+ * drawn at all, and comes back the moment something arrives; what was already read stays a tap
+ * away in the gear menu. It cannot be moved, edited or deleted, and since it is never in the
+ * held list it is never part of an edit sent to the backend.
  */
 internal class BoxBoard(
     private val activity: AppCompatActivity,
@@ -89,8 +91,9 @@ internal class BoxBoard(
         BoxRefresh.observe(boxes)
         BoxCreate.observe(boxes)
         val creating = BoxCreate.waiting()
+        val waiting = waitingNow()
         adapter.items = buildList {
-            add(Item.Notifications(listedNow(), waitingNow()))
+            if (waiting > 0) add(Item.Notifications(listedNow(), waiting))
             boxes.forEach { add(Item.Box(it)) }
             creating.forEach { add(Item.Creating(it)) }
             when {
@@ -114,13 +117,47 @@ internal class BoxBoard(
 
     private fun listedNow(): Int = runCatching { CommsFeedView.listedCount(activity) }.getOrDefault(0)
 
-    /** The feed was just drawn listing [listed], [waiting] of them new: the tile follows at once. */
+    /**
+     * The feed was just drawn listing [listed], [waiting] of them new: the tile follows at once.
+     * It is put in or taken out in place, so the rest of the row does not jump. While tiles are
+     * being edited it is left alone; leaving edit mode redraws it.
+     */
     fun showWaiting(waiting: Int, listed: Int) {
-        val first = adapter.items.firstOrNull() as? Item.Notifications ?: return
+        val items = adapter.items
+        if (items.isEmpty()) return
+        val first = items.first() as? Item.Notifications
         val now = Item.Notifications(listed, waiting)
-        if (first == now) return
-        adapter.items = listOf(now) + adapter.items.drop(1)
-        adapter.notifyItemChanged(0)
+        when {
+            waiting > 0 && first != null -> {
+                if (first == now) return
+                adapter.items = listOf(now) + items.drop(1)
+                adapter.notifyItemChanged(0)
+            }
+            waiting > 0 -> {
+                if (editMode) return
+                val atStart = atStart()
+                adapter.items = listOf(now) + items
+                adapter.notifyItemInserted(0)
+                refreshEmpty()
+                // Inserted ahead of the first tile shown: keep the start in view, so the tile is seen.
+                if (atStart) list.scrollToPosition(0)
+            }
+            first != null -> {
+                if (editMode) return
+                adapter.items = items.drop(1)
+                adapter.notifyItemRemoved(0)
+                refreshEmpty()
+            }
+        }
+    }
+
+    private fun atStart(): Boolean =
+        if (grid) !list.canScrollVertically(-1) else !list.canScrollHorizontally(-1)
+
+    /** The Add square stands alone when no Notifications tile is beside it: redraw it to suit. */
+    private fun refreshEmpty() {
+        val at = adapter.items.indexOf(Item.Empty)
+        if (at >= 0) adapter.notifyItemChanged(at)
     }
 
     fun openNotifications() {
@@ -249,9 +286,10 @@ internal class BoxBoard(
             h.actions.clear()
             h.boxId = ""
             val item = items[position]
+            val alone = item is Item.Empty && items.none { it is Item.Notifications }
             frame.layoutParams = RecyclerView.LayoutParams(
                 when {
-                    grid -> ViewGroup.LayoutParams.MATCH_PARENT
+                    grid || alone -> ViewGroup.LayoutParams.MATCH_PARENT
                     item is Item.All -> px(ALL_W_DP)
                     else -> px(TILE_DP)
                 },
@@ -267,7 +305,7 @@ internal class BoxBoard(
                 Item.Add -> bindAdd(frame)
                 is Item.All -> bindAll(frame, item.count)
                 Item.Done -> bindDone(frame)
-                Item.Empty -> bindEmpty(frame)
+                Item.Empty -> bindEmpty(frame, alone)
             }
         }
     }
@@ -591,10 +629,17 @@ internal class BoxBoard(
         frame.setOnClickListener { setEditMode(false) }
     }
 
-    /** No boxes yet: the Add square, beside the Notifications tile, with a hint for a screen reader. */
-    private fun bindEmpty(frame: FrameLayout) {
-        bindAdd(frame)
-        frame.contentDescription = activity.getString(R.string.boxes_add) + ". " +
+    /**
+     * No boxes yet: the Add square, with a hint for a screen reader. Beside the Notifications tile
+     * it is an ordinary square; [alone], the row is the full width with the square at its end.
+     */
+    private fun bindEmpty(frame: FrameLayout, alone: Boolean) {
+        val square = if (alone) FrameLayout(activity).apply {
+            layoutParams = FrameLayout.LayoutParams(px(TILE_DP), px(TILE_DP), Gravity.END or Gravity.TOP)
+            frame.addView(this)
+        } else frame
+        bindAdd(square)
+        square.contentDescription = activity.getString(R.string.boxes_add) + ". " +
             activity.getString(R.string.boxes_empty_hint)
     }
 

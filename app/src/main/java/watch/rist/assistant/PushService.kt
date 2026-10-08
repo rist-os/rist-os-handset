@@ -63,15 +63,22 @@ class PushService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    private var loop: Job? = null
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundCompat()
-        scope.launch { connectLoop() }
+        // The endpoint is fixed when the app is built and nothing changes it at run time, so a
+        // build without one has nothing to connect to, ever. Retrying would keep a foreground
+        // service and a reconnect timer alive for nothing; new messages arrive by the wake poll.
+        if (!isPushUrlValid(Config.pushUrl(applicationContext).trim())) {
+            Log.i(TAG, "no push endpoint in this build; not running")
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        if (loop?.isActive != true) loop = scope.launch { connectLoop() }
         return START_STICKY
     }
-
-    private fun isPushUrlValid(url: String): Boolean =
-        url.startsWith("ws://") || url.startsWith("wss://") ||
-        url.startsWith("http://") || url.startsWith("https://")
 
     private suspend fun connectLoop() {
         var backoff = BACKOFF_MIN_MS
@@ -213,6 +220,10 @@ class PushService : Service() {
         super.onDestroy()
     }
 }
+
+internal fun isPushUrlValid(url: String): Boolean =
+    url.startsWith("ws://") || url.startsWith("wss://") ||
+    url.startsWith("http://") || url.startsWith("https://")
 
 internal fun nextPushBackoffMs(current: Long, everConnected: Boolean): Long {
     val ceiling = if (everConnected) PushService.BACKOFF_MAX_MS else PushService.NEVER_CONNECTED_MAX_MS
