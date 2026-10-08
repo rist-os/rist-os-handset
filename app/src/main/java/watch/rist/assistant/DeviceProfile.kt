@@ -36,6 +36,7 @@ object DeviceProfile {
         design: Boolean = DesignSync.declared(),
         fontIds: List<String> = emptyList(),
         checklists: Boolean = Checklists.declared(),
+        noteEdit: Boolean = NoteEdits.declared(),
     ): Capabilities =
         Capabilities.newBuilder()
             // v18 carries every field this build reads; the video_call component alone decides
@@ -57,6 +58,8 @@ object DeviceProfile {
             .apply { if (design) addComponents(DesignSync.COMPONENT).addAllComponents(Fonts.capsEntries(fontIds)) }
             // Whether this phone draws lists with checkboxes; without it lists come as markdown.
             .apply { if (checklists) addComponents(Checklists.COMPONENT) }
+            // Whether this phone edits notes in place; without it notes are only spoken.
+            .apply { if (noteEdit) addComponents(NoteEdits.COMPONENT) }
             .setMaxImageBytes(MAX_IMAGE_BYTES)
             // 0 or unset means "cannot do place triggers".
             .setMaxGeofences(Geofences.MAX_FENCES)

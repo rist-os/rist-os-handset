@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="note_edit_tap_to_edit">Tap the note to edit it</string>
+    <string name="note_edit_save">Save</string>
+    <string name="note_edit_cancel">Cancel</string>
+    <string name="note_edit_empty">A note can\'t be empty. To delete it, ask Rist.</string>
+    <string name="note_edit_save_failed">Couldn\'t save that note. Your text is still on the card.</string>
+    <string name="note_edit_saved_as_new">The note had changed, so your edit was saved as a new note</string>
+</resources>

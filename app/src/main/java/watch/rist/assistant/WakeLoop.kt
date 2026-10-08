@@ -121,6 +121,7 @@ object WakeLoop {
         // Box edits made offline go first, so the version asked about is the one they produced.
         if (HomeBoxes.declared()) runCatching { HomeBoxes.flush(ctx) }
         if (Checklists.declared()) runCatching { Checklists.flush(ctx) }
+        if (NoteEdits.declared()) runCatching { NoteEdits.flush(ctx) }
         if (DesignSync.declared()) {
             DesignSync.migrateLegacyTheme(ctx)
             runCatching { DesignSync.flush(ctx) }
