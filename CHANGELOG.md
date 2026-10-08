@@ -4,7 +4,7 @@ Build numbers are `YYYYMMDDNN`. The log starts with 2026083110, the first publis
 
 ---
 
-## Unreleased
+## 2026100700
 
 **Device:** Pixel 10a (`stallion`) only. **Base:** GrapheneOS, the same base as 2026092300.
 **App versionCode:** 1040.
