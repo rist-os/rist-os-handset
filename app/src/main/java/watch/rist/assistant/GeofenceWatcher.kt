@@ -67,6 +67,12 @@ object GeofenceWatcher {
 
     // BLOCKING (GPS + network): call from GeofenceAlarmReceiver's goAsync worker, never the main thread.
     fun tick(ctx: Context) {
+        if (LocationSwitch.isOff(ctx)) {
+            Geofences.dropAll(ctx, "the account's location switch is off")
+            Geofences.dropCrossings(ctx, "the account's location switch is off")
+            schedule(ctx, null, null, stationary = false)
+            return
+        }
         if (!LocationProvider.hasPermission(ctx)) {
             Geofences.dropAll(ctx, "the OS location permission is not granted")
             schedule(ctx, null, null, stationary = false)

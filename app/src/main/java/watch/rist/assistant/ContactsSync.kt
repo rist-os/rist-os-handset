@@ -30,7 +30,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * that replaces the mirror. Pulls run on boot, when the cursor on a wake or a turn differs from
  * the one last applied, once a day, and on "Sync now".
  *
- * Push (contacts made on the phone going to the backend) is not built: the mirror is one way.
+ * Push: contacts added, edited or deleted on the phone go to the backend first, before every pull
+ * ([ContactsPush]), so the pull that follows cannot write an older copy over them. A change in the
+ * address book is looked for whenever Rist comes back to the front and on every cursor check
+ * ([ContactsPush.nudge]).
  *
  * Contacts off, whether the owner's switch or the account's, stops syncing and nothing else: the
  * address book stays as it is, because caller ID has to work with no network.
@@ -107,7 +110,11 @@ object ContactsSync {
         if (Config.contactsSyncOff(ctx)) return
         // Same cursor: nothing new, unless an address book write is owed and can now land. Without
         // the permission that would be a full pull on every wake, so it waits for a real change.
-        if (cursor == Config.contactsCursor(ctx) && !rebuildOwed(ctx)) return
+        if (cursor == Config.contactsCursor(ctx) && !rebuildOwed(ctx)) {
+            // Nothing new from the backend; something changed on the phone may still be waiting.
+            ContactsPush.nudge(ctx, "changed on the phone")
+            return
+        }
         requestSync(ctx, full = false, reason = "cursor moved")
     }
 
@@ -116,6 +123,15 @@ object ContactsSync {
     private val executor = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "rist-contacts").apply { isDaemon = true } }
     private val autoQueued = AtomicBoolean(false)
     private val manualQueued = AtomicBoolean(false)
+    @Volatile private var pendingAuto: java.util.concurrent.ScheduledFuture<*>? = null
+
+    /**
+     * Moves on whenever a test resets this object. A pull or nudge queued before the reset finds it
+     * changed and does nothing, so one test's leftover request cannot hold the queue, move the
+     * back-off, or pull from the next test's server.
+     */
+    @Volatile internal var generation = 0
+        private set
     @Volatile private var lastAutoAtMs = 0L
     @Volatile private var failures = 0
     @Volatile private var failedAtMs = 0L
@@ -131,7 +147,15 @@ object ContactsSync {
 
     /** Lets a test run pulls inline, with no gap held between them. */
     @Volatile internal var runInlineForTest = false
-        set(v) { field = v; lastAutoAtMs = 0L; failures = 0; failedAtMs = 0L; minGapMs = MIN_GAP_MS }
+        set(v) {
+            field = v
+            generation++
+            pendingAuto?.cancel(false)
+            pendingAuto = null
+            autoQueued.set(false)
+            manualQueued.set(false)
+            lastAutoAtMs = 0L; failures = 0; failedAtMs = 0L; minGapMs = MIN_GAP_MS
+        }
 
     internal fun backoffMs(failures: Int): Long =
         if (failures <= 0) 0L else (MIN_GAP_MS shl (failures - 1).coerceAtMost(12)).coerceAtMost(MAX_BACKOFF_MS)
@@ -153,14 +177,19 @@ object ContactsSync {
         val app = ctx.applicationContext
         if (full) Config.setContactsNeedsFull(app, true)
         if (runInlineForTest) { syncBlocking(app, manual); return }
+        val gen = generation
         if (manual) {
             if (!manualQueued.compareAndSet(false, true)) return
-            executor.execute { manualQueued.set(false); syncBlocking(app, true) }
+            executor.execute {
+                if (gen != generation) return@execute
+                manualQueued.set(false); syncBlocking(app, true)
+            }
             return
         }
         if (!autoQueued.compareAndSet(false, true)) return
         val delay = waitMs(SystemClock.elapsedRealtime(), lastAutoAtMs, failures, failedAtMs, minGapMs)
-        executor.schedule({
+        pendingAuto = executor.schedule({
+            if (gen != generation) return@schedule
             autoQueued.set(false)
             lastAutoAtMs = SystemClock.elapsedRealtime()
             val out = syncBlocking(app, false)
@@ -180,7 +209,7 @@ object ContactsSync {
     }
 
     sealed class Outcome {
-        data class Applied(val full: Boolean, val written: Int, val removed: Int, val mirrored: Boolean = true) : Outcome()
+        data class Applied(val full: Boolean, val written: Int, val removed: Int, val mirrored: Boolean = true, val pushed: Int = 0) : Outcome()
         object NotAllowed : Outcome()
         object NotReady : Outcome()
         data class Refused(val code: Int) : Outcome()
@@ -262,11 +291,12 @@ object ContactsSync {
     /** One pull, start to finish. Blocking; call off the main thread. Never throws. */
     @Synchronized
     fun syncBlocking(ctx: Context, manual: Boolean = false, http: OkHttpClient = Uploader.sharedClient()): Outcome {
+        val gen = generation
         val out = runCatching { pull(ctx, manual, http) }.getOrElse {
             // The class only: a provider or parser message can quote what it was handed.
             Outcome.Failed(it.javaClass.simpleName)
         }
-        noteOutcome(out)
+        if (gen == generation) noteOutcome(out)
         return out
     }
 
@@ -279,6 +309,17 @@ object ContactsSync {
         if (!allowed(ctx)) return Outcome.NotAllowed
         val bearer = bearerForTest ?: Uploader.bearer(ctx) ?: return Outcome.NotReady
         val backend = Config.backendUrl(ctx).takeIf { it.isNotBlank() } ?: return Outcome.NotReady
+        // What the owner changed on the phone goes first.
+        var pushed = 0
+        if (ContactsMirror.canWrite(ctx)) {
+            when (val p = ContactsPush.run(ctx, http, backend, bearer, Config.deviceId(ctx), Config.contactsCursor(ctx),
+                onLapse = { Billing.onLapsed(ctx, it) }, onRevoked = { Enrolment.onRevoked(ctx) })) {
+                is ContactsPush.Result.Sent -> pushed = p.count
+                is ContactsPush.Result.Refused -> { onRefused(ctx, p.code); return Outcome.Refused(p.code) }
+                // Not pulled either: a pull now would write the backend's copy over the unsent edit.
+                is ContactsPush.Result.Failed -> return Outcome.Failed("push: ${p.why}")
+            }
+        }
         // Removing the account drops its rows, so a delta would leave the address book empty.
         val since = if (Config.contactsNeedsFull(ctx) || rebuildOwed(ctx)) "" else Config.contactsCursor(ctx)
         val (pulled, code) = fetch(http, backend, bearer, Config.deviceId(ctx), since,
@@ -295,6 +336,8 @@ object ContactsSync {
         // a full answer to a delta request is honoured as a full.
         val indexed = ContactIndex.apply(ctx, pulled.full, pulled.records, pulled.deletedIds)
         val mirrored = ContactsMirror.apply(ctx, pulled.full, pulled.records, pulled.deletedIds)
+        // Device contacts the backend now holds are in the Rist account too; keep one copy.
+        if (mirrored) ContactsPush.adopt(ctx, pulled.records)
         // A write that did not land is retried as a full pull, so it cannot drift.
         Config.setContactsApplied(ctx, pulled.cursor, needsFull = !mirrored || !indexed)
         Config.setContactsSyncedAt(ctx, System.currentTimeMillis())
@@ -303,10 +346,10 @@ object ContactsSync {
             androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(ctx.applicationContext)
                 .sendBroadcast(Intent(ACTION_CHANGED))
         }
-        Log.i(TAG, "contacts synced: full=${pulled.full}, ${pulled.records.size} changed, " +
+        Log.i(TAG, "contacts synced: $pushed sent, full=${pulled.full}, ${pulled.records.size} changed, " +
             "${pulled.deletedIds.size} deleted, ${ContactIndex.size(ctx)} held, address book=${if (mirrored) "written" else "NOT written"}")
         return Outcome.Applied(pulled.full, pulled.records.size, pulled.deletedIds.size,
-            mirrored = (mirrored || !ContactsMirror.canWrite(ctx)) && indexed)
+            mirrored = (mirrored || !ContactsMirror.canWrite(ctx)) && indexed, pushed = pushed)
     }
 
     // ---- daily ----

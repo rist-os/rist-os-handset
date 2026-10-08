@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What a Rist contact can hold, so the Contacts app can create and edit them. Without an
+     EditSchema the app treats the account as read-only and has nowhere to save a new contact.
+     The kinds are the ones contact sync carries: name, numbers, email, nickname (aliases), note. -->
+<ContactsAccountType xmlns:android="http://schemas.android.com/apk/res/android">
+    <EditSchema>
+        <DataKind kind="name"
+            maxOccurs="1"
+            supportsDisplayName="true"
+            supportsPrefix="false"
+            supportsMiddleName="false"
+            supportsSuffix="false"
+            supportsPhoneticFamilyName="false"
+            supportsPhoneticMiddleName="false"
+            supportsPhoneticGivenName="false" />
+        <DataKind kind="photo" maxOccurs="1" />
+        <DataKind kind="phone">
+            <Type type="mobile" />
+            <Type type="home" />
+            <Type type="work" />
+            <Type type="main" />
+            <Type type="other" />
+            <Type type="custom" />
+        </DataKind>
+        <DataKind kind="email">
+            <Type type="home" />
+            <Type type="work" />
+            <Type type="other" />
+            <Type type="custom" />
+        </DataKind>
+        <DataKind kind="nickname" maxOccurs="1" />
+        <DataKind kind="note" maxOccurs="1" />
+    </EditSchema>
+</ContactsAccountType>

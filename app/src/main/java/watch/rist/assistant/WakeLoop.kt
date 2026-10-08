@@ -302,6 +302,7 @@ object WakeLoop {
         if (signal.notificationsCount > 0) NotificationQueue.store(ctx, signal.notificationsList)
         NotificationQueue.setMailUnread(ctx, signal.mailUnread)
         if (signal.hasFeatures()) runCatching { Features.apply(ctx, signal.features) }
+        runCatching { LocationSwitch.onWake(ctx, signal.hasLocationOff(), signal.locationOff) }
         if (signal.hasBoxes()) runCatching { HomeBoxes.apply(ctx, signal.boxes) }
         if (signal.hasDesign()) runCatching { DesignSync.apply(ctx, signal.design) }
         if (signal.hasSettings() && DesignSync.declared()) runCatching { SettingsApply.handle(ctx, signal.settings) }

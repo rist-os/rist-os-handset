@@ -684,6 +684,8 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         super.onResume()
         Config.importTokenFileIfPresent(applicationContext)
         AutoTimeZone.checkInBackground(applicationContext)
+        // Back from the Contacts app: send what the owner added or changed there.
+        runCatching { ContactsPush.nudge(applicationContext, "back in Rist") }
         CarrierVoicemail.listen(this)
         CarrierVoicemail.refresh(this)
         if (navigating) runCatching {
@@ -2817,6 +2819,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
     private fun startNavLocationUpdates() {
         stopNavLocationUpdates()
         if (!LocationProvider.hasPermission(this)) { navigating = false; updateNavHere(); return }
+        if (LocationSwitch.isOff(this)) { navigating = false; updateNavHere(); return }
         val lm = getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return
 
         LocationProvider.cached(this)?.let { onNavFix(it) }
@@ -2881,6 +2884,8 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
 
     private fun onNavFix(fix: LocationProvider.Fix) {
         if (currentNav == null) return
+        // The account's location switch went off mid-route: GPS stops and the last fix is forgotten.
+        if (LocationSwitch.isOff(this)) { stopNavLocationUpdates(); lastNavFix = null; navAnchor = null; updateNavHere(); return }
         lastNavFix = fix
         if (navMoved(navAnchor, fix)) {
             navAnchor = fix

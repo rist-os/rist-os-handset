@@ -316,6 +316,10 @@
             <meta-data
                 android:name="android.content.SyncAdapter"
                 android:resource="@xml/syncadapter" />
+            <!-- Makes the Rist account writable in the Contacts app (res/xml/contacts.xml). -->
+            <meta-data
+                android:name="android.provider.CONTACTS_STRUCTURE"
+                android:resource="@xml/contacts" />
         </service>
 
         <receiver
