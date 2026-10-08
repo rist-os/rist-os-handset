@@ -89,6 +89,7 @@ object LocationProvider {
      * Asks for a fix only when the cached one does not do, and asks the cheapest source that can
      * answer first. [allowGps] false never turns the GPS receiver on: a background caller that
      * only needs a city (the time zone) passes that, so it cannot spin up GPS every hour.
+     * [onGps] runs just before GPS is actually asked, so a caller can count real GPS use.
      */
     fun freshBlocking(
         ctx: Context,
@@ -96,6 +97,7 @@ object LocationProvider {
         minAccuracyM: Float,
         timeoutMs: Long = 12_000,
         allowGps: Boolean = true,
+        onGps: () -> Unit = {},
     ): Fix? {
         if (!hasPermission(ctx)) return null
         val manager = lm(ctx) ?: return cached(ctx)
@@ -108,6 +110,7 @@ object LocationProvider {
             val got = if (provider == LocationManager.NETWORK_PROVIDER) {
                 requestOneShot(manager, provider, NETWORK_TIMEOUT_MS)
             } else {
+                onGps()
                 requestOneShot(manager, provider, timeoutMs)
             }
             if (got != null) {

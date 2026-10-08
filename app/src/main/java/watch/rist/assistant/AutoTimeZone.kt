@@ -186,9 +186,11 @@ object AutoTimeZone {
         if (fix == null || now - fix.timeMs > REFRESH_AFTER_MS) {
             val elapsed = SystemClock.elapsedRealtime()
             val gps = gpsAllowed(force, lastGpsAttemptMs, elapsed)
-            if (gps) lastGpsAttemptMs = elapsed
+            // Counted only when GPS is really asked: a network fix that answered first must not
+            // use up the allowance a later check (abroad, no data for network location) needs.
             fix = LocationProvider.freshBlocking(ctx, maxAgeS = (REFRESH_AFTER_MS / 1000).toInt(),
-                minAccuracyM = MAX_ACCURACY_M, timeoutMs = 5_000, allowGps = gps) ?: fix
+                minAccuracyM = MAX_ACCURACY_M, timeoutMs = 5_000, allowGps = gps,
+                onGps = { lastGpsAttemptMs = elapsed }) ?: fix
         }
         consider(ctx, fix, now)
     }
