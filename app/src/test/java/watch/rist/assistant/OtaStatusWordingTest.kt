@@ -67,6 +67,8 @@ class OtaStatusWordingTest {
             refused(OtaScheduler.Stage.SIGNATURE, "EXPIRED: manifest expired at 1791407082"),
             refused(OtaScheduler.Stage.MANIFEST, "BAD_JSON: unexpected token"),
             refused(OtaScheduler.Stage.POLICY, "${OtaPolicy.Refusal.WRONG_DEVICE}: komodo != stallion"),
+            refused(OtaScheduler.Stage.SIGNATURE, "BAD_SIGNATURE: ROLLBACK in an unverified body"),
+            "2026100500 available; cannot apply (NO_SYSTEM_API)",
             "unauthorised: RIST_OTA_TOKEN mismatch",
             "cannot confirm updates: the server sent no signed manifest",
             "package missing: half-finished publish",
