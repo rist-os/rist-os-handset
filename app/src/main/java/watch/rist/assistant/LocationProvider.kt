@@ -85,11 +85,19 @@ object LocationProvider {
         return ageOk && accOk
     }
 
+    /**
+     * Asks for a fix only when the cached one does not do, and asks the cheapest source that can
+     * answer first. [allowGps] false never turns the GPS receiver on: a background caller that
+     * only needs a city (the time zone) passes that, so it cannot spin up GPS every hour.
+     * [onGps] runs just before GPS is actually asked, so a caller can count real GPS use.
+     */
     fun freshBlocking(
         ctx: Context,
         maxAgeS: Int,
         minAccuracyM: Float,
-        timeoutMs: Long = 12_000
+        timeoutMs: Long = 12_000,
+        allowGps: Boolean = true,
+        onGps: () -> Unit = {},
     ): Fix? {
         if (!hasPermission(ctx)) return null
         val manager = lm(ctx) ?: return cached(ctx)
@@ -97,23 +105,36 @@ object LocationProvider {
         var best: Fix? = cached(ctx)
         if (best != null && meets(best, maxAgeS, minAccuracyM, System.currentTimeMillis())) return best
 
-        repeat(2) {
-            val got = requestOneShot(manager, LocationManager.GPS_PROVIDER, timeoutMs)
+        val network = networkFallbackPermitted(NetworkLocationConsent.status(ctx))
+        for (provider in providerPlan(minAccuracyM, allowGps, network)) {
+            val got = if (provider == LocationManager.NETWORK_PROVIDER) {
+                requestOneShot(manager, provider, NETWORK_TIMEOUT_MS)
+            } else {
+                onGps()
+                requestOneShot(manager, provider, timeoutMs)
+            }
             if (got != null) {
                 if (best == null || got.timeMs > best!!.timeMs) best = got
                 if (meets(got, maxAgeS, minAccuracyM, System.currentTimeMillis())) return got
             }
         }
-
-        if (networkFallbackPermitted(NetworkLocationConsent.status(ctx))) {
-            val got = requestOneShot(manager, LocationManager.NETWORK_PROVIDER, NETWORK_TIMEOUT_MS)
-            if (got != null) {
-                if (best == null || got.timeMs > best!!.timeMs) best = got
-                if (meets(got, maxAgeS, minAccuracyM, System.currentTimeMillis())) return got
-            }
-        }
-
         return best
+    }
+
+    /** Coarser than this, a network fix (Wi-Fi and cell, a few seconds) answers as well as GPS. */
+    internal const val COARSE_ENOUGH_M = 500f
+
+    /**
+     * The order sources are tried in. GPS goes twice, as before, because a first attempt from
+     * cold often times out before the receiver has its satellites. A coarse request (or one that
+     * takes anything) tries the network first, so a weather or time zone question does not hold
+     * GPS on for up to half a minute when Wi-Fi and cell towers could answer in a few seconds.
+     */
+    internal fun providerPlan(minAccuracyM: Float, allowGps: Boolean, networkAllowed: Boolean): List<String> {
+        val gps = if (allowGps) listOf(LocationManager.GPS_PROVIDER, LocationManager.GPS_PROVIDER) else emptyList()
+        val net = if (networkAllowed) listOf(LocationManager.NETWORK_PROVIDER) else emptyList()
+        val coarse = minAccuracyM == 0f || minAccuracyM >= COARSE_ENOUGH_M
+        return if (coarse) net + gps else gps + net
     }
 
     internal const val NETWORK_TIMEOUT_MS = 4_000L
