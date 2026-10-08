@@ -285,7 +285,11 @@ object TextAlert {
                 f == NotificationManager.INTERRUPTION_FILTER_UNKNOWN
         }
 
-        override fun inCall(ctx: Context): Boolean = CallState.inCall(ctx)
+        // A ringing phone counts: no notification sound over the ringtone.
+        override fun inCall(ctx: Context): Boolean = CallState.inCall(ctx) || runCatching {
+            ctx.getSystemService(android.telephony.TelephonyManager::class.java)?.callState ==
+                android.telephony.TelephonyManager.CALL_STATE_RINGING
+        }.getOrDefault(false)
 
         override fun screenOn(ctx: Context): Boolean =
             ctx.getSystemService(PowerManager::class.java)?.isInteractive ?: true
