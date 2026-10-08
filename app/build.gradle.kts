@@ -1,6 +1,8 @@
 import com.google.protobuf.gradle.id
 import java.io.File
+import java.time.Duration
 import java.util.Properties
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 
 plugins {
     id("com.android.application")
@@ -72,10 +74,36 @@ android {
     }
 }
 
+// Robolectric otherwise downloads its Android runtime from Maven Central inside the test JVM, with
+// no timeouts and under a lock every fork waits on. Gradle resolves (and caches) it instead.
+// The version is the one robolectric (below) expects for sdk=34; bump them together.
+val robolectricRuntime: Configuration by configurations.creating { isTransitive = false }
+
 tasks.withType<Test>().configureEach {
     maxHeapSize = "2g"
     // Forks are separate JVMs, so static test state stays per-fork. On a 4-core/16 GB runner: 2 x 2g.
     maxParallelForks = (Runtime.getRuntime().availableProcessors() / 2).coerceAtLeast(1)
+
+    jvmArgumentProviders.add(CommandLineArgumentProvider {
+        listOf(
+            "-Drobolectric.offline=true",
+            "-Drobolectric.dependency.dir=${robolectricRuntime.singleFile.parentFile}",
+        )
+    })
+
+    // On CI a hung test names itself (the last STARTED line of its fork) and the task fails inside
+    // the step timeout, so the reports still upload.
+    if (System.getenv("CI") == "true") {
+        timeout.set(Duration.ofMinutes(13))
+        testLogging {
+            events("started", "failed", "skipped")
+            exceptionFormat = TestExceptionFormat.FULL
+        }
+        afterTest(KotlinClosure2<TestDescriptor, TestResult, Unit>({ d, r ->
+            val ms = r.endTime - r.startTime
+            if (ms > 20_000) logger.lifecycle("SLOW ${ms / 1000}s ${d.className} > ${d.name}")
+        }))
+    }
 }
 
 // OtaEngineCallback.kt subclasses @SystemApi UpdateEngineCallback, absent from the public android.jar; Soong-only.
@@ -118,6 +146,8 @@ dependencies {
     testImplementation("androidx.test:core:1.6.1")
 
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+
+    robolectricRuntime("org.robolectric:android-all-instrumented:14-robolectric-10818077-i6")
 }
 
 // Written for release too; rist.releaseVariant decides whether it carries endpoints.
