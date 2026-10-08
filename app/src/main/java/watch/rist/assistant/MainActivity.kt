@@ -648,8 +648,8 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
 
     /**
      * The home screen is singleTask: a HOME press or a launch while it is already up comes here
-     * instead of stacking a second copy. Nothing is read from the launch intent, in onCreate or
-     * here; onResume redraws as for any return.
+     * instead of stacking a second copy. Nothing is read from the launch intent but a typed turn
+     * from this app's own screens (see [turnIntent]), which onResume sends.
      */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -685,6 +685,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         renderCommandStrip()
         CommsFeedView.render(this)
         renderBoxes()
+        sendTurnFromIntent()
         cmdHandler.removeCallbacks(cmdTicker)
         if (DeviceCommands.anythingRunning()) cmdHandler.post(cmdTicker)
         enterKioskIfOwner()
@@ -2950,7 +2951,30 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
+    /** A turn another of this app's screens asked home to send; taken off the intent once sent. */
+    private fun sendTurnFromIntent() {
+        val i = intent ?: return
+        if (i.getStringExtra(EXTRA_TURN_KEY) != TURN_KEY) return
+        i.removeExtra(EXTRA_TURN_KEY)
+        AllBoxesActivity.turnFrom(i)?.let { sendBoxTurn(it) }
+    }
+
     internal companion object {
+        private const val EXTRA_TURN_KEY = "rist_turn_key"
+
+        // Known only inside this process: the activity is exported, and another app's intent
+        // must never be able to send a turn as the owner.
+        private val TURN_KEY: String = java.util.UUID.randomUUID().toString()
+
+        /** Brings home up and has it send [turn], as a tile tap would. */
+        internal fun turnIntent(ctx: Context, turn: HomeBoxes.Turn): Intent =
+            Intent(ctx, MainActivity::class.java)
+                .putExtra(EXTRA_TURN_KEY, TURN_KEY)
+                .putExtra(AllBoxesActivity.EXTRA_TEXT, turn.text)
+                .putExtra(AllBoxesActivity.EXTRA_TOOL, turn.targetToolId)
+                .putExtra(AllBoxesActivity.EXTRA_BOX, turn.boxId)
+                .putExtra(AllBoxesActivity.EXTRA_PROMPT, turn.prompt)
+
         private const val PHOTO_OPEN_GUARD_MS = 1_000L
         private const val TAG = "RistMain"
 
