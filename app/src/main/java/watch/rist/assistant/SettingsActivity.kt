@@ -822,6 +822,8 @@ class SettingsActivity : AppCompatActivity() {
                 findViewById(R.id.sectionsAnchor),
             )
         }.onFailure { Log.e("RistSettings", "ota section build failed", it) }
+        runCatching { buildDeveloperModeSection() }
+            .onFailure { Log.e("RistSettings", "developer mode section build failed", it) }
 
         // Must run after the sections above are built; earlier scrolls are overwritten by layout.
         if (pendingBackendScroll) {
@@ -848,6 +850,42 @@ class SettingsActivity : AppCompatActivity() {
         // The refresh timer holds this Activity; stop it or a destroyed Activity leaks.
         runCatching { OtaSection.stopRefresh() }
             .onFailure { Log.e("RistSettings", "ota refresh stop failed", it) }
+    }
+
+    /** Runs once the user has entered the screen lock in the system's confirm screen. */
+    private var afterCredential: (() -> Unit)? = null
+
+    private val confirmCredentialLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val next = afterCredential
+        afterCredential = null
+        if (result.resultCode == RESULT_OK) next?.invoke()
+        else Log.i("RistSettings", "screen lock not confirmed; developer mode unchanged")
+    }
+
+    private fun buildDeveloperModeSection() {
+        DeveloperModeSection.build(
+            this,
+            findViewById<LinearLayout>(R.id.themePicker)?.parent as? LinearLayout,
+            findViewById(R.id.sectionsAnchor),
+        ) { onConfirmed ->
+            val km = getSystemService(android.app.KeyguardManager::class.java)
+            @Suppress("DEPRECATION")
+            val ask = km?.createConfirmDeviceCredentialIntent(
+                "Turn on Developer mode", "Enter your screen lock to allow USB debugging.")
+            if (ask == null) {
+                // No secure lock screen: the gate refuses, and the section says why.
+                android.widget.Toast.makeText(this, "Set a screen lock first.", android.widget.Toast.LENGTH_LONG).show()
+                buildDeveloperModeSection()
+            } else {
+                afterCredential = onConfirmed
+                runCatching { confirmCredentialLauncher.launch(ask) }.onFailure {
+                    afterCredential = null
+                    Log.e("RistSettings", "could not open the screen lock check", it)
+                }
+            }
+        }
     }
 
     private fun applySettingsTheme() = runCatching {

@@ -173,7 +173,9 @@ object KioskManager {
     private fun applyUserRestrictions(context: Context) {
         val dpm = dpm(context)
         val admin = admin(context)
-        val wanted = kioskRestrictions(BuildVariant.isPublic())
+        // Developer mode (DeveloperMode.kt) keeps USB debugging open; a re-provision after an
+        // update must not close it again behind the owner's back.
+        val wanted = kioskRestrictions(BuildVariant.isPublic(), DeveloperMode.debuggingLifted(context))
         for (r in wanted) {
             runCatching { dpm.addUserRestriction(admin, r) }
                 .onFailure { Log.w(TAG, "could not set $r", it) }
@@ -215,12 +217,30 @@ object KioskManager {
 
     private val ALL_RESTRICTIONS = BASE_RESTRICTIONS + android.os.UserManager.DISALLOW_DEBUGGING_FEATURES
 
-    /** Public builds also close adb and Developer options; dev builds keep them for push.sh. */
-    internal fun kioskRestrictions(publicBuild: Boolean): List<String> =
-        if (publicBuild) ALL_RESTRICTIONS else BASE_RESTRICTIONS
+    /**
+     * Public builds also close adb and Developer options; dev builds keep them for push.sh. On a
+     * public build, Developer mode ([developerMode]) is the one way to keep them open.
+     */
+    internal fun kioskRestrictions(publicBuild: Boolean, developerMode: Boolean = false): List<String> =
+        if (publicBuild && !developerMode) ALL_RESTRICTIONS else BASE_RESTRICTIONS
+
+    /** Sets or clears `DISALLOW_DEBUGGING_FEATURES` alone. False when it could not be changed. */
+    fun setDebuggingRestriction(context: Context, restricted: Boolean): Boolean {
+        if (!isDeviceOwner(context)) return false
+        val dpm = dpm(context)
+        val admin = admin(context)
+        val r = android.os.UserManager.DISALLOW_DEBUGGING_FEATURES
+        return runCatching {
+            if (restricted) dpm.addUserRestriction(admin, r) else dpm.clearUserRestriction(admin, r)
+            true
+        }.onFailure { Log.w(TAG, "could not ${if (restricted) "set" else "clear"} $r", it) }
+            .getOrDefault(false)
+    }
 
     fun ensureConfigured(context: Context) {
         if (!isDeviceOwner(context)) return
+        runCatching { DeveloperMode.enforce(context) }
+            .onFailure { Log.w(TAG, "developer mode check failed", it) }
         val vc = versionCode(context)
         // Checked every time: a browser shown again or restored later would take links back.
         setAsDefaultForLinks(context)
@@ -253,6 +273,9 @@ object KioskManager {
 
     fun refreshKeyguardPolicy(context: Context) {
         if (!isDeviceOwner(context)) return
+        // A removed screen lock ends Developer mode at once.
+        runCatching { DeveloperMode.enforce(context) }
+            .onFailure { Log.w(TAG, "developer mode check failed", it) }
         val dpm = dpm(context)
         val admin = admin(context)
         try {

@@ -63,8 +63,13 @@ infers the caller from the most recent missed call. **It can be wrong.**
 - **Developer options and adb are enabled on first boot of a dev image only.** A public image
   (`RIST_PUBLIC_BUILD=true`, which ships `/product/etc/rist/public-build`) turns them off once in
   `aosp/init/rist-provision-do.sh`, and the Device Owner sets `DISALLOW_DEBUGGING_FEATURES`, so
-  they cannot be turned back on from Settings. The hidden "Exit kiosk" corner exists only on dev
-  images. On a dev image a handset with no screen lock needs only physical access and a cable for
+  they cannot be turned back on from Settings. The one exception is **Developer mode**
+  (`DeveloperMode.kt`): a Settings row that appears only when the backend says the account may use
+  it (`developer_mode`, schema v28), only works with a secure screen lock, and asks for that lock
+  when turned on. It lifts `DISALLOW_DEBUGGING_FEATURES` alone, and puts it back when turned off,
+  when the backend stops allowing it, or when the screen lock is removed. A computer still needs the
+  phone's own USB debugging approval, which needs the phone unlocked. The hidden "Exit kiosk"
+  corner exists only on dev images. On a dev image a handset with no screen lock needs only physical access and a cable for
   an authorized adb shell.
 - **One Device Owner restriction is deliberately not set.** Applied and read back:
   `DISALLOW_SAFE_BOOT`, `DISALLOW_ADD_USER`, `DISALLOW_INSTALL_UNKNOWN_SOURCES`,
