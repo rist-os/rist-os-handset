@@ -33,8 +33,11 @@ object Config {
     private const val KEY_TRANSCRIPT_MAX = "transcript_max_entries"
     private const val KEY_TRANSCRIPT_AGE_MS = "transcript_max_age_ms"
     private const val KEY_SESSION_ID = "session_id"
-    private const val KEY_SESSION_AT = "session_last_at"
-    private const val KEY_AWAITING_REPLY = "awaiting_reply"
+    /** Older builds kept an idle clock and a reply flag beside the id; removed on first use. */
+    private const val LEGACY_SESSION_AT = "session_last_at"
+    private const val LEGACY_AWAITING_REPLY = "awaiting_reply"
+    /** The account the conversation belongs to: the `user_id` the enroll answer named. */
+    private const val KEY_SESSION_ACCOUNT = "session_account"
     private const val KEY_KIOSK_STAMP = "kiosk_provisioned_vc"
     private const val KEY_TIMERS = "running_timers"
     private const val KEY_SMS_QUEUE = "sms_queue"
@@ -651,39 +654,54 @@ object Config {
         }.onFailure { Log.w(TAG, "token import failed", it) }
     }
 
-    private const val SESSION_IDLE_MS = 5L * 60L * 1000L
-
-    private const val SESSION_IDLE_AWAITING_MS = 20L * 60L * 1000L
-
-    fun setAwaitingReply(ctx: Context, awaiting: Boolean) {
-        prefs(ctx).edit().putBoolean(KEY_AWAITING_REPLY, awaiting).apply()
-    }
-
+    /**
+     * The conversation id. It has no time limit: it survives idle time, app restarts, reboots, app
+     * updates, endpoint changes and re-pairing to the same account. Only [newSession] (the user's
+     * "New conversation") and pairing to a different account ([onPairedAccount]) replace it.
+     */
     fun sessionId(ctx: Context): String = synchronized(this) {
         val p = prefs(ctx)
-        val now = System.currentTimeMillis()
-        val existing = p.getString(KEY_SESSION_ID, null)?.takeIf { it.isNotEmpty() }
-        val last = p.getLong(KEY_SESSION_AT, 0L)
-        val window = if (p.getBoolean(KEY_AWAITING_REPLY, false)) SESSION_IDLE_AWAITING_MS
-                     else SESSION_IDLE_MS
-        val stale = last > 0L && now - last > window
-        if (existing == null || stale) {
-            val id = UUID.randomUUID().toString()
-            p.edit().putString(KEY_SESSION_ID, id).putLong(KEY_SESSION_AT, now).apply()
-            if (stale) Log.i("RistCfg", "session rotated after ${(now - last) / 1000}s idle")
-            return id
+        if (p.contains(LEGACY_SESSION_AT) || p.contains(LEGACY_AWAITING_REPLY)) {
+            p.edit().remove(LEGACY_SESSION_AT).remove(LEGACY_AWAITING_REPLY).apply()
         }
-        p.edit().putLong(KEY_SESSION_AT, now).apply()
-        return existing
+        p.getString(KEY_SESSION_ID, null)?.takeIf { it.isNotEmpty() }?.let { return it }
+        val id = UUID.randomUUID().toString()
+        p.edit().putString(KEY_SESSION_ID, id).apply()
+        return id
     }
 
     fun currentSessionId(ctx: Context): String =
         prefs(ctx).getString(KEY_SESSION_ID, null)?.takeIf { it.isNotEmpty() } ?: ""
 
-    fun newSession(ctx: Context): String {
+    /**
+     * Starts a new conversation; the new id alone tells the server (no request flag exists). Only for
+     * the user's "New conversation" or a change of account.
+     */
+    fun newSession(ctx: Context): String = synchronized(this) {
         val id = UUID.randomUUID().toString()
         prefs(ctx).edit().putString(KEY_SESSION_ID, id).apply()
         return id
+    }
+
+    internal fun sessionAccount(ctx: Context): String =
+        prefs(ctx).getString(KEY_SESSION_ACCOUNT, null).orEmpty()
+
+    /**
+     * A pairing succeeded for [userId]. The conversation carries over when it is the account it was
+     * held with, and is replaced otherwise, including when either side is unknown (a phone paired by
+     * an older build, or an answer without `user_id`): one account's conversation must never
+     * continue under another. Returns whether a new conversation was started.
+     */
+    internal fun onPairedAccount(ctx: Context, userId: String): Boolean = synchronized(this) {
+        val now = userId.trim()
+        val before = sessionAccount(ctx)
+        val same = now.isNotEmpty() && now == before
+        if (!same) {
+            newSession(ctx)
+            Log.i(TAG, "paired to ${if (before.isEmpty()) "an unrecorded" else "a different"} account; new conversation")
+        }
+        prefs(ctx).edit().putString(KEY_SESSION_ACCOUNT, now).apply()
+        return !same
     }
 
     // Keys that must never reach the plaintext fallback store.

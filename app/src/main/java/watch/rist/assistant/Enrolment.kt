@@ -161,7 +161,8 @@ object Enrolment {
                 client.newCall(req).execute().use { resp ->
                     when {
                         resp.isSuccessful -> {
-                            val token = JSONObject(resp.body?.string().orEmpty()).optString("token").trim()
+                            val answer = JSONObject(resp.body?.string().orEmpty())
+                            val token = answer.optString("token").trim()
                             if (token.isBlank()) {
                                 Log.w(TAG, "claim returned 200 with no token")
                                 false
@@ -173,6 +174,7 @@ object Enrolment {
                                 } else {
                                     clear(ctx)
                                     Config.setEnrolRevoked(ctx, false)
+                                    Config.onPairedAccount(ctx, answer.optString("user_id"))
                                     WakeLoop.kick()
                                     Log.i(TAG, "enrolled: stored a ${token.length}-char token")
                                     true
@@ -317,6 +319,8 @@ object Enrolment {
                         Config.setCredentialRejected(ctx, false)
                         Config.setEnrolRevoked(ctx, false)
                         Config.clearBillingLapse(ctx)
+                        Config.onPairedAccount(ctx,
+                            runCatching { JSONObject(bodyText).optString("user_id") }.getOrDefault(""))
                         // The wake loop may be sitting out a refused token's wait.
                         WakeLoop.kick()
                         // Never log the code or the token.

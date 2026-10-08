@@ -144,6 +144,9 @@
     <string name="device_id_label">Rist phone ID</string>
     <string name="device_id_copy_hint">Phone ID. Tap to copy the full ID.</string>
     <string name="device_id_copied">Phone ID copied</string>
+    <string name="new_conversation">New conversation</string>
+    <string name="new_conversation_hint">Rist keeps one conversation going with no time limit. Start a new one to leave the earlier one behind.</string>
+    <string name="new_conversation_started">New conversation started. Rist won\'t use what was said before.</string>
     <string name="backend_section_heading">Assistant service</string>
     <string name="backend_endpoint_label">Endpoint (advanced)</string>
     <string name="backend_hint">https://host/v1/device</string>
