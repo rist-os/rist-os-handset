@@ -107,7 +107,7 @@ class LaunchLinkingTest {
     // ---- pairing ----
 
     @Test
-    fun `a device-limit 409 on pairing says two phones, names the Phones page, and that the code is spent`() {
+    fun `a device-limit 409 on pairing says two phones, names the Phones page, and to enter the code again`() {
         server.enqueue(MockResponse().setResponseCode(409)
             .setHeader(Enrolment.ENROL_REASON_HEADER, Enrolment.HELD_DEVICE_LIMIT)
             .setBody("""{"detail":"This account already has its maximum of 2 devices. Remove one before adding another."}"""))
@@ -117,7 +117,7 @@ class LaunchLinkingTest {
         val shown = Enrolment.explainPair(r)
         assertTrue(shown, shown.contains("already has two phones"))
         assertTrue(shown, shown.contains("Phones page at ristassist.com/account/phones"))
-        assertTrue(shown, shown.contains("get a new code"))
+        assertTrue(shown, shown.contains("enter the code again"))
         assertFalse(shown, shown.contains("not been used"))
         assertFalse(shown, shown.contains("Couldn't reach"))
     }

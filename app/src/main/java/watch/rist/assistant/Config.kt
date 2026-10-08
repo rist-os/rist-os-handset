@@ -184,9 +184,35 @@ object Config {
         return BackendChoice(override, Override.KEEP)
     }
 
+    /** The turn path. Every other path (wake, items, enroll, ...) is derived from the host. */
+    internal const val DEVICE_PATH = "/v1/device"
+
+    /**
+     * The endpoint in its one canonical form, `<scheme>://<host>[:port]<path>`, where a bare host
+     * or a URL with no path (or only "/") gets [DEVICE_PATH]. A URL already carrying a path keeps it,
+     * less any trailing slash, so `/v1/device` is never doubled. Null when it is not an http(s) URL
+     * with a host; a scheme is never guessed.
+     */
+    internal fun normalizeEndpoint(raw: String): String? {
+        val t = raw.trim()
+        if (t.isEmpty()) return null
+        val uri = runCatching { java.net.URI(t) }.getOrNull() ?: return null
+        val scheme = uri.scheme?.lowercase() ?: return null
+        if (scheme != "https" && scheme != "http") return null
+        val authority = uri.rawAuthority?.takeIf { it.isNotBlank() } ?: return null
+        if (uri.host.isNullOrBlank()) return null
+        if (uri.rawQuery != null || uri.rawFragment != null) return null
+        val path = uri.rawPath.orEmpty().trimEnd('/')
+        return "$scheme://$authority" + path.ifEmpty { DEVICE_PATH }
+    }
+
+    /** Normalized when it parses; otherwise as stored, so an odd value is never silently dropped. */
+    internal fun canonical(raw: String?): String? =
+        raw?.takeIf { it.isNotBlank() }?.let { normalizeEndpoint(it) ?: it.trim() }
+
     fun backendUrl(ctx: Context): String {
-        val stored = prefs(ctx).getString(KEY_BACKEND, null)
-        val default = deploy(ctx).first
+        val stored = canonical(prefs(ctx).getString(KEY_BACKEND, null))
+        val default = canonical(deploy(ctx).first).orEmpty()
         val choice = resolveBackend(stored, default, isDebugBuild(ctx))
         when (choice.action) {
             Override.KEEP -> Unit
@@ -220,8 +246,8 @@ object Config {
 
     // Changing the host drops the token: a credential must not follow to a new host.
     fun setBackendEndpoint(ctx: Context, url: String) {
-        val next = url.trim()
-        if (next != prefs(ctx).getString(KEY_BACKEND, "").orEmpty()) clearAuthTokenForHostChange(ctx)
+        val next = canonical(url).orEmpty()
+        if (next != canonical(prefs(ctx).getString(KEY_BACKEND, "")).orEmpty()) clearAuthTokenForHostChange(ctx)
         prefs(ctx).edit().putString(KEY_BACKEND, next).apply()
     }
 
@@ -567,6 +593,13 @@ object Config {
 
     fun deviceId(ctx: Context): String =
         Settings.Secure.getString(ctx.contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown"
+
+    /** Characters of the device id shown on the settings screen. */
+    internal const val SHORT_DEVICE_ID_LEN = 12
+
+    /** The first [SHORT_DEVICE_ID_LEN] characters, with an ellipsis when the id is longer. */
+    internal fun shortDeviceId(id: String): String =
+        if (id.length <= SHORT_DEVICE_ID_LEN) id else id.take(SHORT_DEVICE_ID_LEN) + "…"
 
     fun authToken(ctx: Context): String =
         prefs(ctx).getString(KEY_AUTH_TOKEN, "") ?: ""
