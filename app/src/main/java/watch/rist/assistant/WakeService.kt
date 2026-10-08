@@ -4,15 +4,12 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
 import android.os.IBinder
-import android.os.PowerManager
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,7 +27,6 @@ class WakeService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var loop: Job? = null
     private var netCallback: ConnectivityManager.NetworkCallback? = null
-    private var powerReceiver: BroadcastReceiver? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -39,7 +35,6 @@ class WakeService : Service() {
         if (loop?.isActive != true) {
             loop = scope.launch { WakeLoop.run(applicationContext) }
             watchNetwork()
-            watchPower()
             Log.i(TAG, "wake loop started")
         } else {
             // A second start is a nudge (boot, update, the app opening): poll now.
@@ -60,26 +55,7 @@ class WakeService : Service() {
             .onFailure { Log.w(TAG, "no network callback; relying on backoff", it) }
     }
 
-    // A wait stretched for Battery Saver with the screen off ends when either stops being true:
-    // the screen coming on (lock screen included) or the saver going off (plugged in) polls now.
-    private fun watchPower() {
-        if (powerReceiver != null) return
-        val r = object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) = WakeLoop.onPowerStateChanged()
-        }
-        val filter = IntentFilter(Intent.ACTION_SCREEN_ON).apply {
-            addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
-        }
-        runCatching {
-            androidx.core.content.ContextCompat.registerReceiver(
-                this, r, filter, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
-            powerReceiver = r
-        }.onFailure { Log.w(TAG, "no screen/saver receiver; the stretched wait runs out", it) }
-    }
-
     override fun onDestroy() {
-        powerReceiver?.let { runCatching { unregisterReceiver(it) } }
-        powerReceiver = null
         netCallback?.let { cb ->
             runCatching { getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(cb) }
         }

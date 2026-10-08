@@ -57,24 +57,6 @@ class BatteryPolicyTest {
 
     // ── the wake poll ─────────────────────────────────────────────────────────────────────
 
-    @Test fun `the server's idle gap stands unless Battery Saver is on and the screen is off`() {
-        val idle = 240_000L
-        assertEquals(idle, WakeLoop.idleGapMs(idle, powerSave = false, interactive = false))
-        assertEquals(idle, WakeLoop.idleGapMs(idle, powerSave = true, interactive = true))
-        assertEquals(WakeLoop.SAVER_IDLE_GAP_MS, WakeLoop.idleGapMs(idle, powerSave = true, interactive = false))
-    }
-
-    @Test fun `Battery Saver never slows a draining burst, a deploy or a lost ack`() {
-        for (gap in listOf(1_000L, 5_000L, 10_000L)) {
-            assertEquals(gap, WakeLoop.idleGapMs(gap, powerSave = true, interactive = false))
-        }
-    }
-
-    @Test fun `Battery Saver never shortens a longer gap the server asked for`() {
-        val hour = 60L * 60 * 1000
-        assertEquals(hour, WakeLoop.idleGapMs(hour, powerSave = true, interactive = false))
-    }
-
     @Test fun `offline, a failed poll waits for the network instead of retrying every minute`() {
         assertEquals(WakeLoop.OFFLINE_RETRY_MS, WakeLoop.retryWaitMs(60_000L, hasNetwork = false))
         assertEquals(60_000L, WakeLoop.retryWaitMs(60_000L, hasNetwork = true))

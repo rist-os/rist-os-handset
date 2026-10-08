@@ -3,7 +3,6 @@ package watch.rist.assistant
 import android.content.Context
 import android.media.AudioManager
 import android.net.ConnectivityManager
-import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.VibratorManager
 import android.util.Log
@@ -103,31 +102,6 @@ object WakeLoop {
             .build().toString()
     }
 
-    /**
-     * An idle gap at or above this is the server saying "nothing to hand over". Shorter gaps
-     * (0 while draining, 5-10 s after a deploy or a lost ack) are left exactly as sent.
-     */
-    internal const val IDLE_GAP_THRESHOLD_MS = 60_000L
-
-    /** The idle gap while Battery Saver is on and the screen is off. */
-    internal const val SAVER_IDLE_GAP_MS = 15L * 60 * 1000
-
-    /**
-     * How long to wait after a signal. The server's idle gap is stretched only when the owner has
-     * asked the phone to save power (Battery Saver) and nobody is looking at it: news then arrives
-     * within fifteen minutes instead of four, and the screen coming on or the saver going off
-     * polls at once ([onPowerStateChanged]). Calls, texts and alarms do not come this way.
-     */
-    internal fun idleGapMs(serverGapMs: Long, powerSave: Boolean, interactive: Boolean): Long =
-        if (powerSave && !interactive && serverGapMs >= IDLE_GAP_THRESHOLD_MS) maxOf(serverGapMs, SAVER_IDLE_GAP_MS)
-        else serverGapMs
-
-    /** True while the loop sits in a wait [idleGapMs] stretched; see [onPowerStateChanged]. */
-    @Volatile internal var stretchedWait = false
-
-    /** The screen came on or Battery Saver changed: a stretched wait no longer applies, so poll now. */
-    fun onPowerStateChanged() { if (stretchedWait) kick() }
-
     /** With no network at all, a retry cannot succeed; wait this long, or for the network to come back. */
     internal const val OFFLINE_RETRY_MS = 15L * 60 * 1000
 
@@ -138,14 +112,6 @@ object WakeLoop {
      */
     internal fun retryWaitMs(backoffMs: Long, hasNetwork: Boolean?): Long =
         if (hasNetwork == false) maxOf(backoffMs, OFFLINE_RETRY_MS) else backoffMs
-
-    private fun powerSave(ctx: Context): Boolean = runCatching {
-        ctx.getSystemService(PowerManager::class.java)?.isPowerSaveMode == true
-    }.getOrDefault(false)
-
-    private fun interactive(ctx: Context): Boolean = runCatching {
-        ctx.getSystemService(PowerManager::class.java)?.isInteractive != false
-    }.getOrDefault(true)
 
     /** Null unless a network callback is registered to end the long offline wait early. */
     private fun hasNetwork(ctx: Context): Boolean? {
@@ -301,13 +267,7 @@ object WakeLoop {
                     backoff = BACKOFF_MIN_MS
                     // Ours to set and we honour it (0 while draining, 240 when idle), but never
                     // quicker than a second: an empty 200 parses as 0 and would spin.
-                    val gap = pollGapMs(out.signal.pollAfterS)
-                    // Raised before the screen and saver are read, so a change while they are
-                    // read still queues a kick that ends the wait below.
-                    stretchedWait = true
-                    val wait = idleGapMs(gap, powerSave(ctx), interactive(ctx))
-                    stretchedWait = wait > gap
-                    try { waitOrKick(wait) } finally { stretchedWait = false }
+                    waitOrKick(pollGapMs(out.signal.pollAfterS))
                 }
                 Outcome.Unauthorised -> {
                     Log.w(TAG, "401: stopping until the phone has a new credential")
