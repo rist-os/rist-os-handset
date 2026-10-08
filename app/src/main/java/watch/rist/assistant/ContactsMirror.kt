@@ -101,11 +101,14 @@ object ContactsMirror {
         val bySource: Map<String, Long>,
         /** Rows made on the phone and already sent: the key they were sent under, to raw contact id. */
         val byKey: Map<String, Long>,
+        /** Rows the owner changed on the phone that no push has settled yet. A pull leaves them be. */
+        val dirty: Set<Long> = emptySet(),
     )
 
     internal fun held(ctx: Context): Held {
         val bySource = HashMap<String, Long>()
         val byKey = HashMap<String, Long>()
+        val dirtyIds = HashSet<Long>()
         ctx.contentResolver.query(
             asSyncAdapter(RawContacts.CONTENT_URI),
             arrayOf(RawContacts._ID, RawContacts.SOURCE_ID, RawContacts.DIRTY, RawContacts.SYNC3),
@@ -117,6 +120,7 @@ object ContactsMirror {
                 val sid = c.getString(1)
                 val dirty = !c.isNull(2) && c.getInt(2) != 0
                 val key = c.getString(3)
+                if (dirty) dirtyIds += id
                 when {
                     !sid.isNullOrBlank() && sid !in bySource -> bySource[sid] = id
                     !sid.isNullOrBlank() -> bySource["#$id"] = id
@@ -128,7 +132,7 @@ object ContactsMirror {
                 }
             }
         }
-        return Held(bySource, byKey)
+        return Held(bySource, byKey, dirtyIds)
     }
 
     /** SOURCE_ID to raw contact id, for every row a pull may replace or remove. */
@@ -138,7 +142,8 @@ object ContactsMirror {
      * Writes one pull. On [full] the account ends up holding exactly [records], plus anything made
      * on the phone and not yet sent; otherwise they are upserted on SOURCE_ID and [deletedIds]
      * removed. A record that carries the key a phone-made row was sent under takes that row over.
-     * Returns false if anything could not be written, in which case the next sync should be a full one.
+     * Returns false if anything could not be written, or a row was held back for an unsent edit; the
+     * next sync is then a full one.
      */
     fun apply(ctx: Context, full: Boolean, records: Collection<ContactRecord>, deletedIds: Collection<String>): Boolean {
         if (!canWrite(ctx)) {
@@ -154,6 +159,8 @@ object ContactsMirror {
             for (r in records) {
                 if (r.id.isBlank() || r.externalKey.isBlank()) continue
                 val born = held.byKey[r.externalKey] ?: continue
+                // Changed again on the phone since it was sent: the next push names it.
+                if (born in held.dirty) continue
                 // The backend may have folded a phone-made person into somebody already here; then
                 // the phone's row is the second copy.
                 if (r.id in have) dropped += born else claims[r.id] = born
@@ -171,10 +178,14 @@ object ContactsMirror {
                     )
                 }
             }
+            var heldBack = 0
             for (r in records) {
                 if (r.id.isBlank()) continue
                 val claimed = claims[r.id]
                 val rawId = have[r.id] ?: claimed
+                // An edit on the phone that no push has settled (it failed, was refused, or was made
+                // while the push was on the way) is not written over; the next push sends it.
+                if (rawId != null && rawId in held.dirty) { heldBack++; continue }
                 groups += { base -> upsertOps(r, rawId, base, claim = claimed != null && have[r.id] == null) }
             }
             var batch = ArrayList<ContentProviderOperation>()
@@ -189,8 +200,9 @@ object ContactsMirror {
             }
             flush()
             Log.i(TAG, "address book: ${records.size} written, ${gone.size + dropped.size} removed, " +
-                "${claims.size} made here now named (full=$full)")
-            true
+                "${claims.size} made here now named, $heldBack held for the next push (full=$full)")
+            // Held back: the next pull is a full one, after the push, so the two sides meet again.
+            heldBack == 0
         }.onFailure {
             // The class only: a provider error can quote the row it refused.
             Log.w(TAG, "could not write the system address book: ${it.javaClass.simpleName}")

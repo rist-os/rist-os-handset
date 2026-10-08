@@ -220,6 +220,40 @@ class ContactsPushTest {
     }
 
     @Test
+    fun `a favourite saved to the phone's own account is kept, and not sent again`() {
+        synced()
+        val local = contacts.ownerCreates(null, "Dan Example", "+14255559212")
+        contacts.raw[local]!!.put(RawContacts.STARRED, 1)
+        val key = ContactsPush.deviceKey(tag, local)
+        server.enqueue(page("c2", full = false, person("d", "Dan Example", "+14255559212", key = key)))
+        server.enqueue(page("c2", full = false, person("d", "Dan Example", "+14255559212", key = key)))
+
+        ContactsSync.syncBlocking(app)
+        take(); take()
+
+        assertTrue("the star is not lost", contacts.raw.containsKey(local))
+        assertFalse(ContactsPush.hasPending(app))
+    }
+
+    @Test
+    fun `a push the backend turns away is not written over by the pull that follows`() {
+        synced()
+        val raw = contacts.rawIdOfSource("a")
+        contacts.ownerRenames(raw, "Alice Renamed")
+        server.enqueue(MockResponse().setResponseCode(429))
+        server.enqueue(page("c2", full = false, person("a", "Alice Example", "+12065550100")))
+
+        ContactsSync.syncBlocking(app)
+
+        assertEquals("POST", take().method)
+        assertEquals("GET", take().method)
+        assertEquals("the edit is kept", "Alice Renamed", contacts.nameOf("a"))
+        assertEquals(1, contacts.raw[raw]!!.getAsInteger(RawContacts.DIRTY))
+        assertTrue("the next pull is a full one, after the push", Config.contactsNeedsFull(app))
+        assertTrue(ContactsPush.hasPending(app))
+    }
+
+    @Test
     fun `a contact with no name stays on the phone and sends nothing`() {
         synced()
         val raw = contacts.ownerCreates(null, "", "+14255559212")
@@ -282,6 +316,18 @@ class ContactsPushTest {
     }
 
     // ---- pure ----
+
+    @Test
+    fun `a record is stamped with when the person changed, not when it was sent`() {
+        val rows = listOf(ContactsPush.DataRow(StructuredName.CONTENT_ITEM_TYPE, d1 = "Sam", changedAtMs = 2_000L))
+        val p = ContactsPush.Pending(rawId = 7, version = 3, device = false, sourceId = "s", rows = rows)
+        assertEquals(2_000L, ContactsPush.recordOf(p, "k", 9_000L)!!.updatedAtMs)
+        // Unknown, or a clock ahead of ours: the send time.
+        val unknown = p.copy(rows = listOf(rows[0].copy(changedAtMs = 0L)))
+        assertEquals(9_000L, ContactsPush.recordOf(unknown, "k", 9_000L)!!.updatedAtMs)
+        val ahead = p.copy(rows = listOf(rows[0].copy(changedAtMs = 99_000L)))
+        assertEquals(9_000L, ContactsPush.recordOf(ahead, "k", 9_000L)!!.updatedAtMs)
+    }
 
     @Test
     fun `a record carries the name, numbers with their labels, nickname and note`() {
