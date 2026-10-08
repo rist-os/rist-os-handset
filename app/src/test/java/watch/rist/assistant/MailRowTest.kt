@@ -179,6 +179,16 @@ class MailRowTest {
     }
 
     @Test
+    fun `a double tap brings home up once`() {
+        Config.setMailUnread(app, 1)
+        val p = page()
+        val row = requireNotNull(mailRow(p))
+        row.performClick(); row.performClick(); settle()
+        assertNotNull(shadowOf(p).nextStartedActivity)
+        assertNull(shadowOf(p).nextStartedActivity)
+    }
+
+    @Test
     fun `an intent from outside the app cannot send a turn`() {
         val forged = android.content.Intent(app, MainActivity::class.java)
             .putExtra("rist_turn_key", "guess")
