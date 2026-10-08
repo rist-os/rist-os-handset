@@ -2,6 +2,7 @@ package watch.rist.assistant
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 
 /** Only the main process writes here: SharedPreferences is not multi-process safe. */
 object OtaState {
@@ -63,6 +64,8 @@ object OtaState {
     }
 
     fun recordCheck(ctx: Context, atSeconds: Long, result: String) {
+        // The screen shows a plain phrase (otaPlainResult); the detail goes to logcat.
+        Log.i("RistOta", "check result: $result")
         prefs(ctx).edit()
             .putLong(KEY_LAST_CHECK_AT, atSeconds)
             .putString(KEY_LAST_RESULT, result)

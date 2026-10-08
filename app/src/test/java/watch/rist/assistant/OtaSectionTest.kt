@@ -354,9 +354,11 @@ class OtaSectionTest {
     }
 
     @Test
-    fun `the last check line prints the stored result verbatim`() {
+    fun `the last check line shows a plain phrase, not the stored diagnostic`() {
         val l = otaLastCheckLine(view(lastResult = "package missing: half-finished publish"))
-        assertTrue(l.contains("package missing: half-finished publish"))
+        assertFalse(l.contains("package missing"))
+        assertTrue(l.endsWith(OTA_UNAVAILABLE))
+        assertTrue(otaLastCheckLine(view()).endsWith(OTA_UP_TO_DATE))
         assertEquals("Last checked: never.", otaLastCheckLine(view(lastCheckAtSeconds = 0L)))
     }
 
