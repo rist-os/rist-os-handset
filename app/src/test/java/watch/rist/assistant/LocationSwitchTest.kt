@@ -127,6 +127,7 @@ class LocationSwitchTest {
             override fun canSet(ctx: Context) = true
             override fun set(ctx: Context, zone: String): Boolean { sets += zone; return true }
             override fun handBack(ctx: Context) {}
+            override fun networkInCharge(ctx: Context) = false
         }
         AutoTimeZone.resetTravelForTest()
         try {
@@ -159,6 +160,7 @@ class LocationSwitchTest {
             override fun canSet(ctx: Context) = true
             override fun set(ctx: Context, zone: String): Boolean { sets += zone; return true }
             override fun handBack(ctx: Context) {}
+            override fun networkInCharge(ctx: Context) = false
         }
         try {
             Config.setAutoTimeZone(app, true)
