@@ -313,6 +313,17 @@ class TextAlertTest {
     }
 
     @Test
+    fun `a channel set to no sound plays none, and in vibrate mode buzzes only if it vibrates`() {
+        val silent = TextAlert.RankFacts(true, false, NotificationManager.IMPORTANCE_HIGH, null, false, null, channelKnown = true)
+        val a = TextAlert.decide(true, silent, AudioManager.RINGER_MODE_NORMAL, false, true)
+        assertFalse(a.sound); assertFalse(a.vibrate); assertTrue(a.banner)
+        assertFalse(TextAlert.decide(true, silent, AudioManager.RINGER_MODE_VIBRATE, false, true).vibrate)
+        val tone = silent.copy(channelSound = Uri.parse("content://settings/system/notification_sound"))
+        assertTrue(TextAlert.decide(true, tone, AudioManager.RINGER_MODE_NORMAL, false, true).sound)
+        assertTrue(TextAlert.decide(true, tone, AudioManager.RINGER_MODE_VIBRATE, false, true).vibrate)
+    }
+
+    @Test
     fun `other apps and group summaries are not texts`() {
         assertEquals(TextAlert.Alerting.NONE, TextAlert.onPosted(app, sms(pkg = "com.example.other"), facts()))
         assertEquals(TextAlert.Alerting.NONE,
