@@ -478,14 +478,14 @@ class SettingsActivity : AppCompatActivity() {
             setPadding(0, px(6f), 0, px(4f))
         })
         box.addView(TextView(this).apply {
-            text = if (canSet) "Rist can set the clock from where the phone is, even with no signal. " +
-                "The phone's own setting depends on the cell network sending the time, which many don't."
+            text = if (canSet) "Automatic uses the cell network's time zone the moment it changes. Where the " +
+                "network doesn't send one, Rist sets it from where the phone is, even with no signal."
             else "Rist can't change the clock on this phone. The phone's own setting is in use."
             setTextColor(muted); textSize = 10.5f; typeface = bodyTf
             setPadding(0, 0, 0, px(8f))
         })
 
-        val options = listOf("From location", "Phone's own setting")
+        val options = listOf("Automatic", "Network only")
         val value = TextView(this).apply {
             setTextColor(if (canSet) theme.accent else muted); textSize = 15f; typeface = bodyTf
             setPadding(0, px(6f), 0, px(2f))

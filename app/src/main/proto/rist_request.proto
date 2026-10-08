@@ -234,6 +234,12 @@ message WakeSignal {
   DesignSpec design = 12;
   // Proposed (design and settings): a settings resend, as DeviceResponse.settings.
   SettingsCommand settings = 13;
+
+  // 14 is location_off on the backend.
+
+  // v27: when the account's next scheduled instruction runs, unix ms; 0 = none. Only on a wake
+  // that declared `wake_hold_v2`. The phone sets an exact alarm just after it and polls then.
+  uint64 next_due_at_epoch_ms = 15;
 }
 
 message PendingAction {

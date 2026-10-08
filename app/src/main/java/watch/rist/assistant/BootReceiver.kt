@@ -29,6 +29,7 @@ class BootReceiver : BroadcastReceiver() {
                     // arrive somewhere with the wrong clock.
                     runCatching {
                         AutoTimeZone.schedule(ctx.applicationContext)
+                        AutoTimeZone.preferNetwork(ctx.applicationContext)
                         AutoTimeZone.checkInBackground(ctx.applicationContext, force = true)
                     }
                 }

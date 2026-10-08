@@ -11,17 +11,24 @@ import android.util.Log
 import java.util.TimeZone
 
 /**
- * Keeps the phone's time zone where the phone is, from its own location fix.
+ * Keeps the phone's time zone right: the carrier network's zone first, the phone's own location
+ * as the fallback.
  *
- * The OS's automatic zone comes from the cell network's time signal (NITZ). Carriers often do
- * not send it, roaming networks frequently do not, and without it the OS falls back to the
- * country, which only works for a country with one zone. Mexico has several, so a phone arriving
- * there kept its home zone. A location fix does not depend on any of that, and it works with no
- * signal at all, because the lookup ([TimeZoneIndex]) is on the phone.
+ * NETWORK FIRST. The OS's automatic zone comes from the cell network's time signal (NITZ) and
+ * switches the moment the phone registers on a network in a new zone, faster than any location
+ * check. So it stays on ([preferNetwork] turns it back on at boot and on a travel sign), and a
+ * location fix that agrees with its clock changes nothing.
  *
- * RIST sets the zone as device owner. The OS will not accept a zone from an app while its own
- * automatic detection is on, so turning this on turns that off, and turning this off hands the
- * clock back to it. Where RIST is not device owner nothing is changed and Settings says so.
+ * LOCATION AS THE FALLBACK. Carriers often do not send NITZ, roaming networks frequently do not,
+ * and without it the OS falls back to the country, which only works for a country with one zone.
+ * Mexico has several, so a phone arriving there kept its home zone. When the zone the location
+ * names shows a different time from the clock, the network has evidently not settled it, and Rist
+ * sets it as device owner. The OS will not accept a zone from an app while its own detection is
+ * on, so that switch turns the OS's detection off until the next boot or travel sign hands the
+ * clock back to the network. The lookup ([TimeZoneIndex]) is on the phone and needs no signal.
+ *
+ * Turning the setting off hands the clock back to the OS for good. Where Rist is not device owner
+ * nothing is changed and Settings says so.
  */
 object AutoTimeZone {
 
@@ -50,6 +57,8 @@ object AutoTimeZone {
         /** Turns the OS's own detection off if needed, then sets [zone]. True when it took. */
         fun set(ctx: Context, zone: String): Boolean
         fun handBack(ctx: Context)
+        /** Whether the OS's own detection (the network's zone) is on. */
+        fun networkInCharge(ctx: Context): Boolean
     }
 
     private object DeviceOwnerZone : SystemZone {
@@ -64,6 +73,11 @@ object AutoTimeZone {
             if (dpm.getAutoTimeZoneEnabled(admin)) dpm.setAutoTimeZoneEnabled(admin, false)
             dpm.setTimeZone(admin, zone)
         }.onFailure { Log.w(TAG, "could not set the time zone to $zone", it) }.getOrDefault(false)
+
+        override fun networkInCharge(ctx: Context): Boolean = runCatching {
+            @Suppress("DEPRECATION")
+            KioskManager.dpm(ctx).getAutoTimeZoneEnabled(KioskManager.admin(ctx))
+        }.getOrDefault(false)
 
         override fun handBack(ctx: Context) {
             runCatching {
@@ -129,10 +143,20 @@ object AutoTimeZone {
                 if (found == current) Config.setAutoTimeZonePending(ctx, null, 0L)
             }
             is Decision.Wait -> {
+                if (system.networkInCharge(ctx)) {
+                    // Same time on the clock either way, and the network's zone also follows its
+                    // own rule changes: it stays in charge.
+                    Log.d(TAG, "keep the network's $current (location says ${d.zone}, same time)")
+                    return
+                }
                 Config.setAutoTimeZonePending(ctx, d.zone, nowMs)
                 Log.i(TAG, "saw ${d.zone} (same offset as $current); switching if seen again")
             }
             is Decision.Switch -> {
+                if (system.networkInCharge(ctx)) {
+                    Log.i(TAG, "the network's zone $current shows a different time from where the " +
+                        "phone is; using location until the network is tried again")
+                }
                 val ok = system.set(ctx, d.zone)
                 Config.setAutoTimeZonePending(ctx, null, 0L)
                 Log.i(TAG, "time zone $current -> ${d.zone}: ${if (ok) "set" else "REFUSED by the OS"}")
@@ -140,11 +164,29 @@ object AutoTimeZone {
         }
     }
 
-    /** Settings: on takes the clock from location now; off gives it back to the phone. */
+    /** Settings: on puts the network in charge with location as the fallback; off gives the clock back to the phone. */
     fun setEnabled(ctx: Context, enabled: Boolean) {
         Config.setAutoTimeZone(ctx, enabled)
         Config.setAutoTimeZonePending(ctx, null, 0L)
-        if (enabled) checkInBackground(ctx, force = true) else if (system.canSet(ctx)) system.handBack(ctx)
+        if (enabled) {
+            preferNetwork(ctx)
+            checkInBackground(ctx, force = true)
+        } else if (system.canSet(ctx)) system.handBack(ctx)
+    }
+
+    /**
+     * Gives the clock back to the network's zone if a location fallback took it. Call it whenever
+     * the network may now know better: at boot, and on a travel sign (airplane mode off, a new
+     * network country). The OS then applies the network's zone the moment it has one; a location
+     * check after it switches away again only if the network's zone still shows the wrong time.
+     * Returns whether it handed the clock back.
+     */
+    fun preferNetwork(ctx: Context): Boolean {
+        if (!Config.isAutoTimeZone(ctx) || !system.canSet(ctx) || system.networkInCharge(ctx)) return false
+        system.handBack(ctx)
+        Config.setAutoTimeZonePending(ctx, null, 0L)
+        Log.i(TAG, "time zone handed back to the network; location stays the fallback")
+        return true
     }
 
     fun canSet(ctx: Context): Boolean = system.canSet(ctx)
@@ -262,6 +304,8 @@ object AutoTimeZone {
         val app = ctx.applicationContext
         Thread({
             runCatching {
+                // The network may know the new zone now: give it the clock back first.
+                preferNetwork(app)
                 if (country != null && key.startsWith("country:")) setFromCountry(app, country)
                 checkBlocking(app, force = true)
             }.onFailure { Log.w(TAG, "travel check failed", it) }
@@ -272,6 +316,8 @@ object AutoTimeZone {
     /** Sets the country's zone when it alone decides and the clock shows a different time now. */
     internal fun setFromCountry(ctx: Context, country: String, nowMs: Long = System.currentTimeMillis()) {
         if (!Config.isAutoTimeZone(ctx) || !system.canSet(ctx)) return
+        // With the network's zone in charge the OS sets a one-zone country itself, at once.
+        if (system.networkInCharge(ctx)) return
         val zone = zoneForCountry(country, nowMs) ?: return
         val current = system.current()
         if (TimeZone.getTimeZone(zone).getOffset(nowMs) == TimeZone.getTimeZone(current).getOffset(nowMs)) return
