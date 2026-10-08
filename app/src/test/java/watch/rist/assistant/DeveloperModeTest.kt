@@ -68,9 +68,12 @@ class DeveloperModeTest {
     fun `only https on the service's own host counts as the service`() {
         assertTrue(DeveloperMode.isServiceUrl(SERVICE))
         assertTrue(DeveloperMode.isServiceUrl("https://API.rist.watch/v1/device/wake?ack=1"))
+        assertTrue(DeveloperMode.isServiceUrl("https://api.ristassist.com/v1/device"))
         for (u in listOf("http://api.rist.watch/v1/device", "https://api.rist.watch.evil.example/v1/device",
                 "https://evil.example/api.rist.watch", "https://api.rist.watch@evil.example/v1/device",
-                "https://rist.watch/v1/device", "https://x.api.rist.watch/v1/device", "", "not a url"))
+                "https://rist.watch/v1/device", "https://x.api.rist.watch/v1/device", "", "not a url",
+                "http://api.ristassist.com/v1/device", "https://ristassist.com/v1/device",
+                "https://api.ristassist.com.evil.example/v1/device"))
             assertFalse(u, DeveloperMode.isServiceUrl(u))
     }
 
