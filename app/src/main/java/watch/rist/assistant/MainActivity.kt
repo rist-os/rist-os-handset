@@ -613,10 +613,26 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         runCatching { DeviceCommands.restoreTimers(applicationContext) }
         Config.importTokenFileIfPresent(applicationContext)
         SmsResultReceiver.register(applicationContext)
+        // For the activity's whole life, not onStart/onStop: navigation GPS runs with the screen off.
+        LocalBroadcastManager.getInstance(this)
+            .registerReceiver(locationOffReceiver, IntentFilter(LocationSwitch.ACTION_LOCATION_OFF))
         refreshTalkEnabled()
     }
 
+    // The account's location switch went off: navigation GPS stops at once, not on its next fix.
+    private val locationOffReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (currentNav == null && !navigating) return
+            Log.i(TAG, "navigation: the account's location switch is off; GPS stopped")
+            stopNavLocationUpdates()
+            lastNavFix = null
+            navAnchor = null
+            if (currentNav != null) updateNavHere()
+        }
+    }
+
     override fun onDestroy() {
+        runCatching { LocalBroadcastManager.getInstance(this).unregisterReceiver(locationOffReceiver) }
         mediaHandler.removeCallbacksAndMessages(null)
         staleHandler.removeCallbacksAndMessages(null)
         torchHandler.removeCallbacksAndMessages(null)
