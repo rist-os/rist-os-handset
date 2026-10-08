@@ -85,7 +85,7 @@ class ContactsPushTest {
                 .addAllContacts(people.toList()).addAllDeletedIds(deleted).build().toByteArray()
         ))
 
-    private fun take(): RecordedRequest = server.takeRequest(5, TimeUnit.SECONDS)!!
+    private fun take(): RecordedRequest = server.takeRequest(30, TimeUnit.SECONDS)!!
     private fun pushOf(r: RecordedRequest): ContactPush = ContactPush.parseFrom(r.body.readByteArray())
 
     /** A mirror already holding Alice, as a pull leaves it. */

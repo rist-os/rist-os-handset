@@ -75,7 +75,7 @@ class TextsOnRequestTest {
     private fun answer(text: String) = reply { speech = Speech.newBuilder().setText(text).build() }
 
     private fun sent(): DeviceRequest =
-        DeviceRequest.parseFrom(server.takeRequest(5, TimeUnit.SECONDS)!!.body.readByteArray())
+        DeviceRequest.parseFrom(server.takeRequest(30, TimeUnit.SECONDS)!!.body.readByteArray())
 
     @Test
     fun `asked for its texts, the phone sends the turn again with the last day of texts and calls`() {

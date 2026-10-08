@@ -3,11 +3,15 @@ package watch.rist.assistant
 import android.content.Context
 import android.media.AudioManager
 import android.net.ConnectivityManager
+import android.os.PowerManager
+import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.VibratorManager
 import android.util.Log
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.Call
+import okhttp3.ConnectionPool
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -16,9 +20,15 @@ import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 
 /**
- * The wake channel: a GET the backend holds for up to 55 seconds and
- * answers the moment it has something, so mail reaches the phone within seconds instead of on
- * the next turn.
+ * The wake channel: a GET the backend holds open and answers the moment it has something, so mail
+ * reaches the phone within seconds instead of on the next turn.
+ *
+ * The held connection (`wake_hold_v2`): the backend holds for up to 210 seconds and an idle answer
+ * says "ask again now", so there is no gap in which the phone cannot hear anything. The hold is
+ * short enough that one that died silently is noticed (hold + grace = 230 s) before the legacy
+ * 240 s gap would have ended: nothing arrives later than on the legacy cycle. A backend that does not know it holds for 55 s and says wait
+ * 240 s, which this loop follows as before. `next_due_at_epoch_ms` sets an exact alarm for the next
+ * scheduled instruction ([DueAlarm]), which drops the hold and polls on a fresh connection.
  *
  * The phone still opens every exchange; nothing can be sent to it. A notification here is inert:
  * it is stored, shown on the feed and may buzz, and it never speaks, never opens a turn and never
@@ -28,8 +38,48 @@ object WakeLoop {
 
     private const val TAG = "RistWake"
 
-    /** The backend holds for 55s; anything shorter aborts every normal hold. */
+    /** The legacy backend holds for 55s; anything shorter aborts every normal hold. */
     internal const val READ_TIMEOUT_S = 90L
+
+    /** Declared on every poll: hold me until there is something to say (backend v27). */
+    internal const val HOLD_V2_COMPONENT = "wake_hold_v2"
+    /**
+     * The hold asked for, at most. [HOLD_MAX_S] + [HOLD_GRACE_S] stays under the legacy 240 s idle
+     * gap, so a hold that died silently never delays anything past the legacy worst case.
+     */
+    internal const val HOLD_MAX_S = 210L
+    /** Never asked for less, on a network that drops idle connections fast. */
+    internal const val HOLD_MIN_S = 60L
+    /** Read timeout beyond the hold asked for, before the hold counts as silently dropped. */
+    internal const val HOLD_GRACE_S = 20L
+    /** Holds that ran their full length before the hold asked for grows again. */
+    internal const val HOLD_GROW_AFTER = 3
+    /** The CPU stays awake this long after an answer, so the next poll goes out before sleep. */
+    internal const val WAKELOCK_MS = 10_000L
+
+    /**
+     * The hold to ask for. A NAT or firewall that forgets idle connections loses an answer without
+     * any error; the read then times out after the hold. Each such drop halves the hold asked
+     * for (not below [HOLD_MIN_S]); [HOLD_GROW_AFTER] holds that ran their full length grow it by
+     * half again, up to [HOLD_MAX_S].
+     */
+    internal class HoldTuner(var holdS: Long = HOLD_MAX_S) {
+        private var fullHolds = 0
+        fun onSilentDrop() { holdS = maxOf(HOLD_MIN_S, holdS / 2); fullHolds = 0 }
+        fun onAnswered(elapsedMs: Long) {
+            if (elapsedMs < holdS * 900) return            // answered early: says nothing about drops
+            fullHolds++
+            if (fullHolds >= HOLD_GROW_AFTER) {
+                holdS = minOf(HOLD_MAX_S, holdS * 3 / 2)
+                fullHolds = 0
+            }
+        }
+    }
+
+    internal val tuner = HoldTuner()
+
+    /** A read that timed out after at least the hold asked for: dropped silently on the way. */
+    internal fun isSilentDrop(elapsedMs: Long, holdS: Long): Boolean = elapsedMs >= holdS * 1000
     internal const val BACKOFF_MIN_MS = 1_000L
     internal const val BACKOFF_MAX_MS = 60_000L
     /** How often to look again when there is no token to poll with. */
@@ -57,8 +107,11 @@ object WakeLoop {
         object Refused : Outcome()
         /** 402: the subscription lapsed. The token is fine; nothing is cleared. */
         data class Lapsed(val lapse: Billing.Lapse) : Outcome()
-        /** 503 or a transport failure: back off and try again. */
-        data class Retry(val why: String) : Outcome()
+        /**
+         * 503 or a transport failure: back off and try again. [silent]: the read timed out, so
+         * the connection was dropped somewhere without a word; ask again at once, for less.
+         */
+        data class Retry(val why: String, val silent: Boolean = false) : Outcome()
         /** No token, or no backend address: nothing to poll with yet. */
         object NotReady : Outcome()
     }
@@ -76,6 +129,7 @@ object WakeLoop {
         boxesVersion: Long? = null,
         designVersions: Pair<Long, Long>? = null,
         checklists: Boolean = false,
+        holdS: Long? = null,
     ): String? {
         val base = backendUrl.trim().trimEnd('/')
         if (base.isEmpty()) return null
@@ -97,6 +151,10 @@ object WakeLoop {
                     components += DesignSync.COMPONENT
                 }
                 if (checklists) components += Checklists.COMPONENT
+                if (holdS != null) {
+                    addQueryParameter("hold_s", holdS.toString())
+                    components += HOLD_V2_COMPONENT
+                }
                 if (components.isNotEmpty()) addQueryParameter("components", components.joinToString(","))
             }
             .build().toString()
@@ -127,11 +185,49 @@ object WakeLoop {
         return (doubled / 2 + random.nextLong(doubled / 2 + 1)).coerceIn(BACKOFF_MIN_MS, BACKOFF_MAX_MS)
     }
 
+    /** Its own pool, so a due alarm can drop a possibly dead connection without touching turns. */
+    private val pool = ConnectionPool(1, 5, TimeUnit.MINUTES)
+
     private val client: OkHttpClient by lazy {
         Uploader.sharedClient().newBuilder()
+            .connectionPool(pool)
             .readTimeout(READ_TIMEOUT_S, TimeUnit.SECONDS)
             .retryOnConnectionFailure(false)
             .build()
+    }
+
+    /** The read timeout for a hold of [holdS]: the hold plus a grace, never below the legacy one. */
+    internal fun readTimeoutS(holdS: Long): Long = maxOf(READ_TIMEOUT_S, holdS + HOLD_GRACE_S)
+
+    @Volatile private var inFlight: Call? = null
+    @Volatile private var refreshing = false
+
+    /**
+     * Poll now on a fresh connection: a scheduled instruction is due ([DueAlarm]). The current
+     * hold may have died without a word, so it is dropped rather than trusted.
+     */
+    fun refreshNow(ctx: Context) {
+        stayAwake(ctx)
+        refreshing = true
+        inFlight?.cancel()
+        runCatching { pool.evictAll() }
+        kick()
+    }
+
+    /** Whether a failed poll was the one [refreshNow] dropped; clears the mark. */
+    internal fun takeRefresh(): Boolean { val r = refreshing; refreshing = false; return r }
+
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    /** Keeps the CPU up for [WAKELOCK_MS], so deep sleep cannot strand the loop between polls. */
+    @Synchronized
+    internal fun stayAwake(ctx: Context) {
+        runCatching {
+            val lock = wakeLock ?: (ctx.getSystemService(Context.POWER_SERVICE) as PowerManager)
+                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "rist:wake").apply { setReferenceCounted(false) }
+                .also { wakeLock = it }
+            lock.acquire(WAKELOCK_MS)
+        }.onFailure { Log.w(TAG, "wakelock failed", it) }
     }
 
     /** One held poll. Blocking; call off the main thread. */
@@ -146,16 +242,20 @@ object WakeLoop {
             DesignSync.migrateLegacyTheme(ctx)
             runCatching { DesignSync.flush(ctx) }
         }
-        val url = wakeUrlFor(ctx, acks) ?: return Outcome.NotReady
-        return exchange(http, url, bearer, Config.deviceId(ctx), acks)
+        val hold = tuner.holdS
+        val url = wakeUrlFor(ctx, acks, hold) ?: return Outcome.NotReady
+        val held = if (http === client) {
+            http.newBuilder().readTimeout(readTimeoutS(hold), TimeUnit.SECONDS).build()
+        } else http
+        return exchange(held, url, bearer, Config.deviceId(ctx), acks)
     }
 
     /** This phone's wake address: its acks, its card count, and its box version if it has boxes. */
-    internal fun wakeUrlFor(ctx: Context, acks: List<String>): String? =
+    internal fun wakeUrlFor(ctx: Context, acks: List<String>, holdS: Long? = null): String? =
         wakeUrl(Config.backendUrl(ctx), acks, CommsFeed.MAX_NOTIFICATIONS,
             if (HomeBoxes.declared()) Checklists.boxesVersionToAsk(ctx, HomeBoxes.version(ctx)) else null,
             if (DesignSync.declared()) DesignSync.version(ctx) to Config.settingsVersion(ctx) else null,
-            Checklists.declared())
+            Checklists.declared(), holdS)
 
     /** The HTTP half of [poll], apart from the stores so it can be tested on its own. */
     internal fun exchange(http: OkHttpClient, url: String, bearer: String, device: String, acks: List<String>): Outcome {
@@ -164,8 +264,10 @@ object WakeLoop {
             .header("Authorization", bearer)
             .header("X-Rist-Device", device)
             .build()
+        val call = http.newCall(request)
+        inFlight = call
         return try {
-            http.newCall(request).execute().use { resp ->
+            call.execute().use { resp ->
                 when (resp.code) {
                     200 -> Outcome.Signal(WakeSignal.parseFrom(resp.body?.bytes() ?: ByteArray(0)), acks)
                     401 -> Outcome.Unauthorised
@@ -175,11 +277,18 @@ object WakeLoop {
                         Outcome.Refused
                     }
                     Billing.PAYMENT_REQUIRED -> Outcome.Lapsed(Billing.lapseWithLine(resp))
+                    // A newer poll from this phone replaced this hold (the server read nothing);
+                    // that poll delivers. Ordinary backoff, so two loops cannot ping-pong.
+                    204 -> Outcome.Retry("HTTP 204 superseded")
                     else -> Outcome.Retry("HTTP ${resp.code}")
                 }
             }
+        } catch (t: java.net.SocketTimeoutException) {
+            Outcome.Retry(t.javaClass.simpleName, silent = true)
         } catch (t: Throwable) {
             Outcome.Retry(t.javaClass.simpleName)
+        } finally {
+            inFlight = null
         }
     }
 
@@ -197,6 +306,7 @@ object WakeLoop {
         if (signal.hasBoxes()) runCatching { HomeBoxes.apply(ctx, signal.boxes) }
         if (signal.hasDesign()) runCatching { DesignSync.apply(ctx, signal.design) }
         if (signal.hasSettings() && DesignSync.declared()) runCatching { SettingsApply.handle(ctx, signal.settings) }
+        runCatching { DueAlarm.set(ctx, signal.nextDueAtEpochMs) }
         runCatching { ContactsSync.onCursor(ctx, signal.contactsCursor) }
         if (Config.voicemailCount(ctx) != signal.voicemailUnheard) {
             Config.setVoicemailCount(ctx, signal.voicemailUnheard)
@@ -258,10 +368,16 @@ object WakeLoop {
             // Kicks during the poll are dropped too: the poll that answered is fresher than they
             // are, and a network lost mid-poll fails it, which retries in a second anyway.
             kicks.tryReceive()
+            val started = SystemClock.elapsedRealtime()
             val out = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { poll(ctx) }
             kicks.tryReceive()
+            // Awake until the next poll is on the wire: an answer can arrive in deep sleep.
+            stayAwake(ctx)
+            val elapsed = SystemClock.elapsedRealtime() - started
             when (out) {
                 is Outcome.Signal -> {
+                    takeRefresh()
+                    tuner.onAnswered(elapsed)
                     refusedToken = null
                     runCatching { Enrolment.onReinstated(ctx) }
                     runCatching { apply(ctx, out.signal, out.acked) }
@@ -297,10 +413,24 @@ object WakeLoop {
                     waitOrKick(NO_TOKEN_RECHECK_MS)
                 }
                 is Outcome.Retry -> {
-                    val wait = retryWaitMs(backoff, hasNetwork(ctx))
-                    Log.i(TAG, "retry in ${wait}ms (${out.why})")
-                    waitOrKick(wait)
-                    backoff = nextBackoff(backoff)
+                    when {
+                        // Dropped by a due alarm: ask again now.
+                        takeRefresh() -> {
+                            Log.i(TAG, "polling again now (${out.why})")
+                        }
+                        // The hold died without a word: the network is fine, the mapping was not.
+                        // Only a timeout after the whole hold: a connect timeout is a bad network.
+                        out.silent && isSilentDrop(elapsed, tuner.holdS) -> {
+                            tuner.onSilentDrop()
+                            Log.i(TAG, "hold dropped silently; asking for ${tuner.holdS}s now")
+                        }
+                        else -> {
+                            val wait = retryWaitMs(backoff, hasNetwork(ctx))
+                            Log.i(TAG, "retry in ${wait}ms (${out.why})")
+                            waitOrKick(wait)
+                            backoff = nextBackoff(backoff)
+                        }
+                    }
                 }
                 Outcome.NotReady -> waitOrKick(NO_TOKEN_RECHECK_MS)
             }

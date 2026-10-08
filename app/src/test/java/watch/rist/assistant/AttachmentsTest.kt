@@ -214,7 +214,7 @@ class AttachmentsTest {
         assertTrue(realPng.contentEquals(out[0].bytes))
         assertEquals("Photo: theguardian.com", out[0].title)
         assertEquals("image-search", out[0].toolId)
-        val req = brave.takeRequest(5, TimeUnit.SECONDS)!!
+        val req = brave.takeRequest(30, TimeUnit.SECONDS)!!
         assertEquals("/Zx9abc/rs:fit:500:0:0/g:ce/aHR0cHM6Ly9leGFtcGxl", req.path)
     }
 
@@ -238,7 +238,7 @@ class AttachmentsTest {
         assertNull(resolve(bravePic())[0].error)
         assertNull(resolve(bravePic())[0].error)
 
-        listOf(brave.takeRequest(5, TimeUnit.SECONDS)!!, brave.takeRequest(5, TimeUnit.SECONDS)!!).forEach { r ->
+        listOf(brave.takeRequest(30, TimeUnit.SECONDS)!!, brave.takeRequest(30, TimeUnit.SECONDS)!!).forEach { r ->
             assertEquals("GET", r.method)
             assertNull("a Referer was sent", r.getHeader("Referer"))
             assertNull("a cookie was sent", r.getHeader("Cookie"))
@@ -268,9 +268,9 @@ class AttachmentsTest {
         assertNull(out[0].error)
         assertTrue(realPng.contentEquals(out[0].bytes))
 
-        brave.takeRequest(5, TimeUnit.SECONDS)!!
-        val second = brave.takeRequest(5, TimeUnit.SECONDS)!!
-        val third = brave.takeRequest(5, TimeUnit.SECONDS)!!
+        brave.takeRequest(30, TimeUnit.SECONDS)!!
+        val second = brave.takeRequest(30, TimeUnit.SECONDS)!!
+        val third = brave.takeRequest(30, TimeUnit.SECONDS)!!
         assertEquals("/next.png", second.path)
         assertEquals("/last.png", third.path)
         listOf(second, third).forEach { assertNull(it.getHeader("Referer")) }

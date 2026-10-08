@@ -77,6 +77,8 @@ object TextAlert {
         /** Do Not Disturb as a whole lets ordinary notifications through; used only without a ranking. */
         fun interruptionFilterAllowsAll(ctx: Context): Boolean
         fun inCall(ctx: Context): Boolean
+        /** An incoming call is ringing: its screen must stay on top and answerable. */
+        fun ringing(ctx: Context): Boolean
         fun screenOn(ctx: Context): Boolean
         fun locked(ctx: Context): Boolean
         fun defaultSmsPackage(ctx: Context): String?
@@ -96,6 +98,8 @@ object TextAlert {
      * - ringer NORMAL: sound, plus vibration when the channel vibrates;
      * - ringer VIBRATE: vibration only; SILENT: neither;
      * - on a call: no sound or vibration over the call, the banner alone;
+     * - ringing: nothing at all. The banner would sit over the caller's name, and a tap on it would
+     *   put Messages over the call screen, which nothing brings back while the call rings;
      * - screen off: no banner, which nobody would see.
      */
     fun decide(
@@ -104,8 +108,10 @@ object TextAlert {
         ringerMode: Int,
         inCall: Boolean,
         screenOn: Boolean,
+        ringing: Boolean = false,
     ): Alerting {
         if (!systemAlertsMuted) return Alerting.NONE
+        if (ringing) return Alerting.NONE
         val imp = facts.importance
         if (imp != NotificationManager.IMPORTANCE_UNSPECIFIED && imp < NotificationManager.IMPORTANCE_DEFAULT) {
             return Alerting.NONE
@@ -229,7 +235,7 @@ object TextAlert {
             channelVibrates = legacyVibrates(n),
             channelVibration = null,
         )
-        val a = decide(muted, f, e.ringerMode(ctx), e.inCall(ctx), e.screenOn(ctx))
+        val a = decide(muted, f, e.ringerMode(ctx), e.inCall(ctx), e.screenOn(ctx), e.ringing(ctx))
         if (a.sound) effects.sound(ctx, f.channelSound ?: n.sound)
         if (a.vibrate) effects.vibrate(ctx, f.channelVibration ?: n.vibrate)
         if (a.banner) {
@@ -286,7 +292,9 @@ object TextAlert {
         }
 
         // A ringing phone counts: no notification sound over the ringtone.
-        override fun inCall(ctx: Context): Boolean = CallState.inCall(ctx) || runCatching {
+        override fun inCall(ctx: Context): Boolean = CallState.inCall(ctx) || ringing(ctx)
+
+        override fun ringing(ctx: Context): Boolean = IncomingCall.ringing || runCatching {
             ctx.getSystemService(android.telephony.TelephonyManager::class.java)?.callState ==
                 android.telephony.TelephonyManager.CALL_STATE_RINGING
         }.getOrDefault(false)

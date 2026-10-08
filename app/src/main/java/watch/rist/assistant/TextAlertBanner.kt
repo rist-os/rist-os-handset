@@ -15,6 +15,7 @@ import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
+import android.view.accessibility.AccessibilityManager
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -55,6 +56,17 @@ object TextAlertBanner {
     private var showing: View? = null
     private val timeout = Runnable { dismiss() }
 
+    /** How long this banner stays: [SHOW_MS], or longer when the owner asked for more time to act. */
+    private var showMs = SHOW_MS
+
+    /** [SHOW_MS] stretched to the accessibility setting "Time to take action", as Android's own alerts are. */
+    internal fun timeoutFor(ctx: Context): Long = runCatching {
+        ctx.getSystemService(AccessibilityManager::class.java)?.getRecommendedTimeoutMillis(
+            SHOW_MS.toInt(),
+            AccessibilityManager.FLAG_CONTENT_TEXT or AccessibilityManager.FLAG_CONTENT_CONTROLS,
+        )?.toLong()
+    }.getOrNull()?.coerceAtLeast(SHOW_MS) ?: SHOW_MS
+
     /** The banner on screen now, if any. */
     fun current(): View? = showing
 
@@ -69,7 +81,8 @@ object TextAlertBanner {
         showing = view
         view.translationY = -dp(ctx, 120f).toFloat()
         view.animate().translationY(0f).setDuration(ANIM_MS).start()
-        main.postDelayed(timeout, SHOW_MS)
+        showMs = timeoutFor(ctx)
+        main.postDelayed(timeout, showMs)
     }
 
     /** Slides the banner up and away. */
@@ -115,6 +128,9 @@ object TextAlertBanner {
             isClickable = true; isFocusable = true
             contentDescription = if (body.isBlank()) "$title. Tap to open, swipe up to dismiss."
                 else "New message from $title: $body. Tap to open, swipe up to dismiss."
+            // A pane: a screen reader announces it when it appears, as it would a heads-up. The
+            // window takes no focus, so without this nothing tells a TalkBack user a text came.
+            accessibilityPaneTitle = if (body.isBlank()) title else "New message from $title: $body"
         }
         card.addView(ImageView(ctx).apply {
             setImageResource(R.drawable.ic_app_msg)
@@ -196,7 +212,7 @@ object TextAlertBanner {
                     tracker = null
                     if (!was) {
                         t?.recycle()
-                        main.postDelayed(TextAlertBanner.timeout, SHOW_MS)
+                        main.postDelayed(TextAlertBanner.timeout, showMs)
                         return false
                     }
                     t?.addMovement(ev)
@@ -209,7 +225,7 @@ object TextAlertBanner {
                         onDismiss()
                     } else {
                         target.animate().translationY(0f).setDuration(ANIM_MS).start()
-                        main.postDelayed(TextAlertBanner.timeout, SHOW_MS)
+                        main.postDelayed(TextAlertBanner.timeout, showMs)
                     }
                     return true
                 }

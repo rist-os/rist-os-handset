@@ -462,7 +462,33 @@ internal fun otaBuildLine(v: OtaStatusView): String {
 
 internal fun otaLastCheckLine(v: OtaStatusView): String =
     if (v.lastCheckAtSeconds <= 0L) "Last checked: never."
-    else "Last checked ${otaAgo(v.lastCheckAtSeconds, v.nowSeconds)}: ${v.lastResult}"
+    else "Last checked ${otaAgo(v.lastCheckAtSeconds, v.nowSeconds)}: ${otaPlainResult(v.lastResult)}"
+
+internal const val OTA_UP_TO_DATE = "Up to date."
+internal const val OTA_UNAVAILABLE = "Update currently unavailable."
+internal const val OTA_UNAVAILABLE_TRY_LATER = "Update currently unavailable. Try again later."
+
+// What OtaScheduler.recordRefusal stores for a policy ROLLBACK refusal.
+private val OTA_ROLLBACK_REFUSAL =
+    "refused (${OtaScheduler.Stage.POLICY}): ${OtaPolicy.Refusal.ROLLBACK}:"
+
+// The stored result is a diagnostic (and is logged by OtaState.recordCheck); the screen gets a
+// plain phrase with no codes, build numbers or enum names.
+internal fun otaPlainResult(stored: String): String {
+    val r = stored.trim()
+    return when {
+        r.startsWith("up to date") || r.startsWith("no build published") -> OTA_UP_TO_DATE
+        // The server offers a build no newer than this one: nothing to install.
+        r.startsWith(OTA_ROLLBACK_REFUSAL) -> OTA_UP_TO_DATE
+        r.startsWith("unreachable") || r.startsWith("check failed") ||
+            r.startsWith("preflight failed") || r.startsWith("server asked for") ||
+            r.startsWith("package busy") -> OTA_UNAVAILABLE_TRY_LATER
+        r.startsWith("applying ") || r.startsWith("installing ") -> "Installing an update."
+        r.contains("restart to finish updating") -> "Update installed. Restart to finish."
+        Regex("""^\S+ available \([^)]*\)$""").matches(r) -> "An update is available."
+        else -> OTA_UNAVAILABLE
+    }
+}
 
 internal fun otaCheckJustArmed(v: OtaStatusView): Boolean {
     if (v.lastNudgeAtSeconds <= 0L) return false

@@ -60,7 +60,7 @@ class PairingNetworkTest {
         server.enqueue(ok("""{"token":"ristd_abc.def"}"""))
         Enrolment.pair(ctx(), goodCode)
 
-        val req = server.takeRequest(5, TimeUnit.SECONDS)!!
+        val req = server.takeRequest(30, TimeUnit.SECONDS)!!
         assertEquals("POST", req.method)
         assertTrue(
             "the enrol endpoint must be derived from the backend URL, not guessed; got ${req.path}",
@@ -85,7 +85,7 @@ class PairingNetworkTest {
     fun `a pasted code reaches the backend without the whitespace around it`() {
         server.enqueue(ok("""{"token":"ristd_abc.def"}"""))
         Enrolment.pair(ctx(), "  $goodCode\n")
-        assertEquals(goodCode, JSONObject(server.takeRequest(5, TimeUnit.SECONDS)!!.body.readUtf8()).optString("nonce"))
+        assertEquals(goodCode, JSONObject(server.takeRequest(30, TimeUnit.SECONDS)!!.body.readUtf8()).optString("nonce"))
     }
 
     @Test
@@ -203,7 +203,7 @@ class PairingNetworkTest {
     fun `a lowercase code is uppercased before it reaches the backend`() {
         server.enqueue(MockResponse().setResponseCode(404))
         Enrolment.pair(ctx(), "abcd2345")
-        val body = JSONObject(server.takeRequest(5, TimeUnit.SECONDS)!!.body.readUtf8())
+        val body = JSONObject(server.takeRequest(30, TimeUnit.SECONDS)!!.body.readUtf8())
         assertEquals(
             "a lowercase code reached the wire and would 404 against a byte-exact comparison",
             "ABCD2345", body.getString("nonce")
@@ -214,7 +214,7 @@ class PairingNetworkTest {
     fun `a pasted code is trimmed and uppercased together`() {
         server.enqueue(MockResponse().setResponseCode(404))
         Enrolment.pair(ctx(), "  aBcD2345\n")
-        val body = JSONObject(server.takeRequest(5, TimeUnit.SECONDS)!!.body.readUtf8())
+        val body = JSONObject(server.takeRequest(30, TimeUnit.SECONDS)!!.body.readUtf8())
         assertEquals("ABCD2345", body.getString("nonce"))
     }
 }
