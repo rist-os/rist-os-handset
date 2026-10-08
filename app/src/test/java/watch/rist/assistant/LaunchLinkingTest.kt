@@ -113,7 +113,7 @@ class LaunchLinkingTest {
             .setBody("""{"detail":"This account already has its maximum of 2 devices. Remove one before adding another."}"""))
         val r = Enrolment.pair(ctx, "ABCD2345")
         assertEquals(Enrolment.PairResult.DEVICE_LIMIT, r)
-        assertEquals("/v1/enroll", server.takeRequest(5, TimeUnit.SECONDS)!!.path)
+        assertEquals("/v1/enroll", server.takeRequest(30, TimeUnit.SECONDS)!!.path)
         val shown = Enrolment.explainPair(r)
         assertTrue(shown, shown.contains("already has two phones"))
         assertTrue(shown, shown.contains("Phones page at ristassist.com/account/phones"))

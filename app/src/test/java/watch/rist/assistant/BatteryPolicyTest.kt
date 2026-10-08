@@ -118,7 +118,25 @@ class BatteryPolicyTest {
         override fun current() = zone
         override fun canSet(ctx: android.content.Context) = true
         override fun set(ctx: android.content.Context, zone: String): Boolean { sets += zone; this.zone = zone; return true }
-        override fun handBack(ctx: android.content.Context) {}
+        override fun handBack(ctx: android.content.Context) { network = true }
+        var network = false
+        override fun networkInCharge(ctx: android.content.Context) = network
+    }
+
+    @Test fun `with the network's zone in charge, the network country is left to the OS`() {
+        val ctx = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        Config.usePlainPrefsForTest(ctx)
+        val saved = AutoTimeZone.system
+        val fake = FakeZone("America/New_York").apply { network = true }
+        AutoTimeZone.system = fake
+        try {
+            Config.setAutoTimeZone(ctx, true)
+            AutoTimeZone.setFromCountry(ctx, "jp", 1_760_000_000_000L)
+            assertTrue(fake.sets.isEmpty())
+        } finally {
+            AutoTimeZone.system = saved
+            Config.forgetPrefsForTest()
+        }
     }
 
     @Test fun `the network country sets the zone only when the clock shows another time`() {

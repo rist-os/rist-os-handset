@@ -33,8 +33,10 @@ class TravelZoneReviewTest {
         var handBacks = 0
         override fun current() = zone
         override fun canSet(ctx: Context) = true
-        override fun set(ctx: Context, zone: String): Boolean { sets += zone; this.zone = zone; return true }
-        override fun handBack(ctx: Context) { handBacks++ }
+        var network = false
+        override fun set(ctx: Context, zone: String): Boolean { sets += zone; this.zone = zone; network = false; return true }
+        override fun handBack(ctx: Context) { handBacks++; network = true }
+        override fun networkInCharge(ctx: Context) = network
     }
 
     @Before fun setUp() {
@@ -71,6 +73,18 @@ class TravelZoneReviewTest {
         assertEquals(listOf("Europe/Paris"), fake.sets)
     }
 
+    @Test fun `after a travel sign a pre-flight fix does not take the clock from the network`() {
+        val fake = FakeZone("Europe/Paris").apply { network = true }
+        AutoTimeZone.system = fake
+        Config.setAutoTimeZone(app, true)
+        // Landed in Paris; the network already set its zone. The phone still holds Heathrow.
+        AutoTimeZone.noteTravel(now)
+        AutoTimeZone.consider(app, fixAt(51.47, -0.45, now - 90L * 60 * 1000), now)
+        assertEquals("Europe/Paris", fake.zone)
+        assertTrue("the network keeps the clock", fake.network)
+        assertEquals(emptyList<String>(), fake.sets)
+    }
+
     @Test fun `until a fix from after a travel sign is seen, checks may use GPS and want a newer fix`() {
         val t = now
         assertTrue(AutoTimeZone.travelUnsettled(t, t + 60L * 60 * 1000))
@@ -101,9 +115,14 @@ class TravelZoneReviewTest {
         Config.setAutoTimeZone(app, true)
         LocationSwitch.onWake(app, present = true, value = true)
         assertEquals(1, fake.handBacks)
+        assertTrue(fake.network)
         // Repeats of off do not hand back again.
         LocationSwitch.onWake(app, present = true, value = true)
         assertEquals(1, fake.handBacks)
+        // A travel sign while off still gives the network the clock, and uses no location.
+        fake.network = false
+        assertFalse(AutoTimeZone.onTravelSign(app, country("mx")))
+        assertEquals(2, fake.handBacks)
     }
 
     @Test fun `location off leaves a zone the owner set by hand alone`() {

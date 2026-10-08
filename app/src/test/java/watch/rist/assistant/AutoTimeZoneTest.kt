@@ -30,10 +30,13 @@ class AutoTimeZoneTest {
     private class FakeZone(var zone: String, var owner: Boolean = true) : AutoTimeZone.SystemZone {
         val sets = mutableListOf<String>()
         var handedBack = 0
+        /** The OS's own (network) detection; set() turns it off, handBack() on, as the real one. */
+        var network = false
         override fun current() = zone
         override fun canSet(ctx: Context) = owner
-        override fun set(ctx: Context, zone: String): Boolean { sets += zone; this.zone = zone; return true }
-        override fun handBack(ctx: Context) { handedBack++ }
+        override fun set(ctx: Context, zone: String): Boolean { sets += zone; this.zone = zone; network = false; return true }
+        override fun handBack(ctx: Context) { handedBack++; network = true }
+        override fun networkInCharge(ctx: Context) = network
     }
 
     private lateinit var fake: FakeZone
@@ -132,6 +135,51 @@ class AutoTimeZoneTest {
         AutoTimeZone.setEnabled(app, false)
         assertEquals(1, fake.handedBack)
         assertTrue(!Config.isAutoTimeZone(app))
+    }
+
+    @Test
+    fun `with the network in charge, a same-offset location zone changes nothing`() {
+        fake.zone = "America/Denver"
+        fake.network = true
+        val juarez = fixAt(31.6904, -106.4245)
+        AutoTimeZone.consider(app, juarez, now)
+        AutoTimeZone.consider(app, juarez, now + 15 * 60_000)
+        assertTrue("the network's zone shows the right time and stays", fake.sets.isEmpty())
+        assertTrue(fake.network)
+    }
+
+    @Test
+    fun `with the network in charge but showing the wrong time, location takes over`() {
+        fake.network = true
+        AutoTimeZone.consider(app, mexicoCity, now)
+        assertEquals(listOf("America/Mexico_City"), fake.sets)
+        assertTrue("the fallback holds until the network is tried again", !fake.network)
+    }
+
+    @Test
+    fun `the network is tried again after a location fallback, and only then`() {
+        fake.network = false
+        assertTrue(AutoTimeZone.preferNetwork(app))
+        assertEquals(1, fake.handedBack)
+        assertTrue(fake.network)
+        assertTrue("already in charge: nothing to do", !AutoTimeZone.preferNetwork(app))
+        assertEquals(1, fake.handedBack)
+    }
+
+    @Test
+    fun `the network is not handed the clock when the setting is off or Rist is not owner`() {
+        Config.setAutoTimeZone(app, false)
+        assertTrue(!AutoTimeZone.preferNetwork(app))
+        Config.setAutoTimeZone(app, true)
+        fake.owner = false
+        assertTrue(!AutoTimeZone.preferNetwork(app))
+        assertEquals(0, fake.handedBack)
+    }
+
+    @Test
+    fun `turning it on puts the network in charge first`() {
+        AutoTimeZone.setEnabled(app, true)
+        assertTrue(fake.network)
     }
 
     private fun zoneChecks() =

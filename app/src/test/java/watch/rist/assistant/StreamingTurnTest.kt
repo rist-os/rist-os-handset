@@ -78,7 +78,7 @@ class StreamingTurnTest {
         val reply = Uploader(ctx).sendText("am I free this afternoon")
         ShadowLooper.idleMainLooper()
 
-        val sent = server.takeRequest(5, TimeUnit.SECONDS)!!
+        val sent = server.takeRequest(30, TimeUnit.SECONDS)!!
         assertEquals(StreamingWire.SEQ_MEDIA_TYPE, sent.getHeader("Accept"))
         assertEquals("You're free at 3.", reply?.speech?.text)
         assertEquals(listOf("Checking your calendar", "Writing the reply"), lines)

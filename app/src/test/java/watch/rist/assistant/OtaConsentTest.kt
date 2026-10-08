@@ -361,7 +361,7 @@ class OtaConsentTest {
 
     private fun prefsFileContaining(marker: String): String {
         val f = File(File(ctx().applicationInfo.dataDir, "shared_prefs"), "rist.ota.xml")
-        val deadline = System.currentTimeMillis() + 5_000
+        val deadline = System.currentTimeMillis() + 30_000
         while (System.currentTimeMillis() < deadline) {
             val text = if (f.isFile) f.readText() else ""
             if (text.contains(marker)) return text

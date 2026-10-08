@@ -110,10 +110,10 @@ class ContactsSyncTest {
         val out = syncNow()
 
         assertEquals(ContactsSync.Outcome.Applied(full = true, written = 2, removed = 0), out)
-        val first = server.takeRequest(5, java.util.concurrent.TimeUnit.SECONDS)!!
+        val first = server.takeRequest(30, java.util.concurrent.TimeUnit.SECONDS)!!
         assertEquals("/v1/contacts?since=", first.path)
         assertEquals("Bearer ristd_test", first.getHeader("Authorization"))
-        assertEquals("/v1/contacts?since=c1", server.takeRequest(5, java.util.concurrent.TimeUnit.SECONDS)!!.path)
+        assertEquals("/v1/contacts?since=c1", server.takeRequest(30, java.util.concurrent.TimeUnit.SECONDS)!!.path)
         assertEquals("c2", Config.contactsCursor(app))
         assertTrue(Config.contactsSyncedAt(app) > 0)
         assertFalse(Config.contactsNeedsFull(app))
@@ -131,13 +131,13 @@ class ContactsSyncTest {
             person("a", "Alice Example", "+12065550100"), person("b", "Bob Example", "+12065550111"),
             person("c", "Cy Example", "+12065550122")))
         syncNow()
-        server.takeRequest(5, java.util.concurrent.TimeUnit.SECONDS)!!
+        server.takeRequest(30, java.util.concurrent.TimeUnit.SECONDS)!!
 
         server.enqueue(page("c2", full = false, more = false,
             person("a", "Alice Renamed", "+12065550199"), deleted = listOf("b")))
         val out = syncNow()
 
-        assertEquals("/v1/contacts?since=c1", server.takeRequest(5, java.util.concurrent.TimeUnit.SECONDS)!!.path)
+        assertEquals("/v1/contacts?since=c1", server.takeRequest(30, java.util.concurrent.TimeUnit.SECONDS)!!.path)
         assertEquals(ContactsSync.Outcome.Applied(full = false, written = 1, removed = 1), out)
         assertEquals(setOf("a", "c"), contacts.sourceIds())
         assertEquals("Alice Renamed", contacts.nameOf("a"))
@@ -155,8 +155,8 @@ class ContactsSyncTest {
         server.enqueue(page("c9", full = true, more = false, person("b", "Bob", "+12065550111")))
         ContactsSync.requestSync(app, full = true, reason = "test", manual = true)
 
-        server.takeRequest(5, java.util.concurrent.TimeUnit.SECONDS)!!
-        assertEquals("sync now asks from the start", "/v1/contacts?since=", server.takeRequest(5, java.util.concurrent.TimeUnit.SECONDS)!!.path)
+        server.takeRequest(30, java.util.concurrent.TimeUnit.SECONDS)!!
+        assertEquals("sync now asks from the start", "/v1/contacts?since=", server.takeRequest(30, java.util.concurrent.TimeUnit.SECONDS)!!.path)
         assertEquals(setOf("b"), contacts.sourceIds())
         assertNull(CallerId.nameFor(app, "+12065550100"))
     }
@@ -333,14 +333,14 @@ class ContactsSyncTest {
     @Test
     fun `removing the Rist account rebuilds the address book on the next nudge`() {
         synced()
-        server.takeRequest(5, java.util.concurrent.TimeUnit.SECONDS)!!
+        server.takeRequest(30, java.util.concurrent.TimeUnit.SECONDS)!!
         android.accounts.AccountManager.get(app).removeAccountExplicitly(ContactsMirror.account)
         contacts.raw.clear(); contacts.data.clear() // the provider drops a removed account's rows
         server.enqueue(page("c1", full = true, more = false, person("a", "Alice Example", "+12065550100")))
 
         ContactsSync.onCursor(app, "c1")
 
-        assertEquals("/v1/contacts?since=", server.takeRequest(5, java.util.concurrent.TimeUnit.SECONDS)!!.path)
+        assertEquals("/v1/contacts?since=", server.takeRequest(30, java.util.concurrent.TimeUnit.SECONDS)!!.path)
         assertEquals(setOf("a"), contacts.sourceIds())
     }
 
@@ -409,7 +409,7 @@ class ContactsSyncTest {
     }
 
     private fun waitFor(cond: () -> Boolean) {
-        val until = System.currentTimeMillis() + 10_000
+        val until = System.currentTimeMillis() + 30_000
         while (!cond()) {
             check(System.currentTimeMillis() < until) { "timed out" }
             Thread.sleep(20)

@@ -48,7 +48,11 @@ object OtaScheduler {
     sealed class Step {
         data class Apply(val manifest: OtaManifest) : Step()
         object UpToDate : Step()
-        data class Refused(val stage: Stage, val detail: String) : Step()
+        data class Refused(
+            val stage: Stage,
+            val detail: String,
+            val policy: OtaPolicy.Refusal? = null,
+        ) : Step()
     }
 
     fun evaluate(
@@ -73,7 +77,8 @@ object OtaScheduler {
         return when (val d = OtaPolicy.decide(parsed, local, askedChannel)) {
             is OtaPolicy.Decision.Apply -> Step.Apply(d.manifest)
             OtaPolicy.Decision.UpToDate -> Step.UpToDate
-            is OtaPolicy.Decision.Refuse -> Step.Refused(Stage.POLICY, "${d.reason}: ${d.detail}")
+            is OtaPolicy.Decision.Refuse ->
+                Step.Refused(Stage.POLICY, "${d.reason}: ${d.detail}", policy = d.reason)
         }
     }
 
@@ -265,13 +270,7 @@ object OtaScheduler {
         val signature = OtaCheck.fetchSignature(client, base, local.device, channel)
 
         return when (val step = evaluate(body, signature, now, local, channel)) {
-            is Step.Refused -> {
-                // Log the fault, never the unverified body.
-                Log.w(TAG, "manifest refused at ${step.stage}: ${step.detail}")
-                OtaState.noteFailure(app)
-                OtaState.recordCheck(app, now, "refused (${step.stage}): ${step.detail}")
-                OtaRetry.backoffSeconds(OtaState.failures(app), null, Math.random())
-            }
+            is Step.Refused -> recordRefusal(app, now, step)
             Step.UpToDate -> {
                 OtaState.noteVerified(app, now)
                 OtaState.noteSuccess(app, now)
@@ -285,6 +284,25 @@ object OtaScheduler {
                 offer(app, client, step.manifest, now, unavailable)
             }
         }
+    }
+
+    /**
+     * A rollback refusal comes from a manifest that passed signature and expiry: the server has
+     * nothing newer, so the check succeeded. The older build is still never installed. Every other
+     * refusal (signature, expiry, wrong device or channel, ...) counts as a failed check.
+     */
+    internal fun recordRefusal(app: Context, now: Long, step: Step.Refused): Long {
+        // Log the fault, never the unverified body.
+        Log.w(TAG, "manifest refused at ${step.stage}: ${step.detail}")
+        OtaState.recordCheck(app, now, "refused (${step.stage}): ${step.detail}")
+        if (step.stage == Stage.POLICY && step.policy == OtaPolicy.Refusal.ROLLBACK) {
+            OtaState.noteVerified(app, now)
+            OtaState.noteSuccess(app, now)
+            forgetStaleConsent(app, stillOffered = "")
+            return POLL_INTERVAL_SECONDS
+        }
+        OtaState.noteFailure(app)
+        return OtaRetry.backoffSeconds(OtaState.failures(app), null, Math.random())
     }
 
     private fun forgetStaleConsent(app: Context, stillOffered: String) {
