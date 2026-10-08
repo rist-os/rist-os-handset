@@ -185,6 +185,11 @@ object TextAlert {
         }
     }
 
+    /** The notification went away: its next post is a new alert, alert-once or not, as Android has it. */
+    fun forget(key: String) {
+        synchronized(alerted) { alerted.remove(key) }
+    }
+
     internal fun resetForTest() {
         synchronized(alerted) { alerted.clear() }
         envForTest = null

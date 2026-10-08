@@ -313,6 +313,15 @@ class TextAlertTest {
     }
 
     @Test
+    fun `an alert-once text alerts again once its notification was cleared`() {
+        val first = sms(text = "one", flags = Notification.FLAG_ONLY_ALERT_ONCE)
+        TextAlert.onPosted(app, first, facts())
+        TextAlert.forget(first.key)
+        TextAlert.onPosted(app, sms(text = "two", whenMs = 2_000L, flags = Notification.FLAG_ONLY_ALERT_ONCE), facts())
+        assertEquals(2, fx.sounds)
+    }
+
+    @Test
     fun `a channel set to no sound plays none, and in vibrate mode buzzes only if it vibrates`() {
         val silent = TextAlert.RankFacts(true, false, NotificationManager.IMPORTANCE_HIGH, null, false, null, channelKnown = true)
         val a = TextAlert.decide(true, silent, AudioManager.RINGER_MODE_NORMAL, false, true)

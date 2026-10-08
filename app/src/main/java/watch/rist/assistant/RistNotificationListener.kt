@@ -46,7 +46,10 @@ class RistNotificationListener : NotificationListenerService() {
             channelKnown = ch != null,
         )
     }.getOrNull()
-    override fun onNotificationRemoved(sbn: StatusBarNotification?) = refresh()
+    override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+        sbn?.key?.let(TextAlert::forget)
+        refresh()
+    }
 
     override fun onCreate() {
         super.onCreate()
