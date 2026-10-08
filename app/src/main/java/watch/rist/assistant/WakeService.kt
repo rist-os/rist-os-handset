@@ -36,6 +36,8 @@ class WakeService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundCompat()
+        // Contacts added or changed on the phone while Rist was not running go now.
+        runCatching { ContactsPush.nudge(applicationContext, "service started") }
         if (loop?.isActive != true) {
             loop = scope.launch { WakeLoop.run(applicationContext) }
             watchNetwork()
