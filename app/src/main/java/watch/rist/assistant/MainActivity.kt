@@ -660,6 +660,8 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         super.onResume()
         Config.importTokenFileIfPresent(applicationContext)
         AutoTimeZone.checkInBackground(applicationContext)
+        // Back from the Contacts app: send what the owner added or changed there.
+        runCatching { ContactsPush.nudge(applicationContext, "back in Rist") }
         CarrierVoicemail.listen(this)
         CarrierVoicemail.refresh(this)
         if (navigating) runCatching {

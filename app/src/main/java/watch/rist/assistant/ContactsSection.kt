@@ -31,6 +31,14 @@ object ContactsSection {
         }
     }
 
+    /** The line under the texts switch. */
+    internal fun textsStatus(on: Boolean, canRead: Boolean): String = when {
+        !on -> "Off. Rist cannot see texts or calls, even when you ask about them."
+        !canRead -> "This phone has not let Rist read messages."
+        else -> "When you ask about a text or a call, your phone sends the last day of them for " +
+            "that question. Nothing is sent otherwise."
+    }
+
     fun build(a: Activity, host: LinearLayout?, anchor: View?) {
         host ?: return
         host.findViewWithTag<View>(TAG)?.let { host.removeView(it) }
@@ -100,9 +108,39 @@ object ContactsSection {
         }
         box.addView(TextView(a).apply {
             text = "The people Rist knows are copied to this phone, so calls and texts from them " +
-                "show their names, even with no signal."
+                "show their names, even with no signal. Contacts you add or change on this phone " +
+                "go to Rist too, so you can ask about them."
             setTextColor(muted); textSize = 10.5f; typeface = bodyTf
             setPadding(0, px(4f), 0, 0)
+        })
+        val texts = Config.textsOnAsk(a)
+        box.addView(LinearLayout(a).apply {
+            orientation = LinearLayout.HORIZONTAL
+            minimumHeight = px(56f)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, px(14f), 0, px(10f))
+            isClickable = true; isFocusable = true
+            contentDescription = "Let Rist read recent texts and calls when you ask, " + if (texts) "on" else "off"
+            addView(TextView(a).apply {
+                text = if (texts) "◉" else "○"
+                setTextColor(if (texts) ink else muted)
+                textSize = 17f; setPadding(0, 0, px(12f), 0)
+            })
+            addView(LinearLayout(a).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(TextView(a).apply {
+                    text = "Read recent texts and calls when you ask"; setTextColor(ink); textSize = 14f; typeface = bodyTf
+                })
+                addView(TextView(a).apply {
+                    text = textsStatus(texts, SmsInbox.canRead(a))
+                    setTextColor(muted); textSize = 11.5f; typeface = bodyTf
+                    setPadding(0, px(3f), 0, 0)
+                })
+            })
+            setOnClickListener {
+                Config.setTextsOnAsk(a, !texts)
+                build(a, host, anchor)
+            }
         })
         host.addView(box, idx)
     }

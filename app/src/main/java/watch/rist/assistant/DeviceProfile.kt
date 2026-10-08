@@ -25,7 +25,8 @@ object DeviceProfile {
         // A phone whose account has no video calls does not offer to open one.
         return capabilities(dm.widthPixels, dm.heightPixels,
             videoCalls = VideoCalls.SHIPPED && Features.isOn(ctx, Features.Id.VIDEO_CALLS),
-            fontIds = if (DesignSync.declared()) Fonts.available(ctx) else emptyList())
+            fontIds = if (DesignSync.declared()) Fonts.available(ctx) else emptyList(),
+            textsOnRequest = TextsOnRequest.declared(ctx))
     }
 
     internal fun capabilities(
@@ -36,6 +37,7 @@ object DeviceProfile {
         design: Boolean = DesignSync.declared(),
         fontIds: List<String> = emptyList(),
         checklists: Boolean = Checklists.declared(),
+        textsOnRequest: Boolean = false,
     ): Capabilities =
         Capabilities.newBuilder()
             // v18 carries every field this build reads; the video_call component alone decides
@@ -57,6 +59,8 @@ object DeviceProfile {
             .apply { if (design) addComponents(DesignSync.COMPONENT).addAllComponents(Fonts.capsEntries(fontIds)) }
             // Whether this phone draws lists with checkboxes; without it lists come as markdown.
             .apply { if (checklists) addComponents(Checklists.COMPONENT) }
+            // Whether this phone answers inbound_sms_request: the owner's switch, and the permission.
+            .apply { if (textsOnRequest) addComponents(TextsOnRequest.COMPONENT) }
             .setMaxImageBytes(MAX_IMAGE_BYTES)
             // 0 or unset means "cannot do place triggers".
             .setMaxGeofences(Geofences.MAX_FENCES)

@@ -155,6 +155,13 @@ class Uploader(private val ctx: Context) {
                     .setId(it.id).setFrom(it.from).setBody(it.body).setSentAtMs(it.sentAtMs).build()
             }).build()
 
+        /** The answer to inbound_sms_request: the flag, and the calls of the window. */
+        internal fun attachTextsAnswer(req: DeviceRequest, calls: List<RecentCall>): DeviceRequest =
+            req.toBuilder().setInboundSmsAnswered(true).addAllRecentCalls(calls.map {
+                rist.v1.RecentCall.newBuilder().setId(it.id).setNumber(it.number).setAtMs(it.atMs)
+                    .setKind(it.kind).setDurationS(it.durationS).build()
+            }).build()
+
         // Matched on the exact tool id `message`, never on transcript content.
         internal fun releasesInboundSms(toolId: String): Boolean =
             toolId.trim().lowercase() == "message"
@@ -481,7 +488,9 @@ class Uploader(private val ctx: Context) {
         requestProto: DeviceRequest,
         includeInboundSms: Boolean = false,
         isResend: Boolean = false,
-        onLocationInterim: ((DeviceResponse) -> Unit)? = null
+        onLocationInterim: ((DeviceResponse) -> Unit)? = null,
+        // The re-send answering inbound_sms_request: texts, calls, and the flag that an empty list means none.
+        answeringTexts: Boolean = false,
     ): DeviceResponse? {
         lastFailure = ""
         lastLapse = null
@@ -512,6 +521,11 @@ class Uploader(private val ctx: Context) {
         if (carriedSms.isNotEmpty()) {
             req = attachInboundSms(req, carriedSms)
             Log.i(TAG, "releasing ${carriedSms.size} inbound SMS on an opted-in request")
+        }
+        if (answeringTexts) {
+            val calls = RecentCalls.read(ctx)
+            req = attachTextsAnswer(req, calls)
+            Log.i(TAG, "answering the backend's ask: ${carriedSms.size} text(s), ${calls.size} call(s)")
         }
         val carriedResults = if (req.commsResultsCount == 0) CommsResults.pending(ctx) else emptyList()
         if (carriedResults.isNotEmpty()) {
@@ -808,6 +822,20 @@ class Uploader(private val ctx: Context) {
             val resendReq = requestProto.toBuilder().setLocation(protoLocation(fix))
                 .setRequestId(newRequestId()).setUtteranceId(newUtteranceId()).build()
             return post(resendReq, includeInboundSms = includeInboundSms, isResend = true) ?: resp
+        }
+        if (resp.hasInboundSmsRequest() && !isResend) {
+            // The backend asked for this turn's texts: the owner asked something that needs them.
+            // Sent only while the owner's switch is on (it is what declared the component).
+            if (!TextsOnRequest.declared(ctx)) {
+                Log.w(TAG, "asked for texts without having offered them; not sending")
+                return resp
+            }
+            // A new turn, not a retry, exactly as for a location: the same utterance_id would only
+            // replay the ask. A failure here is the turn's failure (lastFailure), not the ask's words.
+            val resendReq = requestProto.toBuilder()
+                .setRequestId(newRequestId()).setUtteranceId(newUtteranceId()).build()
+            return post(resendReq, includeInboundSms = true, isResend = true,
+                onLocationInterim = onLocationInterim, answeringTexts = true)
         }
 
         return resp
