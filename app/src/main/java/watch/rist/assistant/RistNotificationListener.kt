@@ -39,10 +39,11 @@ class RistNotificationListener : NotificationListenerService() {
                 android.app.NotificationManager.Policy.SUPPRESSED_EFFECT_PEEK != 0,
             importance = r.importance,
             channelSound = ch?.sound,
-            channelVibrates = ch?.shouldVibrate() == true ||
-                (sbn.notification?.defaults ?: 0) and android.app.Notification.DEFAULT_VIBRATE != 0 ||
-                sbn.notification?.vibrate != null,
+            channelVibrates = ch?.shouldVibrate()
+                ?: ((sbn.notification?.defaults ?: 0) and android.app.Notification.DEFAULT_VIBRATE != 0 ||
+                    sbn.notification?.vibrate != null),
             channelVibration = ch?.vibrationPattern,
+            channelKnown = ch != null,
         )
     }.getOrNull()
     override fun onNotificationRemoved(sbn: StatusBarNotification?) = refresh()

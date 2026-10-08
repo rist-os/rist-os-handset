@@ -58,11 +58,16 @@ object TextAlert {
         /** True when Do Not Disturb also hides it from view (no peeking). */
         val peekSuppressed: Boolean,
         val importance: Int,
-        /** The channel's own sound; null for "the default notification sound" or none known. */
+        /** The channel's own sound; null when the channel is silent, or (without [channelKnown]) unknown. */
         val channelSound: Uri?,
         val channelVibrates: Boolean,
         val channelVibration: LongArray?,
-    )
+        /** True when the facts come from the notification's channel, so a null sound means silent. */
+        val channelKnown: Boolean = false,
+    ) {
+        /** A channel the person set to no sound makes none; Android plays nothing for it. */
+        val makesSound: Boolean get() = !channelKnown || channelSound != null
+    }
 
     /** The phone's state at the moment the text arrives. */
     interface Env {
@@ -111,9 +116,9 @@ object TextAlert {
         }
         return when (ringerMode) {
             AudioManager.RINGER_MODE_NORMAL ->
-                Alerting(banner = banner, sound = true, vibrate = facts.channelVibrates)
+                Alerting(banner = banner, sound = facts.makesSound, vibrate = facts.channelVibrates)
             AudioManager.RINGER_MODE_VIBRATE ->
-                Alerting(banner = banner, sound = false, vibrate = true)
+                Alerting(banner = banner, sound = false, vibrate = facts.channelVibrates || facts.makesSound)
             else -> Alerting(banner = banner, sound = false, vibrate = false)
         }
     }
