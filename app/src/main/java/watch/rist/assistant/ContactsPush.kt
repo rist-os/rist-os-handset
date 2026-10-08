@@ -424,10 +424,11 @@ object ContactsPush {
     fun nudge(ctx: Context, reason: String) {
         val app = ctx.applicationContext
         if (!nudgeQueued.compareAndSet(false, true)) return
+        val gen = ContactsSync.generation
         runCatching {
             nudgeExecutor.execute {
                 nudgeQueued.set(false)
-                if (ContactsSync.allowed(app) && ContactsMirror.canWrite(app) && hasPending(app)) {
+                if (gen == ContactsSync.generation && ContactsSync.allowed(app) && ContactsMirror.canWrite(app) && hasPending(app)) {
                     ContactsSync.requestSync(app, full = false, reason = reason)
                 }
             }

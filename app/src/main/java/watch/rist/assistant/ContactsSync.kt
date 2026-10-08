@@ -123,6 +123,15 @@ object ContactsSync {
     private val executor = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "rist-contacts").apply { isDaemon = true } }
     private val autoQueued = AtomicBoolean(false)
     private val manualQueued = AtomicBoolean(false)
+    @Volatile private var pendingAuto: java.util.concurrent.ScheduledFuture<*>? = null
+
+    /**
+     * Moves on whenever a test resets this object. A pull or nudge queued before the reset finds it
+     * changed and does nothing, so one test's leftover request cannot hold the queue, move the
+     * back-off, or pull from the next test's server.
+     */
+    @Volatile internal var generation = 0
+        private set
     @Volatile private var lastAutoAtMs = 0L
     @Volatile private var failures = 0
     @Volatile private var failedAtMs = 0L
@@ -138,7 +147,15 @@ object ContactsSync {
 
     /** Lets a test run pulls inline, with no gap held between them. */
     @Volatile internal var runInlineForTest = false
-        set(v) { field = v; lastAutoAtMs = 0L; failures = 0; failedAtMs = 0L; minGapMs = MIN_GAP_MS }
+        set(v) {
+            field = v
+            generation++
+            pendingAuto?.cancel(false)
+            pendingAuto = null
+            autoQueued.set(false)
+            manualQueued.set(false)
+            lastAutoAtMs = 0L; failures = 0; failedAtMs = 0L; minGapMs = MIN_GAP_MS
+        }
 
     internal fun backoffMs(failures: Int): Long =
         if (failures <= 0) 0L else (MIN_GAP_MS shl (failures - 1).coerceAtMost(12)).coerceAtMost(MAX_BACKOFF_MS)
@@ -160,14 +177,19 @@ object ContactsSync {
         val app = ctx.applicationContext
         if (full) Config.setContactsNeedsFull(app, true)
         if (runInlineForTest) { syncBlocking(app, manual); return }
+        val gen = generation
         if (manual) {
             if (!manualQueued.compareAndSet(false, true)) return
-            executor.execute { manualQueued.set(false); syncBlocking(app, true) }
+            executor.execute {
+                if (gen != generation) return@execute
+                manualQueued.set(false); syncBlocking(app, true)
+            }
             return
         }
         if (!autoQueued.compareAndSet(false, true)) return
         val delay = waitMs(SystemClock.elapsedRealtime(), lastAutoAtMs, failures, failedAtMs, minGapMs)
-        executor.schedule({
+        pendingAuto = executor.schedule({
+            if (gen != generation) return@schedule
             autoQueued.set(false)
             lastAutoAtMs = SystemClock.elapsedRealtime()
             val out = syncBlocking(app, false)
@@ -269,11 +291,12 @@ object ContactsSync {
     /** One pull, start to finish. Blocking; call off the main thread. Never throws. */
     @Synchronized
     fun syncBlocking(ctx: Context, manual: Boolean = false, http: OkHttpClient = Uploader.sharedClient()): Outcome {
+        val gen = generation
         val out = runCatching { pull(ctx, manual, http) }.getOrElse {
             // The class only: a provider or parser message can quote what it was handed.
             Outcome.Failed(it.javaClass.simpleName)
         }
-        noteOutcome(out)
+        if (gen == generation) noteOutcome(out)
         return out
     }
 
