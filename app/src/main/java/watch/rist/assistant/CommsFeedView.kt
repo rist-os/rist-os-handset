@@ -526,6 +526,8 @@ object CommsFeedView {
      * answer lands where every answer does. From any other screen, home is brought up to send it.
      */
     private fun readNewMail(activity: Activity) {
+        // A second tap before this page is gone would bring home up with the turn again.
+        if (activity.isFinishing) return
         Haptics.ack(activity)
         val turn = HomeBoxes.Turn(text = READ_MAIL_WORDS, targetToolId = "", boxId = "", prompt = READ_MAIL_WORDS)
         if (activity is MainActivity) { activity.sendBoxTurn(turn); return }
