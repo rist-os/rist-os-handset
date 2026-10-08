@@ -1,5 +1,5 @@
 // The device <-> backend contract, schema v18, with the proposed v19 features fields, the
-// proposed home boxes fields and the v23 checklist messages.
+// proposed home boxes fields, the v23 checklist messages and the v25 note edit messages.
 // Copied from the backend's canonical file; change it there first.
 
 syntax = "proto3";
@@ -185,6 +185,10 @@ message DeviceResponse {
   // v23 (checkable list items): lists shown with checkboxes under the answer, from the show_list
   // tool only. Sent only to a phone that lists "checklist_v1" in caps.components.
   repeated Checklist checklists = 35;
+
+  // v25 (notes edited in place): notes shown as cards the user taps to edit, from the show_notes
+  // tool only. Sent only to a phone that lists "note_edit_v1" in caps.components.
+  repeated NoteCard note_cards = 37;
 }
 
 message Notification {
@@ -771,4 +775,47 @@ message ItemCheck {
 // The body of POST /v1/device/items, at most 50 checks. The phone reads only the HTTP status.
 message ItemCheckBatch {
   repeated ItemCheck checks = 1;
+}
+
+// v25 (notes edited in place): one note on screen. `text` is the body, verbatim, plain text.
+message NoteCard {
+  // Opaque; what a NoteEdit names.
+  string note_id = 1;
+  // Shown above the text, not edited here ("" = none).
+  string title   = 2;
+  string text    = 3;
+  // Opaque; sent back as NoteEdit.base_version. Compared for equality only.
+  string version = 4;
+}
+
+// v25: the whole new text of one note, sent when the user ticks the edit.
+message NoteEdit {
+  // Minted on the phone; echoed in NoteSaved.
+  string edit_id      = 1;
+  string note_id      = 2;
+  // The version the user started from. If the note changed since, the backend keeps the note and
+  // saves this text as a new note beside it: the words are never lost.
+  string base_version = 3;
+  // Never empty.
+  string text         = 4;
+  uint64 at_epoch_ms  = 5;
+}
+
+// The body of POST /v1/device/notes, at most 20 edits.
+message NoteEditBatch {
+  repeated NoteEdit edits = 1;
+}
+
+// Where one edit's text now lives: the card takes this note id and version.
+message NoteSaved {
+  string edit_id = 1;
+  string note_id = 2;
+  string version = 3;
+  // The note had changed or gone since base_version: the text was saved as a new note.
+  bool   copied  = 4;
+}
+
+// The reply to POST /v1/device/notes (200).
+message NoteEditReply {
+  repeated NoteSaved saved = 1;
 }
