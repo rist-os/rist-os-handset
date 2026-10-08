@@ -51,7 +51,7 @@ class WakeService : Service() {
         val cb = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) = WakeLoop.kick()
         }
-        runCatching { cm.registerDefaultNetworkCallback(cb); netCallback = cb }
+        runCatching { cm.registerDefaultNetworkCallback(cb); netCallback = cb; networkWatched = true }
             .onFailure { Log.w(TAG, "no network callback; relying on backoff", it) }
     }
 
@@ -60,6 +60,7 @@ class WakeService : Service() {
             runCatching { getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(cb) }
         }
         netCallback = null
+        networkWatched = false
         scope.cancel()
         super.onDestroy()
     }
@@ -89,6 +90,9 @@ class WakeService : Service() {
         // Distinct from RecordService (1001), PushService (1002/1003), OtaService (1004),
         // the update offer (1005) and AlarmService (0x4A1).
         private const val NOTIF_ID = 1006
+
+        /** True while a network callback will kick the loop when a network appears. */
+        @Volatile internal var networkWatched = false
 
         /** Idempotent: starts the loop, or kicks it into polling now if it already runs. */
         fun start(ctx: Context) {

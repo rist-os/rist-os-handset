@@ -158,10 +158,25 @@ object AutoTimeZone {
     }
 
     /**
+     * Least time between two GPS attempts made for the time zone alone. Between them the check
+     * uses the cached fix (from any app, a turn, navigation) and the network provider when the
+     * owner turned network location on. A zone is a region; it does not need a satellite fix
+     * every hour, and an hourly cold GPS start indoors runs the receiver for ten seconds to learn
+     * nothing.
+     */
+    internal const val GPS_MIN_GAP_MS = 6L * 60 * 60 * 1000
+
+    @Volatile private var lastGpsAttemptMs = 0L
+
+    /** Whether this check may wake GPS: forced checks (boot, the setting turned on) always may. */
+    internal fun gpsAllowed(force: Boolean, lastGpsAttemptMs: Long, nowElapsedMs: Long): Boolean =
+        force || lastGpsAttemptMs == 0L || nowElapsedMs - lastGpsAttemptMs >= GPS_MIN_GAP_MS
+
+    /**
      * Looks up the zone with the freshest fix it can get cheaply. May block for a location
      * request of up to about fifteen seconds, so never on the main thread.
      */
-    fun checkBlocking(ctx: Context) {
+    fun checkBlocking(ctx: Context, force: Boolean = false) {
         Log.i(TAG, "check: from location=${Config.isAutoTimeZone(ctx)} owner=${system.canSet(ctx)} " +
             "location permission=${LocationProvider.hasPermission(ctx)} zone=${system.current()}")
         if (!Config.isAutoTimeZone(ctx) || !system.canSet(ctx)) return
@@ -169,8 +184,11 @@ object AutoTimeZone {
         val now = System.currentTimeMillis()
         var fix = LocationProvider.cached(ctx)
         if (fix == null || now - fix.timeMs > REFRESH_AFTER_MS) {
+            val elapsed = SystemClock.elapsedRealtime()
+            val gps = gpsAllowed(force, lastGpsAttemptMs, elapsed)
+            if (gps) lastGpsAttemptMs = elapsed
             fix = LocationProvider.freshBlocking(ctx, maxAgeS = (REFRESH_AFTER_MS / 1000).toInt(),
-                minAccuracyM = 0f, timeoutMs = 5_000) ?: fix
+                minAccuracyM = MAX_ACCURACY_M, timeoutMs = 5_000, allowGps = gps) ?: fix
         }
         consider(ctx, fix, now)
     }
@@ -189,7 +207,7 @@ object AutoTimeZone {
         }
         lastBackgroundCheckMs = now
         val app = ctx.applicationContext
-        Thread({ runCatching { checkBlocking(app) }.onFailure { Log.w(TAG, "check failed", it) } },
+        Thread({ runCatching { checkBlocking(app, force) }.onFailure { Log.w(TAG, "check failed", it) } },
             "RistAutoTz").start()
     }
 

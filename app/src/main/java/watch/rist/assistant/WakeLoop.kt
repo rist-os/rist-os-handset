@@ -2,6 +2,8 @@ package watch.rist.assistant
 
 import android.content.Context
 import android.media.AudioManager
+import android.net.ConnectivityManager
+import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.VibratorManager
 import android.util.Log
@@ -99,6 +101,52 @@ object WakeLoop {
                 if (components.isNotEmpty()) addQueryParameter("components", components.joinToString(","))
             }
             .build().toString()
+    }
+
+    /**
+     * An idle gap at or above this is the server saying "nothing to hand over". Shorter gaps
+     * (0 while draining, 5-10 s after a deploy or a lost ack) are left exactly as sent.
+     */
+    internal const val IDLE_GAP_THRESHOLD_MS = 60_000L
+
+    /** The idle gap while Battery Saver is on and the screen is off. */
+    internal const val SAVER_IDLE_GAP_MS = 15L * 60 * 1000
+
+    /**
+     * How long to wait after a signal. The server's idle gap is stretched only when the owner has
+     * asked the phone to save power (Battery Saver) and nobody is looking at it: news then arrives
+     * within fifteen minutes instead of four, and the screen coming on polls at once
+     * (MainActivity.onResume kicks the loop). Calls, texts and alarms do not come this way.
+     */
+    internal fun idleGapMs(serverGapMs: Long, powerSave: Boolean, interactive: Boolean): Long =
+        if (powerSave && !interactive && serverGapMs >= IDLE_GAP_THRESHOLD_MS) maxOf(serverGapMs, SAVER_IDLE_GAP_MS)
+        else serverGapMs
+
+    /** With no network at all, a retry cannot succeed; wait this long, or for the network to come back. */
+    internal const val OFFLINE_RETRY_MS = 15L * 60 * 1000
+
+    /**
+     * The wait before a retry. Offline, retrying every minute only wakes the phone to fail: the
+     * network callback in [WakeService] kicks the loop the moment a network appears, so the wait
+     * is long. [hasNetwork] null (unknown) keeps the backoff.
+     */
+    internal fun retryWaitMs(backoffMs: Long, hasNetwork: Boolean?): Long =
+        if (hasNetwork == false) maxOf(backoffMs, OFFLINE_RETRY_MS) else backoffMs
+
+    private fun powerSave(ctx: Context): Boolean = runCatching {
+        ctx.getSystemService(PowerManager::class.java)?.isPowerSaveMode == true
+    }.getOrDefault(false)
+
+    private fun interactive(ctx: Context): Boolean = runCatching {
+        ctx.getSystemService(PowerManager::class.java)?.isInteractive != false
+    }.getOrDefault(true)
+
+    /** Null unless a network callback is registered to end the long offline wait early. */
+    private fun hasNetwork(ctx: Context): Boolean? {
+        if (!WakeService.networkWatched) return null
+        return runCatching {
+            ctx.getSystemService(ConnectivityManager::class.java)?.let { it.activeNetwork != null }
+        }.getOrNull()
     }
 
     /** Exponential, 1s to 60s, with jitter so a fleet does not come back in step. */
@@ -247,7 +295,7 @@ object WakeLoop {
                     backoff = BACKOFF_MIN_MS
                     // Ours to set and we honour it (0 while draining, 240 when idle), but never
                     // quicker than a second: an empty 200 parses as 0 and would spin.
-                    waitOrKick(pollGapMs(out.signal.pollAfterS))
+                    waitOrKick(idleGapMs(pollGapMs(out.signal.pollAfterS), powerSave(ctx), interactive(ctx)))
                 }
                 Outcome.Unauthorised -> {
                     Log.w(TAG, "401: stopping until the phone has a new credential")
@@ -275,8 +323,9 @@ object WakeLoop {
                     waitOrKick(NO_TOKEN_RECHECK_MS)
                 }
                 is Outcome.Retry -> {
-                    Log.i(TAG, "retry in ${backoff}ms (${out.why})")
-                    waitOrKick(backoff)
+                    val wait = retryWaitMs(backoff, hasNetwork(ctx))
+                    Log.i(TAG, "retry in ${wait}ms (${out.why})")
+                    waitOrKick(wait)
                     backoff = nextBackoff(backoff)
                 }
                 Outcome.NotReady -> waitOrKick(NO_TOKEN_RECHECK_MS)
