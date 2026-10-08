@@ -75,6 +75,10 @@
          set; without it every Voice slider change is refused. Listed in the privapp allowlist too. -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS_PRIVILEGED" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- Build.getSerial(), hashed into the enrolment stable_id (StableId.kt). Must ship in the same
+         image as its line in aosp/sysconfig/rist-privapp-permissions-watch.rist.assistant.xml: a
+         privileged permission missing from that allowlist stops an enforcing image from booting. -->
+    <uses-permission android:name="android.permission.READ_PRIVILEGED_PHONE_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
 
     <application
