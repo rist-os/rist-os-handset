@@ -66,6 +66,8 @@ object ContactsPush {
         val d3: String = "",
         val primary: Boolean = false,
         val methodId: String = "",
+        /** When the provider last saw the person change (the aggregate's clock); 0 when unknown. */
+        val changedAtMs: Long = 0L,
     )
 
     /** One raw contact with something to send. */
@@ -115,7 +117,10 @@ object ContactsPush {
     internal fun recordOf(p: Pending, key: String, nowMs: Long): ContactRecord? {
         val name = nameOf(p.rows)
         if (name.isBlank()) return null
-        val b = ContactRecord.newBuilder().setDisplayName(name).setUpdatedAtMs(nowMs)
+        // The conflict clock is when the person changed, not when the push went: an edit made on
+        // the phone before a later one on the backend must not win just because it was sent after.
+        val changedAt = p.rows.maxOfOrNull { it.changedAtMs }?.takeIf { it in 1..nowMs } ?: nowMs
+        val b = ContactRecord.newBuilder().setDisplayName(name).setUpdatedAtMs(changedAt)
         if (p.sourceId.isNotBlank()) b.id = p.sourceId else b.externalKey = key
         for (r in p.rows) {
             when (r.mime) {
@@ -199,7 +204,8 @@ object ContactsPush {
         val out = ArrayList<DataRow>()
         ctx.contentResolver.query(
             Data.CONTENT_URI,
-            arrayOf(Data.MIMETYPE, Data.DATA1, Data.DATA2, Data.DATA3, Data.IS_PRIMARY, Data.SYNC1),
+            arrayOf(Data.MIMETYPE, Data.DATA1, Data.DATA2, Data.DATA3, Data.IS_PRIMARY, Data.SYNC1,
+                Data.CONTACT_LAST_UPDATED_TIMESTAMP),
             "${Data.RAW_CONTACT_ID} = ?", arrayOf(rawId.toString()), null,
         )?.use { c ->
             while (c.moveToNext()) {
@@ -208,6 +214,7 @@ object ContactsPush {
                     d1 = c.getString(1).orEmpty(), d2 = c.getString(2).orEmpty(), d3 = c.getString(3).orEmpty(),
                     primary = !c.isNull(4) && c.getInt(4) != 0,
                     methodId = c.getString(5).orEmpty(),
+                    changedAtMs = if (c.isNull(6)) 0L else c.getLong(6),
                 )
             }
         }
@@ -361,10 +368,14 @@ object ContactsPush {
                 if (r.id.isBlank() || !r.externalKey.startsWith(prefix)) continue
                 val rawId = r.externalKey.removePrefix(prefix).toLongOrNull() ?: continue
                 val sentAt = waiting[rawId] ?: continue
-                val now = versionOf(ctx, rawId)
+                val row = deviceRowOf(ctx, rawId)
+                val now = row?.version
                 when {
                     now == null -> waiting.remove(rawId)                 // already gone
                     now != sentAt -> waiting.remove(rawId)               // changed since: send again
+                    // A favourite, a ringtone or straight-to-voicemail lives on the row itself and
+                    // would go with it; kept, and not sent again.
+                    row.personal -> Unit
                     !Pending(rawId, now, true, rows = rowsOf(ctx, rawId)).onlyCarried -> Unit // kept, and not sent again
                     else -> {
                         val uri = ContentUris.withAppendedId(RawContacts.CONTENT_URI, rawId).buildUpon()
@@ -379,11 +390,21 @@ object ContactsPush {
         if (removed > 0) Log.i(TAG, "moved $removed device contact(s) into the Rist account")
     }
 
-    private fun versionOf(ctx: Context, rawId: Long): Long? =
+    private class DeviceRow(val version: Long, val personal: Boolean)
+
+    /** A device contact still there: its version, and whether it holds settings a record cannot carry. */
+    private fun deviceRowOf(ctx: Context, rawId: Long): DeviceRow? =
         ctx.contentResolver.query(
             ContentUris.withAppendedId(RawContacts.CONTENT_URI, rawId),
-            arrayOf(RawContacts.VERSION, RawContacts.DELETED), null, null, null,
-        )?.use { c -> if (c.moveToFirst() && (c.isNull(1) || c.getInt(1) == 0)) c.getLong(0) else null }
+            arrayOf(RawContacts.VERSION, RawContacts.DELETED, RawContacts.STARRED,
+                RawContacts.CUSTOM_RINGTONE, RawContacts.SEND_TO_VOICEMAIL), null, null, null,
+        )?.use { c ->
+            if (!c.moveToFirst() || (!c.isNull(1) && c.getInt(1) != 0)) return@use null
+            val starred = !c.isNull(2) && c.getInt(2) != 0
+            val ringtone = !c.isNull(3) && !c.getString(3).isNullOrBlank()
+            val voicemail = !c.isNull(4) && c.getInt(4) != 0
+            DeviceRow(c.getLong(0), starred || ringtone || voicemail)
+        }
 
     // ---- noticing an edit ----
     //
