@@ -95,6 +95,18 @@ message DeviceRequest {
   // new one. With nothing said it only does that and answers with empty speech. FALSE everywhere
   // else — the phone never starts a new conversation on its own (no idle timer).
   bool new_conversation = 30;
+  // v31: set only on the phone's own off-corridor reroute; echoes the route being followed so the
+  // backend routes to that destination instead of geocoding the label. Absent on every other turn.
+  NavReroute reroute = 31;
+}
+
+// v31: the route a reroute continues, copied from the NavCommand the phone is following.
+message NavReroute {
+  string route_id = 1;
+  double dest_lat = 2;
+  double dest_lon = 3;
+  string label    = 4;   // display only; never geocoded
+  string mode     = 5;   // "driving" | "walking"
 }
 
 message Location { double lat = 1; double lon = 2; string label = 3; uint32 accuracy_m = 4;

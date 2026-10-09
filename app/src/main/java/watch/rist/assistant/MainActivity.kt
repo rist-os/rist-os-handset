@@ -183,6 +183,11 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         }
     }
     private var rerouting = false
+    private val rerouteGate = RerouteGate()
+    // The backend answered a reroute without a route: keep this one, and do not ask again by itself.
+    private var rerouteHeld = false
+    // A reroute that got no answer at all waits this long before the next one.
+    private var rerouteNotBeforeMs = 0L
 
     // Thumbnails of photos sent this session, by transcript entry. The store keeps only the
     // words, as the backend does; the pictures show while the process lives and no longer.
@@ -2607,6 +2612,8 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         val prev = currentNav
         currentNav = nav
         rerouting = false
+        rerouteHeld = false
+        rerouteGate.reset()
         navLabel.text = nav.label.ifBlank { getString(R.string.app_name) }
         navDest.text = getString(R.string.nav_dest_fmt, nav.destLat, nav.destLon)
         navMode.text = getString(R.string.nav_mode_fmt, nav.mode.ifBlank { "driving" })
@@ -2728,6 +2735,8 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         navNextTurn = 0
         lastNavFix = null
         rerouting = false
+        rerouteHeld = false
+        rerouteGate.reset()
         navMap.visibility = View.GONE
         navBanner.visibility = View.GONE
         navBox.visibility = View.GONE
@@ -2826,7 +2835,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                 navTurns.getOrNull(nextTurn)?.instruction?.takeIf { it.isNotBlank() }?.let { speakNav(it) }
                 navLastSpokenTurn = nextTurn
             }
-            if (navRnOut[5] != 0.0) launchReroute(fix)
+            if (rerouteGate.onFix(fix, navRnOut[4], NAV_OFF_ROUTE_M, System.currentTimeMillis())) launchReroute(fix)
             return
         }
         navMap.setFix(fix.lat, fix.lon, fix.bearingDeg)
@@ -2857,30 +2866,37 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         val nav = currentNav ?: return
         if (rerouting || !nav.hasCorridor()) return
         val c = nav.corridor
-        val outside = fix.lat < c.minLat - NAV_SNAP_TOL_DEG || fix.lat > c.maxLat + NAV_SNAP_TOL_DEG ||
-            fix.lon < c.minLon - NAV_SNAP_TOL_DEG || fix.lon > c.maxLon + NAV_SNAP_TOL_DEG
-        if (!outside) return
-        launchReroute(fix)
+        val outsideM = metresOutside(fix.lat, fix.lon, c.minLat, c.minLon, c.maxLat, c.maxLon)
+        if (rerouteGate.onFix(fix, outsideM, NAV_SNAP_TOL_DEG * M_PER_DEG_LAT, System.currentTimeMillis())) {
+            launchReroute(fix)
+        }
     }
 
     private fun launchReroute(fix: LocationProvider.Fix?) {
         val nav = currentNav ?: return
-        if (rerouting) return
+        if (rerouting || rerouteHeld || SystemClock.elapsedRealtime() < rerouteNotBeforeMs) return
         rerouting = true
         status(getString(R.string.nav_rerouting))
         val label = nav.label.ifBlank { getString(R.string.app_name) }
-        val routeId = nav.routeId
         uiScope.launch {
             val reply = withContext(Dispatchers.IO) {
                 Uploader(applicationContext).sendNav(
-                    text = "navigate to $label", targetToolId = "map", fix = fix, routeId = routeId
+                    text = "navigate to $label", targetToolId = "map", fix = fix, reroute = nav
                 )
             }
+            if (currentNav !== nav) return@launch
             if (reply != null && reply.hasNav()) {
                 reply.speech?.text?.takeIf { it.isNotBlank() }?.let { speakNav(it) }
                 showNav(reply.nav)
             } else {
                 rerouting = false
+                if (reply != null) {
+                    // No route back (§7a): say so and keep the route on screen; no automatic retry.
+                    rerouteHeld = true
+                    reply.speech?.text?.takeIf { it.isNotBlank() }?.let { status(it) }
+                } else {
+                    rerouteNotBeforeMs = SystemClock.elapsedRealtime() + NAV_REROUTE_RETRY_MS
+                }
             }
         }
     }
@@ -3060,6 +3076,18 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
 
         // Degrees outside the corridor bbox before a reroute fires.
         private const val NAV_SNAP_TOL_DEG = 0.003
+        private const val M_PER_DEG_LAT = 111_320.0
+        // Cross-track distance from the route line that counts as off it.
+        private const val NAV_OFF_ROUTE_M = 50.0
+        private const val NAV_REROUTE_RETRY_MS = 30_000L
+
+        /** Metres from a point to a lat/lon box, 0 inside it. */
+        internal fun metresOutside(lat: Double, lon: Double, minLat: Double, minLon: Double,
+                                   maxLat: Double, maxLon: Double): Double {
+            val dLat = maxOf(minLat - lat, 0.0, lat - maxLat) * M_PER_DEG_LAT
+            val dLon = maxOf(minLon - lon, 0.0, lon - maxLon) * M_PER_DEG_LAT * Math.cos(Math.toRadians(lat))
+            return Math.hypot(dLat, dLon)
+        }
 
         // Hold this long to arm the torch brightness drag.
         private const val TORCH_LONG_PRESS_MS = 250L
