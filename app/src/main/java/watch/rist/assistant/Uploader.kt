@@ -392,6 +392,24 @@ class Uploader(private val ctx: Context) {
         post(req)
     }
 
+    // A radio verdict on a text, carried at once rather than on the next turn. post() attaches
+    // every queued CommsResult and clears what the backend acknowledges. The reply's commands are
+    // dropped. Blocking; call on IO.
+    fun reportCommsResults() {
+        if (CommsResults.pending(ctx).isEmpty()) return
+        val req = DeviceRequest.newBuilder()
+            .setDeviceId(Config.deviceId(ctx))
+            .setSessionId(Config.currentSessionId(ctx))
+            .setTimestamp(System.currentTimeMillis())
+            .setRequestId(newRequestId())
+            .setUtteranceId(newUtteranceId())
+            .setAuthToken(Config.authToken(ctx))
+            .setCaps(DeviceProfile.capabilities(ctx))
+            .build()
+        Log.i(TAG, "comms result check-in (no utterance)")
+        post(req)
+    }
+
     // Blocking; call on IO.
     fun sendNav(
         text: String,

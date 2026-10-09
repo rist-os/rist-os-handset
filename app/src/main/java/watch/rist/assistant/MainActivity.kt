@@ -622,7 +622,6 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         }
         runCatching { DeviceCommands.restoreTimers(applicationContext) }
         Config.importTokenFileIfPresent(applicationContext)
-        SmsResultReceiver.register(applicationContext)
         // For the activity's whole life, not onStart/onStop: navigation GPS runs with the screen off.
         LocalBroadcastManager.getInstance(this)
             .registerReceiver(locationOffReceiver, IntentFilter(LocationSwitch.ACTION_LOCATION_OFF))
