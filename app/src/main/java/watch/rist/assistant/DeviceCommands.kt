@@ -250,18 +250,37 @@ object DeviceCommands {
 
     private fun comms(ctx: Context, c: rist.v1.CommsCommand) {
         val raw = c.number.trim()
-        if (raw.isBlank()) { Log.w(TAG, "comms: no number"); return }
+        // Every way out says what happened: the assistant has already told the person it is done,
+        // and only this result tells the backend otherwise.
+        val action = c.action.lowercase()
+        if (raw.isBlank()) {
+            Log.w(TAG, "comms: no number")
+            CommsResults.record(ctx, c.correlationId, action, false, "no number to use")
+            return
+        }
         // SmsManager needs a digits-only destination; tel: URIs tolerate formatting.
         val number = normaliseNumber(raw)
-        if (number.isBlank()) { Log.w(TAG, "comms: number had no digits (${raw.length} chars)"); return }
+        if (number.isBlank()) {
+            Log.w(TAG, "comms: number had no digits (${raw.length} chars)")
+            CommsResults.record(ctx, c.correlationId, action, false, "the number had no digits")
+            return
+        }
         // The name and the number, so the person can see who it is going to before it goes:
         // the backend's name if it sent one, else the phone's own address book.
         val who = CallerId.label(ctx, number, c.displayName)
 
-        when (c.action.lowercase()) {
+        when (action) {
             "send_sms" -> {
-                if (c.body.isBlank()) { Log.w(TAG, "comms: send_sms with an empty body"); return }
-                if (isEmergency(ctx, number)) { Log.w(TAG, "comms: refusing to text an emergency number"); return }
+                if (c.body.isBlank()) {
+                    Log.w(TAG, "comms: send_sms with an empty body")
+                    CommsResults.record(ctx, c.correlationId, "send_sms", false, "the message was empty")
+                    return
+                }
+                if (isEmergency(ctx, number)) {
+                    Log.w(TAG, "comms: refusing to text an emergency number")
+                    CommsResults.record(ctx, c.correlationId, "send_sms", false, "emergency numbers are never texted automatically")
+                    return
+                }
                 heldBack(ctx, number)?.let { composeInstead(ctx, c, number, who, it); return }
                 when (DialPolicy.take(ctx, "sms", DialPolicy.TEXTS_PER_DAY)) {
                     DialPolicy.Quota.OK -> Unit
@@ -280,23 +299,17 @@ object DeviceCommands {
                     val sm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
                         ctx.getSystemService(android.telephony.SmsManager::class.java)
                     else @Suppress("DEPRECATION") android.telephony.SmsManager.getDefault()
-                    val sentPi = android.app.PendingIntent.getBroadcast(
-                        ctx.applicationContext, ("sms:" + number).hashCode(),
-                        Intent(SmsResultReceiver.ACTION_SENT)
-                            .setPackage(ctx.packageName)
-                            .putExtra(SmsResultReceiver.EXTRA_WHO, who)
-                            .putExtra(SmsResultReceiver.EXTRA_CID, c.correlationId),
-                        android.app.PendingIntent.FLAG_UPDATE_CURRENT or
-                            android.app.PendingIntent.FLAG_MUTABLE
-                    )
                     // Long messages must be split or the send silently fails past ~160 chars.
                     val parts = sm.divideMessage(c.body)
+                    // One result per part, each its own PendingIntent: one shared by every send to
+                    // a number had a second text overwrite the first's correlation id, so the
+                    // first was never reported, and a failed part could be reported as sent.
+                    val pis = ArrayList<android.app.PendingIntent>(parts.size)
+                    for (i in parts.indices) pis.add(SmsResultReceiver.sentIntent(ctx, c.correlationId, who, i, parts.size))
                     if (parts.size > 1) {
-                        val pis = ArrayList<android.app.PendingIntent>(parts.size)
-                        repeat(parts.size) { pis.add(sentPi) }
                         sm.sendMultipartTextMessage(number, null, parts, pis, null)
                     } else {
-                        sm.sendTextMessage(number, null, c.body, sentPi, null)
+                        sm.sendTextMessage(number, null, c.body, pis[0], null)
                     }
                     true
                 }.getOrElse { Log.w(TAG, "comms: send failed outright", it); false }

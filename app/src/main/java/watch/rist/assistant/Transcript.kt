@@ -80,7 +80,12 @@ object Transcript {
         return entries.toList()
     }
 
-    private const val IN_FLIGHT_TIMEOUT_MS = 90_000L
+    /**
+     * An entry still waiting this long has lost its turn. Past the turn's own read timeout: a turn
+     * still being worked on must not read "no answer", or the person asks again and a text that
+     * was on its way goes twice.
+     */
+    internal const val IN_FLIGHT_TIMEOUT_MS = (Uploader.TURN_READ_TIMEOUT_S + 20L) * 1000L
 
     @Synchronized
     fun nextStaleAtMs(ctx: Context): Long {

@@ -62,6 +62,10 @@ object CommsResults {
 
     fun pending(ctx: Context): List<Result> = load(ctx)
 
+    /** A failure for [correlationId] is waiting to be reported. */
+    fun failed(ctx: Context, correlationId: String): Boolean =
+        correlationId.isNotBlank() && load(ctx).any { it.correlationId == correlationId && !it.performed }
+
     fun ack(ctx: Context, ids: Collection<String>) {
         if (ids.isEmpty()) return
         val keep = load(ctx).filterNot { it.correlationId in ids }

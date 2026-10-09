@@ -31,13 +31,11 @@ class RecordService : Service() {
         const val ACTION_STOP = "watch.rist.assistant.RECORD_STOP"
         const val ACTION_CANCEL = "watch.rist.assistant.RECORD_CANCEL"
 
-        const val ACTION_ASSISTANT_REPLY = "watch.rist.assistant.action.ASSISTANT_REPLY"
+        /** On [ACTION_STOP]: the transcript entry this recording answers. */
+        const val EXTRA_ENTRY_ID = "entry_id"
         const val ACTION_CAPTURE_WARNING = "watch.rist.assistant.action.CAPTURE_WARNING"
         const val EXTRA_SECS_LEFT = "secs_left"
         const val ACTION_CAPTURE_DISCARDED = "watch.rist.assistant.action.CAPTURE_DISCARDED"
-        const val EXTRA_REPLY_TEXT = "reply_text"
-        const val EXTRA_REPLY_STATUS = "reply_status"
-        const val EXTRA_REPLY_PROTO = "reply_proto"
 
         private const val TAG = "RistRecord"
         private const val CHANNEL_ID = "rist_record"
@@ -75,6 +73,7 @@ class RecordService : Service() {
     @Volatile private var ampSumSq = 0.0
     @Volatile private var ampSamples = 0
     @Volatile private var clipId = ""
+    @Volatile private var entryId = 0L
     private val capHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -84,7 +83,10 @@ class RecordService : Service() {
         startForegroundCompat()
         when (intent?.action) {
             ACTION_START -> startRecording()
-            ACTION_STOP -> stopRecording()
+            ACTION_STOP -> {
+                entryId = intent.getLongExtra(EXTRA_ENTRY_ID, 0L)
+                stopRecording()
+            }
             ACTION_CANCEL -> cancelRecording()
             else -> { stopForegroundCompat(); stopSelf() }
         }
@@ -156,14 +158,17 @@ class RecordService : Service() {
                 if (n > 0) uploader.sendFrame(buf, n)
             }
             val reply = uploader.endStream()
-            handleResponse(reply, uploader.lastFailure)
+            handleResponse(reply, uploader.lastFailure, entryId)
         }
         Log.i(TAG, "recording started")
     }
 
-    private fun handleResponse(reply: DeviceResponse?, failure: String = "") {
+    internal fun handleResponse(reply: DeviceResponse?, failure: String, entryId: Long) {
         if (reply == null) {
-            broadcastReply(text = "", status = failure.ifBlank { "no reply" }, proto = null)
+            val cancelled = StreamingCancel.takeCancelledFlag()
+            TurnRunner.finish(applicationContext, TurnRunner.Outcome(
+                entryId, null, failure.ifBlank { "no reply" }, "voice", voice = true, cancelled = cancelled,
+            ))
             return
         }
 
@@ -172,11 +177,6 @@ class RecordService : Service() {
         val audio = speech?.audio
         val hasAudio = audio != null && !audio.isEmpty
         val hasView = reply.hasView()
-        val proto = reply.toByteArray()
-
-        // Applied here as well as in MainActivity; handle() is idempotent per response.
-        runCatching { DeviceCommands.handle(applicationContext, reply) }
-            .onFailure { Log.w(TAG, "device command handling failed", it) }
 
         if (reply.actionsCount > 0) Log.i(TAG, "response carries ${reply.actionsCount} action(s)")
         if (reply.hasConfirm()) Log.i(TAG, "response proposes action_id='${reply.confirm.actionId}' (${reply.confirm.prompt.length}-char prompt)")
@@ -195,15 +195,11 @@ class RecordService : Service() {
             if (hasView) add("🖼 view v${reply.view.schemaVersion}")
         }
         val status = if (parts.isEmpty()) "reply had no speech" else parts.joinToString("  +  ")
-        broadcastReply(text = text, status = status, proto = proto)
-    }
-
-    private fun broadcastReply(text: String, status: String, proto: ByteArray?) {
-        val intent = Intent(ACTION_ASSISTANT_REPLY)
-            .putExtra(EXTRA_REPLY_TEXT, text)
-            .putExtra(EXTRA_REPLY_STATUS, status)
-        if (proto != null) intent.putExtra(EXTRA_REPLY_PROTO, proto)
-        LocalBroadcastManager.getInstance(applicationContext).sendBroadcast(intent)
+        // The entry is closed and the device commands run here, whether or not the home screen is
+        // up to show the reply: it is not while a tile or another app is in front.
+        TurnRunner.finish(applicationContext, TurnRunner.Outcome(
+            entryId, reply, failure, "voice", voice = true, status = status,
+        ))
     }
 
     private fun pollAmplitude() {
@@ -330,11 +326,13 @@ class RecordService : Service() {
         Log.i(TAG, "recording stopped (opus, ${bytes.size}B)")
 
         val sentMs = SystemClock.elapsedRealtime() - captureStartedAtMs
+        val turnEntry = entryId
+        entryId = 0L
         val uploader = Uploader(applicationContext)
         captureJob = scope.launch {
             val reply = if (bytes.isEmpty()) null else uploader.sendOpus(bytes, sentMs.toInt())
             logClip(sent = true, ms = sentMs, bytes = bytes.size, reqId = reply?.requestId.orEmpty())
-            handleResponse(reply, uploader.lastFailure)
+            handleResponse(reply, uploader.lastFailure, turnEntry)
             stopSelf()
         }
     }
