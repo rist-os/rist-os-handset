@@ -412,6 +412,10 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- The radio's verdict on each part of a text, reached by an explicit intent, so it lands
+             even when the process that sent the text is gone. Never registered at runtime too. -->
+        <receiver android:name=".SmsResultReceiver" android:exported="false" />
+
         <!-- Hourly check that the clock's time zone still matches where the phone is. -->
         <receiver android:name=".TimeZoneCheckReceiver" android:exported="false" />
 

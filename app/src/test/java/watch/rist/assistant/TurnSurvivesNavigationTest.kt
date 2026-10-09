@@ -47,6 +47,8 @@ class TurnSurvivesNavigationTest {
     /** Each test's own: device commands are applied once per request id, process-wide. */
     private val cid = "sms-" + java.util.UUID.randomUUID()
     @Volatile private var reply: DeviceResponse = sentReply(cid)
+    private var checkIns = 0
+    private val realCheckIn = SmsResultReceiver.checkIn
 
     private fun sentReply(cid: String, number: String = "+12065550100") = DeviceResponse.newBuilder()
         .setRequestId("req-$cid")
@@ -64,6 +66,9 @@ class TurnSurvivesNavigationTest {
         Transcript.clearForTest(app)
         StreamingCancel.resetForTest()
         Config.setFeatures(app, "")
+        SmsResultReceiver.Parts.clearForTest(app)
+        // The receiver's own check-in is SmsResultDeliveryTest's; here it is only counted.
+        SmsResultReceiver.checkIn = { _, done -> checkIns++; done() }
         server = MockWebServer()
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
@@ -85,6 +90,7 @@ class TurnSurvivesNavigationTest {
 
     @After
     fun tidy() {
+        SmsResultReceiver.checkIn = realCheckIn
         replies.countDown()
         server.shutdown()
         TurnRunner.resetForTest()
@@ -255,18 +261,11 @@ class TurnSurvivesNavigationTest {
         }
     }
 
-    private var resultReceiver: SmsResultReceiver? = null
-
-    /** The radio's [code] for part [part] of [parts] of the text [cid], as it delivers it. */
+    /**
+     * The radio's [code] for part [part] of [parts] of the text [cid], as it delivers it: to the
+     * manifest receiver, with nothing registered at runtime.
+     */
     private fun sent(cid: String, part: Int, parts: Int, code: Int) {
-        if (resultReceiver == null) {
-            resultReceiver = SmsResultReceiver().also {
-                androidx.core.content.ContextCompat.registerReceiver(
-                    app, it, android.content.IntentFilter(SmsResultReceiver.ACTION_SENT),
-                    androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
-                )
-            }
-        }
         val i = shadowOf(SmsResultReceiver.sentIntent(app, cid, "Alice", part, parts)).savedIntent
         app.sendOrderedBroadcast(i, null, null, null, code, null, null)
         shadowOf(Looper.getMainLooper()).idle()
@@ -397,5 +396,40 @@ class TurnSurvivesNavigationTest {
         sent("c-acked", 1, 2, Activity.RESULT_OK)
         assertTrue("half a text was reported sent",
             CommsResults.pending(app).none { it.correlationId == "c-acked" && it.performed })
+    }
+
+    @Test
+    fun `a failed part stays failed across an acknowledgement and a restart`() {
+        sent("c-restart", 0, 3, SmsManager.RESULT_ERROR_NO_SERVICE)
+        CommsResults.ack(app, listOf("c-restart"))
+        // A restart keeps only what is on disk; a fresh read of it must still say "failed".
+        Config.forgetPrefsForTest()
+        Config.usePlainPrefsForTest(app)
+        sent("c-restart", 1, 3, Activity.RESULT_OK)
+        sent("c-restart", 2, 3, Activity.RESULT_OK)
+        assertTrue("half a text was reported sent after a restart",
+            CommsResults.pending(app).none { it.correlationId == "c-restart" && it.performed })
+    }
+
+    @Test
+    fun `a result reaches the manifest receiver and is sent on at once`() {
+        sent("c-alone", 0, 1, Activity.RESULT_OK)
+        assertTrue(CommsResults.pending(app).single { it.correlationId == "c-alone" }.performed)
+        assertEquals("the result waited for the next turn", 1, checkIns)
+        // A part that only says "so far so good" is not a result and sends nothing.
+        sent("c-two", 0, 2, Activity.RESULT_OK)
+        assertEquals(1, checkIns)
+        sent("c-fail", 0, 1, SmsManager.RESULT_ERROR_RADIO_OFF)
+        assertEquals("the radio is off", CommsResults.pending(app).single { it.correlationId == "c-fail" }.error)
+        assertEquals(2, checkIns)
+    }
+
+    @Test
+    fun `a part the radio reports twice does not stand in for a missing one`() {
+        sent("c-dup", 0, 2, Activity.RESULT_OK)
+        sent("c-dup", 0, 2, Activity.RESULT_OK)
+        assertTrue(CommsResults.pending(app).none { it.correlationId == "c-dup" })
+        sent("c-dup", 1, 2, Activity.RESULT_OK)
+        assertTrue(CommsResults.pending(app).single { it.correlationId == "c-dup" }.performed)
     }
 }

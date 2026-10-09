@@ -294,7 +294,6 @@ object DeviceCommands {
                         return
                     }
                 }
-                SmsResultReceiver.register(ctx)
                 val queued = runCatching {
                     val sm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
                         ctx.getSystemService(android.telephony.SmsManager::class.java)
