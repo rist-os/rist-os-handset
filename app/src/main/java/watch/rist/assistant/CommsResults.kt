@@ -48,6 +48,7 @@ object CommsResults {
         Config.setCommsResults(ctx, arr.toString())
     }.onFailure { Log.w(TAG, "queue not saved", it) }.let { }
 
+    @Synchronized
     fun record(ctx: Context, correlationId: String, action: String, performed: Boolean, error: String = "") {
         if (correlationId.isBlank()) {
             Log.i(TAG, "no correlation_id on '$action'; not reporting")
@@ -60,12 +61,15 @@ object CommsResults {
         Log.i(TAG, "result $correlationId $action performed=$performed${if (error.isBlank()) "" else " ($error)"}")
     }
 
+    @Synchronized
     fun pending(ctx: Context): List<Result> = load(ctx)
 
     /** A failure for [correlationId] is waiting to be reported. */
+    @Synchronized
     fun failed(ctx: Context, correlationId: String): Boolean =
         correlationId.isNotBlank() && load(ctx).any { it.correlationId == correlationId && !it.performed }
 
+    @Synchronized
     fun ack(ctx: Context, ids: Collection<String>) {
         if (ids.isEmpty()) return
         val keep = load(ctx).filterNot { it.correlationId in ids }

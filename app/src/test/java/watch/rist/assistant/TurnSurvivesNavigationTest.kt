@@ -296,4 +296,83 @@ class TurnSurvivesNavigationTest {
         assertEquals("c-a", a.getStringExtra(SmsResultReceiver.EXTRA_CID))
         assertEquals("c-b", b.getStringExtra(SmsResultReceiver.EXTRA_CID))
     }
+
+    @Test
+    fun `a turn still being worked on is not swept as unanswered`() {
+        // Kept past the default two minutes, so the sweep's verdict stays readable.
+        Config.setTranscriptMaxAgeMs(app, 0L)
+        val live = Transcript.begin(app, "a slow question", EntryState.WAITING)
+        val orphan = Transcript.begin(app, "a lost question", EntryState.WAITING)
+        val gate = CountDownLatch(1)
+        TurnRunner.launch(app, live, "message", send = { gate.await(30, TimeUnit.SECONDS); reply })
+        // A long recording plus a slow or streamed answer: older than the sweep, still running.
+        Transcript.ageForTest(app, live, Transcript.IN_FLIGHT_TIMEOUT_MS + 1_000)
+        Transcript.ageForTest(app, orphan, Transcript.IN_FLIGHT_TIMEOUT_MS + 1_000)
+
+        assertEquals(EntryState.WAITING, Transcript.all(app).single { it.localId == live }.state)
+        assertEquals(EntryState.FAILED, Transcript.all(app).single { it.localId == orphan }.state)
+
+        gate.countDown()
+        replies.countDown()
+        waitFor("the slow turn to be answered") {
+            Transcript.all(app).single { it.localId == live }.state == EntryState.ANSWERED
+        }
+    }
+
+    @Test
+    fun `a reply held for a home screen that has not come back in minutes is not shown`() {
+        TurnRunner.finish(app, TurnRunner.Outcome(0L, null, "the network failed", "message"))
+        settle()
+        assertEquals(1, TurnRunner.undeliveredForTest())
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(TurnRunner.HELD_FOR_MS + 1_000))
+
+        val shown = mutableListOf<TurnRunner.Outcome>()
+        TurnRunner.attach { shown.add(it) }
+        assertTrue("a stale reply resurfaced", shown.isEmpty())
+        assertEquals(0, TurnRunner.undeliveredForTest())
+    }
+
+    @Test
+    fun `a recording names its entry when it starts, so one stopped at the time cap closes it`() {
+        val home = home()
+        val talk = home.get().findViewById<android.view.View>(R.id.talkButton)
+        val down = android.os.SystemClock.uptimeMillis()
+        talk.dispatchTouchEvent(android.view.MotionEvent.obtain(down, down, android.view.MotionEvent.ACTION_DOWN, 1f, 1f, 0))
+        settle()
+        val id = Transcript.all(app).single().localId
+        var start: Intent? = null
+        while (true) {
+            val next = shadowOf(app).nextStartedService ?: break
+            if (next.action == RecordService.ACTION_START) start = next
+        }
+        assertNotNull("no start sent to the recorder", start)
+        assertEquals(id, start!!.getLongExtra(RecordService.EXTRA_ENTRY_ID, 0L))
+    }
+
+    @Test
+    fun `an answer that names no entry does not close the one being recorded now`() {
+        val home = home()
+        val talk = home.get().findViewById<android.view.View>(R.id.talkButton)
+        val down = android.os.SystemClock.uptimeMillis()
+        talk.dispatchTouchEvent(android.view.MotionEvent.obtain(down, down, android.view.MotionEvent.ACTION_DOWN, 1f, 1f, 0))
+        settle()
+        val recording = Transcript.all(app).single().localId
+
+        // An earlier recording's answer that did not know its entry, cancelled by this one.
+        val service = Robolectric.buildService(RecordService::class.java).create().get()
+        service.handleResponse(null, "", 0L)
+        settle()
+
+        assertEquals(EntryState.RECORDING, Transcript.all(app).single { it.localId == recording }.state)
+    }
+
+    @Test
+    fun `a failed part stays failed after the backend has acknowledged it`() {
+        sent("c-acked", 0, 2, SmsManager.RESULT_ERROR_NO_SERVICE)
+        // A turn in between carried the failure and the backend acknowledged it.
+        CommsResults.ack(app, listOf("c-acked"))
+        sent("c-acked", 1, 2, Activity.RESULT_OK)
+        assertTrue("half a text was reported sent",
+            CommsResults.pending(app).none { it.correlationId == "c-acked" && it.performed })
+    }
 }

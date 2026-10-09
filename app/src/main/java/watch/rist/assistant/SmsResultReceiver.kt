@@ -25,7 +25,7 @@ class SmsResultReceiver : BroadcastReceiver() {
                 }
                 Log.i(TAG, "sms: sent")
                 // A part that failed earlier keeps the text failed: half a message is not sent.
-                if (CommsResults.failed(context, cid)) return
+                if (failedEarlier(context, cid)) return
                 toast(context, "Sent to $who")
                 CommsResults.record(context, cid, "send_sms", true)
             }
@@ -39,7 +39,8 @@ class SmsResultReceiver : BroadcastReceiver() {
                 }
                 Log.w(TAG, "sms FAILED: $why")
                 // Every part after a failed one fails too; the person is told once.
-                if (CommsResults.failed(context, cid)) return
+                if (failedEarlier(context, cid)) return
+                rememberFailed(cid)
                 CommsResults.record(context, cid, "send_sms", false, why)
                 toast(context, "Could not text $who — $why")
             }
@@ -74,6 +75,25 @@ class SmsResultReceiver : BroadcastReceiver() {
             )
 
         private var registered: SmsResultReceiver? = null
+
+        /**
+         * Texts with a failed part, kept here as well as in [CommsResults]: a turn between two
+         * parts can carry the failure to the backend, whose acknowledgement clears it there, and
+         * the last part's success must still not turn it into "sent".
+         */
+        private val failedCids = LinkedHashSet<String>()
+        private const val FAILED_MEMORY = 32
+
+        @Synchronized
+        private fun rememberFailed(cid: String) {
+            if (cid.isBlank()) return
+            failedCids.add(cid)
+            while (failedCids.size > FAILED_MEMORY) failedCids.remove(failedCids.first())
+        }
+
+        @Synchronized
+        private fun failedEarlier(ctx: Context, cid: String): Boolean =
+            cid.isNotBlank() && (cid in failedCids || CommsResults.failed(ctx, cid))
 
         fun register(ctx: Context) = runCatching {
             if (registered != null) return@runCatching
