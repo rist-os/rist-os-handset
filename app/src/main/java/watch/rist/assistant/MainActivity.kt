@@ -1012,7 +1012,6 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
     private fun startRecord() {
         cancelInFlightTurn()
         awaitingUserReply = false
-        runCatching { Config.setAwaitingReply(this, false) }
         if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
             permissionLauncher.launch(startupPermissions); return
         }
@@ -1796,7 +1795,6 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         if (voiceOn && hasAudio) Playback.play(applicationContext, audio!!.toByteArray(), speech.audioCodec)
 
         awaitingUserReply = reply.expectsReply
-        runCatching { Config.setAwaitingReply(this, awaitingUserReply) }
         renderAwaitingReply()
 
         val parts = buildList {

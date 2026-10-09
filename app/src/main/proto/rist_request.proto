@@ -1,6 +1,6 @@
 // The device <-> backend contract, schema v18, with the proposed v19 features fields, the
 // proposed home boxes fields, the v23 checklist messages, the v25 note edit messages and the v26
-// texts-on-request fields and the v28 developer mode fields.
+// texts-on-request fields, the v28 developer mode fields and the v29 new_conversation field.
 // Copied from the backend's canonical file; change it there first.
 
 syntax = "proto3";
@@ -90,6 +90,11 @@ message DeviceRequest {
   bool inbound_sms_answered = 28;
   // v26: incoming and missed calls of the same window, only with inbound_sms_answered.
   repeated RecentCall recent_calls = 29;
+  // START A NEW CONVERSATION (v29). TRUE when the user used the phone's new-conversation control:
+  // the backend ends the account's conversation (kept, not deleted) and this turn is the first of a
+  // new one. With nothing said it only does that and answers with empty speech. FALSE everywhere
+  // else — the phone never starts a new conversation on its own (no idle timer).
+  bool new_conversation = 30;
 }
 
 message Location { double lat = 1; double lon = 2; string label = 3; uint32 accuracy_m = 4;

@@ -111,17 +111,46 @@ object Enrolment {
         return nonce
     }
 
+    /**
+     * The POST /v1/enroll body. `stable_id` is optional: absent when the serial cannot be read. The
+     * device_id is unchanged so an enrolled phone's token stays bound to the id it was issued for.
+     */
+    internal fun enrolPayload(ctx: Context, nonce: String, stableId: String? = StableId.read()): String =
+        JSONObject().apply {
+            put("nonce", nonce)
+            put("device_id", Config.deviceId(ctx))
+            put("label", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
+            if (!stableId.isNullOrBlank()) put("stable_id", stableId)
+        }.toString()
+
+    /** What the server said when it refused: a reason token and a sentence for the user. */
+    internal data class Refusal(val reason: String, val message: String)
+
+    /** Longest server sentence shown on screen. */
+    internal const val MAX_SERVER_MESSAGE = 300
+
+    /**
+     * Reads the reason from `X-Rist-Enrol` or the JSON body (`reason`, or `detail.reason`), and the
+     * user-facing sentence from `message` (or `detail.message`). Reason tokens are compared with `-`
+     * and `_` treated alike, so `device_limit` and `device-limit` are the same token.
+     */
+    internal fun parseRefusal(header: String?, body: String): Refusal {
+        val json = runCatching { JSONObject(body) }.getOrNull()
+        val detailObj = json?.optJSONObject("detail")
+        fun field(name: String): String =
+            (json?.optString(name, "").orEmpty().ifBlank { detailObj?.optString(name, "").orEmpty() }).trim()
+        val reason = header?.trim().orEmpty().ifBlank { field("reason") }
+        val message = field("message").take(MAX_SERVER_MESSAGE)
+        return Refusal(reason.lowercase().replace('_', '-'), message)
+    }
+
     fun claim(ctx: Context, nonce: String): Boolean {
         val url = claimUrl(ctx) ?: run { Log.w(TAG, "no usable enrol endpoint"); return false }
         val client = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .build()
-        val payload = JSONObject().apply {
-            put("nonce", nonce)
-            put("device_id", Config.deviceId(ctx))
-            put("label", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
-        }.toString()
+        val payload = enrolPayload(ctx, nonce)
 
         repeat(POLL_MAX_ATTEMPTS) { attempt ->
             runCatching { Thread.sleep(POLL_INTERVAL_MS) }
@@ -132,7 +161,8 @@ object Enrolment {
                 client.newCall(req).execute().use { resp ->
                     when {
                         resp.isSuccessful -> {
-                            val token = JSONObject(resp.body?.string().orEmpty()).optString("token").trim()
+                            val answer = JSONObject(resp.body?.string().orEmpty())
+                            val token = answer.optString("token").trim()
                             if (token.isBlank()) {
                                 Log.w(TAG, "claim returned 200 with no token")
                                 false
@@ -144,6 +174,7 @@ object Enrolment {
                                 } else {
                                     clear(ctx)
                                     Config.setEnrolRevoked(ctx, false)
+                                    Config.onPairedAccount(ctx, answer.optString("user_id"))
                                     WakeLoop.kick()
                                     Log.i(TAG, "enrolled: stored a ${token.length}-char token")
                                     true
@@ -156,6 +187,15 @@ object Enrolment {
                         }
                         resp.code == 403 -> {
                             Log.w(TAG, "claim refused (403): nonce is spent or expired")
+                            Config.setEnrolNonce(ctx, "")
+                            null
+                        }
+                        // A 409 is final: device limit, or held by another account. Polling again
+                        // cannot change it and only burns the nonce into a 403.
+                        resp.code == 409 -> {
+                            val why = parseRefusal(resp.header(ENROL_REASON_HEADER),
+                                runCatching { resp.body?.string().orEmpty() }.getOrDefault("")).reason
+                            Log.w(TAG, "claim refused (409 ${why.ifBlank { "no reason" }.take(32)}); not retrying")
                             Config.setEnrolNonce(ctx, "")
                             null
                         }
@@ -193,7 +233,14 @@ object Enrolment {
         PAYMENT_REQUIRED,
         HELD_ELSEWHERE,
         DEVICE_LIMIT,
+        /** 403: the code was already used. */
+        SPENT,
+        /** 403: the code lived past its time. */
+        EXPIRED,
     }
+
+    /** A pairing answer plus the server's own sentence for the user, when it sent one. */
+    data class PairReply(val result: PairResult, val serverMessage: String = "")
 
     // Backend floor: nonce min_length=8.
     internal const val MIN_CODE_LEN = 8
@@ -204,6 +251,9 @@ object Enrolment {
     internal const val ENROL_REASON_HEADER = "X-Rist-Enrol"
     internal const val HELD_DEVICE_LIMIT = "device-limit"
     internal const val HELD_ELSEWHERE = "held-elsewhere"
+    /** 403 reasons that tell a used code from an expired one. */
+    internal const val REFUSED_SPENT = "spent"
+    internal const val REFUSED_EXPIRED = "expired"
 
     /** Where a customer removes a phone; said on the device-limit 409. */
     internal const val PHONES_PAGE = "ristassist.com/account/phones"
@@ -212,34 +262,39 @@ object Enrolment {
         code in 200..299 && tokenBlank -> PairResult.NOT_GRANTED
         code in 200..299 -> PairResult.OK
         code == 404 -> PairResult.NOT_RECOGNISED
+        code == 403 && sameToken(reason, REFUSED_SPENT) -> PairResult.SPENT
+        code == 403 && sameToken(reason, REFUSED_EXPIRED) -> PairResult.EXPIRED
         code == 403 -> PairResult.REFUSED
         code == 400 || code == 422 -> PairResult.MALFORMED
         code == 429 -> PairResult.LOCKED_OUT
         // Two 409s: the account is at its device limit, or another account holds this phone.
-        // Either way the code is used up. Told apart by X-Rist-Enrol, else by the server's detail.
-        code == 409 && reason.trim().equals(HELD_DEVICE_LIMIT, ignoreCase = true) -> PairResult.DEVICE_LIMIT
-        code == 409 && reason.trim().equals(HELD_ELSEWHERE, ignoreCase = true) -> PairResult.HELD_ELSEWHERE
+        // Neither is retried. Told apart by X-Rist-Enrol (or the body's reason), else by the server's detail.
+        code == 409 && sameToken(reason, HELD_DEVICE_LIMIT) -> PairResult.DEVICE_LIMIT
+        code == 409 && sameToken(reason, HELD_ELSEWHERE) -> PairResult.HELD_ELSEWHERE
         code == 409 && detail.contains("maximum", ignoreCase = true) -> PairResult.DEVICE_LIMIT
         code == 409 -> PairResult.HELD_ELSEWHERE
         code == Billing.PAYMENT_REQUIRED -> PairResult.PAYMENT_REQUIRED
         else -> PairResult.NETWORK
     }
 
-    fun pair(ctx: Context, code: String): PairResult {
+    /** Protocol reason tokens: case-insensitive, `-` and `_` alike. */
+    private fun sameToken(got: String, want: String): Boolean =
+        got.trim().lowercase().replace('_', '-') == want
+
+    fun pair(ctx: Context, code: String): PairResult = pairWithReply(ctx, code).result
+
+    /** One request, never retried: a refused code is reported, not sent again. */
+    fun pairWithReply(ctx: Context, code: String): PairReply {
         // Pairing codes are uppercase-only (ABCDEFGHJKMNPQRSTUVWXYZ23456789) and compared byte-exact.
         // uppercase() with no argument is locale-invariant.
         val trimmed = code.trim().uppercase()
-        if (!isPlausibleCode(trimmed)) return PairResult.MALFORMED
-        val url = claimUrl(ctx) ?: run { Log.w(TAG, "no usable enrol endpoint"); return PairResult.NO_ENDPOINT }
+        if (!isPlausibleCode(trimmed)) return PairReply(PairResult.MALFORMED)
+        val url = claimUrl(ctx) ?: run { Log.w(TAG, "no usable enrol endpoint"); return PairReply(PairResult.NO_ENDPOINT) }
         val client = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .build()
-        val payload = JSONObject().apply {
-            put("nonce", trimmed)
-            put("device_id", Config.deviceId(ctx))
-            put("label", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
-        }.toString()
+        val payload = enrolPayload(ctx, trimmed)
         return runCatching {
             val req = Request.Builder().url(url)
                 .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
@@ -251,7 +306,9 @@ object Enrolment {
                 } else ""
                 val detail = if (resp.isSuccessful) "" else
                     runCatching { JSONObject(bodyText).optString("detail").trim() }.getOrDefault("")
-                var verdict = classifyPair(resp.code, token.isBlank(), detail, resp.header(ENROL_REASON_HEADER).orEmpty())
+                val refusal = if (resp.isSuccessful) Refusal("", "") else
+                    parseRefusal(resp.header(ENROL_REASON_HEADER), bodyText)
+                var verdict = classifyPair(resp.code, token.isBlank(), detail, refusal.reason)
                 if (verdict == PairResult.OK) {
                     Config.setAuthToken(ctx, token)
                     if (Config.authToken(ctx) != token) {
@@ -262,6 +319,8 @@ object Enrolment {
                         Config.setCredentialRejected(ctx, false)
                         Config.setEnrolRevoked(ctx, false)
                         Config.clearBillingLapse(ctx)
+                        Config.onPairedAccount(ctx,
+                            runCatching { JSONObject(bodyText).optString("user_id") }.getOrDefault(""))
                         // The wake loop may be sitting out a refused token's wait.
                         WakeLoop.kick()
                         // Never log the code or the token.
@@ -271,10 +330,26 @@ object Enrolment {
                 if (verdict != PairResult.OK) {
                     Log.i(TAG, "pair not granted (HTTP ${resp.code} -> $verdict)")
                 }
-                verdict
+                PairReply(verdict, if (verdict == PairResult.OK) "" else refusal.message)
             }
-        }.onFailure { Log.i(TAG, "pair failed: ${it.message}") }.getOrDefault(PairResult.NETWORK)
+        }.onFailure { Log.i(TAG, "pair failed: ${it.message}") }.getOrDefault(PairReply(PairResult.NETWORK))
     }
+
+    /** Refusals where the server's own sentence is shown, when it sent one. */
+    private val SERVER_WORDED = setOf(
+        PairResult.DEVICE_LIMIT, PairResult.HELD_ELSEWHERE, PairResult.SPENT, PairResult.EXPIRED,
+    )
+
+    fun explainPair(reply: PairReply): String =
+        if (reply.result in SERVER_WORDED && reply.serverMessage.isNotBlank()) reply.serverMessage
+        else explainPair(reply.result)
+
+    /**
+     * Whether the typed code stays in the field after a refusal. At the device limit the server no
+     * longer spends the code, so it can be sent again once a phone has been removed.
+     */
+    fun keepsCode(r: PairResult): Boolean =
+        r == PairResult.DEVICE_LIMIT || r == PairResult.NETWORK || r == PairResult.PAYMENT_REQUIRED
 
     fun explainPair(r: PairResult): String = when (r) {
         PairResult.OK -> "Connected to Rist Assist."
@@ -282,6 +357,10 @@ object Enrolment {
             "That code wasn't recognized. Check the characters and try again."
         PairResult.REFUSED ->
             "That code has already been used or has expired. Get a new one and try again."
+        PairResult.SPENT ->
+            "That code has already been used. Get a new one and try again."
+        PairResult.EXPIRED ->
+            "That code has expired. Get a new one and try again."
         PairResult.MALFORMED ->
             "Codes must be at least $MIN_CODE_LEN characters."
         PairResult.NO_ENDPOINT ->
@@ -299,7 +378,7 @@ object Enrolment {
                 "then get a new code and try again. This code has been used."
         PairResult.DEVICE_LIMIT ->
             "This account already has two phones. Remove one on the Phones page at $PHONES_PAGE, " +
-                "then get a new code and try again. This code has been used."
+                "then enter the code again. If it has expired by then, get a new one."
         PairResult.STORE_FAILED ->
             "This device couldn't save the connection securely, so it isn't connected. " +
                 "Restart the phone and try a new code; if it keeps happening, report it."
