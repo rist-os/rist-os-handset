@@ -4,6 +4,50 @@ Build numbers are `YYYYMMDDNN`. The log starts with 2026083110, the first publis
 
 ---
 
+## 2026100800
+
+**Device:** Pixel 10a (`stallion`) only. **Base:** GrapheneOS, the same base as 2026100700.
+**App versionCode:** 1041.
+
+### New
+
+- **Text alerts.** A new text drops a banner from the top of the screen with a sound or vibration
+  that follows your sound settings. Tap it to open the conversation, or swipe it up to dismiss it.
+  No banner or sound while a call is ringing, and screen readers announce it.
+- **Edit notes in place.** Tap a note the assistant shows you, change it, and tick to save. An edit
+  made without signal is kept and sent later.
+- **Add contacts on the phone again.** Contacts you create or change in the Contacts app are saved to
+  your Rist account, and changes made there come back to the phone.
+- **Recent texts and calls when you ask.** When you ask about a text or a call ("who just texted
+  me?"), the phone sends the last day of texts and call details for that request only. A switch in
+  Settings turns this off.
+- **New conversation.** A control in Settings starts a fresh conversation and clears the screen.
+  The phone no longer starts a new conversation by itself after a few idle minutes.
+- **Location switch.** When location is turned off for your account, the phone sends no location,
+  sets no time zone from location, stops place reminders and stops navigation GPS.
+- **Developer mode** for accounts the service allows, behind your screen lock and credential.
+
+### Changed
+
+- **Updates arrive sooner.** Reminders and scheduled notices are fetched on time, and other notices
+  arrive within seconds, with fewer wake-ups than before.
+- **Time zone after travel.** The phone takes the network's time zone first and checks again when you
+  land or reach a new country, ignoring location fixes from before the trip.
+- **The Notifications tile hides** when there is nothing new, and an unread-email notice can be swiped
+  away.
+- **Update status in plain words.** Settings says "Up to date" or "Update currently unavailable"
+  instead of error codes.
+- **Pairing.** A clearer message when the account is at its phone limit or a code is spent or
+  expired, and a phone that is reset can be paired again as the same phone.
+- **Battery.** Location is used only when something needs it, and the phone is quieter when idle.
+
+### Removed
+
+- **GrapheneOS's contacts-backup app** and its permission file, which earlier images still carried.
+  The build now fails if any GrapheneOS app package ships.
+
+---
+
 ## 2026100700
 
 **Device:** Pixel 10a (`stallion`) only. **Base:** GrapheneOS, the same base as 2026092300.
