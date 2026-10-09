@@ -366,9 +366,8 @@ object Enrolment {
         PairResult.NO_ENDPOINT ->
             "No assistant service is set. Fill in the address just above, press Save endpoint, then connect."
         PairResult.NETWORK ->
-            "Couldn't reach the assistant service. Check the connection and try again; if it then says the code was used, get a new one."
-        PairResult.NOT_GRANTED ->
-            "The assistant service answered but didn't connect this device. Get a new code and try again."
+            "${Unavailable.PAIRING} If this phone is offline, connect to Wi-Fi or mobile data and try again."
+        PairResult.NOT_GRANTED -> Unavailable.PAIRING
         PairResult.LOCKED_OUT ->
             "Too many attempts. Wait a few minutes, then get a new code and try again."
         PairResult.PAYMENT_REQUIRED ->
@@ -380,8 +379,7 @@ object Enrolment {
             "This account already has two phones. Remove one on the Phones page at $PHONES_PAGE, " +
                 "then enter the code again. If it has expired by then, get a new one."
         PairResult.STORE_FAILED ->
-            "This device couldn't save the connection securely, so it isn't connected. " +
-                "Restart the phone and try a new code; if it keeps happening, report it."
+            "${Unavailable.PAIRING} Restart the phone, then try a new code."
     }
 
     private fun claimUrl(ctx: Context): String? {

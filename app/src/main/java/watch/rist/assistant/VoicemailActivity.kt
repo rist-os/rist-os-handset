@@ -117,7 +117,7 @@ class VoicemailActivity : AppCompatActivity() {
             isClickable = true; isFocusable = true
             setOnClickListener {
                 if (!CarrierVoicemail.call(this@VoicemailActivity)) {
-                    toast("Couldn't reach your mailbox")
+                    toast(Unavailable.VOICEMAIL)
                 }
             }
         })
@@ -234,7 +234,7 @@ class VoicemailActivity : AppCompatActivity() {
                     is VoicemailTranscript.Result.NotFound -> {
                         label.text = "READ IT"
                         label.isClickable = true
-                        toast("Rist couldn't find that message")
+                        toast(Unavailable.VOICEMAIL)
                     }
                     is VoicemailTranscript.Result.Failed -> {
                         label.text = "READ IT"
@@ -265,7 +265,7 @@ class VoicemailActivity : AppCompatActivity() {
                     }
                     is VoicemailAudio.Result.NotFound -> {
                         label.text = "PLAY"
-                        toast("Rist couldn't find that recording")
+                        toast(Unavailable.VOICEMAIL)
                     }
                     is VoicemailAudio.Result.Failed -> {
                         label.text = "PLAY"

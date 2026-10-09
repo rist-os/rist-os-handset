@@ -50,7 +50,7 @@ class RevokeRecoveryTest {
         val up = Uploader(ctx)
         up.sendText("hello")
         assertTrue(Config.enrolRevoked(ctx))
-        assertTrue("the failure must point at re-pairing: ${up.lastFailure}", up.lastFailure.contains("pair it again"))
+        assertTrue("the failure must point at re-pairing: ${up.lastFailure}", up.lastFailure.contains("pair it again", ignoreCase = true))
     }
 
     @Test
@@ -59,7 +59,7 @@ class RevokeRecoveryTest {
         val up = Uploader(ctx)
         up.sendText("hello")
         assertFalse("a 403 without the revoked header must not latch", Config.enrolRevoked(ctx))
-        assertFalse(up.lastFailure.contains("pair it again"))
+        assertFalse(up.lastFailure.contains("pair it again", ignoreCase = true))
     }
 
     @Test

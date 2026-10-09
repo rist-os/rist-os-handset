@@ -169,13 +169,12 @@ class SmsAcquisitionBoundaryTest {
     }
 
     @Test
-    fun aRefusedPermission_producesALoudDiagnosableFailure_neverAnEmptyList() {
+    fun aRefusedPermission_saysMessagesAreUnavailable_neverAnEmptyList() {
         val why = "this phone has not given Rist permission to read your messages"
         val said = Uploader.smsUnreadableFailure(why)
 
-        assertTrue("the reason must survive into what the user is told: $said", said.contains(why))
-        assertTrue("it must say Rist could not read, not that there is nothing to read: $said",
-            said.contains("cannot read your messages"))
+        assertEquals(Unavailable.MESSAGES, said)
+        assertFalse("the cause stays in the log, not on screen: $said", said.contains(why))
         for (lie in listOf("no messages", "no texts", "nothing", "empty")) {
             assertFalse(
                 "the refusal reads as an answer ('$lie'): $said. An empty inbox and a refused " +
@@ -185,8 +184,7 @@ class SmsAcquisitionBoundaryTest {
             )
         }
 
-        assertTrue(Uploader.smsUnreadableFailure("").length > 30)
-        assertTrue(Uploader.smsUnreadableFailure("").contains("cannot read your messages"))
+        assertEquals(Unavailable.MESSAGES, Uploader.smsUnreadableFailure(""))
     }
 
     @Test

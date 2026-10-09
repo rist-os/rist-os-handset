@@ -131,14 +131,14 @@ class BillingLapseTest {
     }
 
     @Test
-    fun `429 and 503 say what happened, not a bare status code`() {
+    fun `429 and 503 say only that the assistant is unavailable`() {
         server.enqueue(MockResponse().setResponseCode(429))
         val busy = Uploader(ctx).also { it.sendText("hi") }.lastFailure
         server.enqueue(MockResponse().setResponseCode(503))
         val down = Uploader(ctx).also { it.sendText("hi") }.lastFailure
-        assertEquals("the assistant is busy — try again in a moment", busy)
-        // Nothing retries on its own, so the line promises nothing.
-        assertEquals("the assistant can't be reached right now — try again in a moment", down)
+        // Neither is the person's to fix, so both only say it is unavailable.
+        assertEquals(Unavailable.ASSISTANT, busy)
+        assertEquals(Unavailable.ASSISTANT, down)
         assertNull("neither is a billing lapse", Billing.lapse(ctx))
         assertFalse(Config.enrolRevoked(ctx))
     }
@@ -183,7 +183,7 @@ class BillingLapseTest {
         assertEquals(Billing.Portal.Revoked, Billing.classifyPortal(403, ""))
         assertEquals(Billing.Portal.Unavailable, Billing.classifyPortal(502, ""))
         assertEquals(Billing.Portal.Unavailable, Billing.classifyPortal(503, ""))
-        assertEquals("Couldn't open the payment page — try again in a minute.",
+        assertEquals("The payment page is currently unavailable.",
             Billing.explain(Billing.Portal.Unavailable))
     }
 

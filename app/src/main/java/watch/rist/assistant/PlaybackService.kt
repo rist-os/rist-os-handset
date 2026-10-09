@@ -274,7 +274,7 @@ class PlaybackService : MediaSessionService() {
                 else -> { lastIsPodcast = false; cmd }
             }
             withContext(Dispatchers.Main) {
-                if (playCmd == null) broadcastStatus("♪ couldn't resolve podcast episode")
+                if (playCmd == null) broadcastStatus("♪ ${Unavailable.PODCASTS}")
                 else executePlay(playCmd)
             }
         }
@@ -348,7 +348,7 @@ class PlaybackService : MediaSessionService() {
                 player?.prepare()
             } else {
                 Log.e(TAG, "player error — giving up after $MAX_RETRIES retries", error)
-                broadcastStatus("♪ playback error")
+                broadcastStatus("♪ ${Unavailable.PLAYBACK}")
             }
         }
     }

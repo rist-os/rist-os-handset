@@ -62,7 +62,7 @@ class OtaStatusWordingTest {
     }
 
     @Test
-    fun `other refusals and failures read Update currently unavailable`() {
+    fun `other refusals and failures read Updates are currently unavailable`() {
         val stored = listOf(
             refused(OtaScheduler.Stage.SIGNATURE, "EXPIRED: manifest expired at 1791407082"),
             refused(OtaScheduler.Stage.MANIFEST, "BAD_JSON: unexpected token"),
@@ -76,7 +76,7 @@ class OtaStatusWordingTest {
         )
         for (s in stored) {
             val line = lineAfter(s)
-            assertEquals(s, "Last checked just now: Update currently unavailable.", line)
+            assertEquals(s, "Last checked just now: Updates are currently unavailable.", line)
             assertPlain(line)
             assertLogged(s)
         }
@@ -135,16 +135,16 @@ class OtaStatusWordingTest {
         }
         val v = stateView(1784937600L + 10)
         assertEquals(OTA_PERSISTENT_FAILURES, v.failures)
-        assertTrue(otaHeadline(v).contains("not receiving security updates"))
-        assertTrue(otaLastCheckLine(v).endsWith("Update currently unavailable."))
+        assertEquals(OTA_UNAVAILABLE, otaHeadline(v))
+        assertTrue(otaLastCheckLine(v).endsWith("Updates are currently unavailable."))
     }
 
     @Test
-    fun `network failures say to try again later`() {
+    fun `network failures say only that updates are unavailable`() {
         for (s in listOf("unreachable: HTTP 503", "check failed: SocketTimeoutException",
                 "preflight failed: timeout", "server asked for 600s")) {
             val line = lineAfter(s)
-            assertEquals(s, "Last checked just now: Update currently unavailable. Try again later.", line)
+            assertEquals(s, "Last checked just now: Updates are currently unavailable.", line)
             assertPlain(line)
         }
     }

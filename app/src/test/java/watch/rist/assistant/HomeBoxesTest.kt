@@ -137,7 +137,7 @@ class HomeBoxesTest {
         val f = HomeBoxes.face(box("w", title = "Temperature", state = "weird", value = "54°"), 1_000)
         assertEquals(HomeBoxes.State.ERROR, f.state)
         assertEquals("—", f.value)
-        assertEquals("Couldn't update", f.detail)
+        assertEquals(Unavailable.TILE, f.detail)
     }
 
     @Test

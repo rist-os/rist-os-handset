@@ -30,7 +30,7 @@ object StreamingStatus {
     fun failureFor(ending: String): String = when (ending) {
         // Cut off mid-stream means the backend had the request and may have finished it.
         ENDING_TRUNCATED -> Uploader.MAY_HAVE_HAPPENED
-        ENDING_EMPTY -> "the assistant sent an empty reply"
+        ENDING_EMPTY -> Unavailable.ASSISTANT
         else -> ""
     }
 

@@ -568,7 +568,7 @@ object HomeBoxes {
             State.PENDING -> Face(kind, state, label, "…", b.note.ifBlank { "Getting it" }, false, false,
                 "$label, ${b.note.ifBlank { "getting it" }}. Double tap to open.")
             State.ERROR -> {
-                val why = b.note.ifBlank { "Couldn't update" }
+                val why = b.note.ifBlank { Unavailable.TILE }
                 Face(kind, state, label, "—", why, false, false, "$label, $why. Double tap to open.")
             }
             State.PAUSED, State.OFF -> {

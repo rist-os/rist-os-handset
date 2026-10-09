@@ -324,7 +324,7 @@ class BoxCreateTest {
         settle()
         assertNull(placeholder(a))
         assertEquals(listOf(R.string.boxes_create_failed), said.toList())
-        assertEquals("Couldn't create that tile", app.getString(R.string.boxes_create_failed))
+        assertEquals("Tiles are currently unavailable.", app.getString(R.string.boxes_create_failed))
     }
 
     @Test

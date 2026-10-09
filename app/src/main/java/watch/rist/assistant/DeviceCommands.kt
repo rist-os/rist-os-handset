@@ -318,7 +318,7 @@ object DeviceCommands {
                     Log.i(TAG, "comms: queued to ${maskNumber(number)} (${c.body.length} chars); awaiting result")
                     toast(ctx, "Sending to $who\n${c.body}")
                 } else {
-                    toast(ctx, "Could not send to $who")
+                    toast(ctx, "Not sent to $who. ${Unavailable.TEXTING}")
                     CommsResults.record(ctx, c.correlationId, "send_sms", false,
                         "the message could not be handed to the radio")
                 }

@@ -276,10 +276,10 @@ class ContactsSyncTest {
             CommsCommand.newBuilder().setAction("send_sms").setNumber("+12065550100").setBody("on my way")
         ).build())
         shadowOf(android.os.Looper.getMainLooper()).idle()
-        // The test radio cannot send, so this is "Could not send to …"; on a phone it is
+        // The test radio cannot send, so this is "Not sent to …"; on a phone it is
         // "Sending to …". Either way the toast names the recipient with the number.
         val shown = ShadowToast.getTextOfLatestToast().orEmpty()
-        assertTrue(shown, shown.contains("send to Alice Example · (206) 555-0100", ignoreCase = true) ||
+        assertTrue(shown, shown.startsWith("Not sent to Alice Example · (206) 555-0100.") ||
             shown.startsWith("Sending to Alice Example · (206) 555-0100\non my way"))
     }
 

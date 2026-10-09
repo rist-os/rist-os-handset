@@ -377,7 +377,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
             statusText.text = when (ending) {
                 StreamingStatus.ENDING_CANCELLED -> getString(R.string.status_idle)
                 StreamingStatus.ENDING_FINAL -> getString(R.string.status_idle)
-                else -> "Sorry — " + StreamingStatus.failureFor(ending) + "."
+                else -> failureLine(StreamingStatus.failureFor(ending))
             }
         }
     }
@@ -1463,7 +1463,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                 deleteAfter.forEach { runCatching { it.delete() } }
                 out
             }
-            if (staged.isEmpty()) { status("could not read the photo"); return@launch }
+            if (staged.isEmpty()) { status(Unavailable.PHOTOS); return@launch }
             discardStagedPhotos()
             stagedPhotos = staged
             runCatching {
@@ -1475,7 +1475,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
             }.onFailure {
                 Log.w(TAG, "caption screen failed to open", it)
                 discardStagedPhotos()
-                status("could not open the photo")
+                status(Unavailable.PHOTOS)
             }
         }
     }
@@ -1675,7 +1675,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         }
     }
 
-    private fun torchUnavailable() = toast(getString(R.string.torch_desc) + " unavailable")
+    private fun torchUnavailable() = toast(getString(R.string.torch_desc) + " is currently unavailable.")
 
     private fun toggleTorch() {
         val id = torchCameraId ?: return
@@ -1746,10 +1746,10 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
             renderTranscript()
             if (photos.isEmpty()) {
                 if (entryId != 0L) runCatching {
-                    Transcript.update(this@MainActivity, entryId, state = EntryState.FAILED, error = "could not read the photo")
+                    Transcript.update(this@MainActivity, entryId, state = EntryState.FAILED, error = Unavailable.PHOTOS)
                 }
                 renderTranscript()
-                status("could not read the photo")
+                status(Unavailable.PHOTOS)
                 return@launch
             }
             TurnRunner.launch(applicationContext, entryId, "photo", send = { uploader ->
@@ -1781,7 +1781,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
     }
 
     internal fun handleReply(reply: DeviceResponse?, subject: String, clear: Boolean, speak: Boolean = true) {
-        if (reply == null) { status("$subject not sent / no reply (transport error)"); return }
+        if (reply == null) { Log.w(TAG, "$subject: no reply"); status(Unavailable.ASSISTANT); return }
 
         val speech = reply.speech
         val text = speech?.text.orEmpty()
@@ -2288,7 +2288,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                 EntryState.RECORDING -> "● recording…"
                 EntryState.SENT, EntryState.WAITING ->
                     if (live && liveStatusLine.isNotBlank()) liveStatusLine else "… waiting for a reply"
-                EntryState.FAILED -> "⚠ no answer" + (if (e.error.isNotBlank()) " (${e.error})" else "")
+                EntryState.FAILED -> failedEntryLine(e.error)
                 EntryState.ANSWERED -> e.answer
             }
             if (body.isNotBlank()) col.addView(TextView(this).apply {
@@ -2973,13 +2973,19 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
             return (replyTop + minOf(newestHeight, viewport) - viewport).coerceIn(0, maxOf(0, replyTop))
         }
 
-        /** A backend sentence (the 402's renew line) is shown as it is; our own reasons get "Sorry — ". */
+        /**
+         * The line a failed turn shows. Lines written for the person are whole sentences and pass
+         * through; anything else (an older stored cause, "no reply", "interrupted") is not shown.
+         */
         internal fun failureLine(reason: String): String {
             val r = reason.trim()
-            if (r.isEmpty()) return "Sorry — something went wrong reaching the network."
-            if (r.first().isUpperCase() && r.last() in ".!?") return r
-            return "Sorry — " + r.trimEnd('.') + "."
+            if (r.isNotEmpty() && r.first().isUpperCase() && r.last() in ".!?") return r
+            return Unavailable.ASSISTANT
         }
+
+        /** The feed row of a turn that got no answer. */
+        internal fun failedEntryLine(error: String): String =
+            if (error.trim() == "cancelled") "⚠ no answer (cancelled)" else "⚠ " + failureLine(error)
 
         /**
          * "▸ prompt  2:17 PM  📌" as one piece of text, so it wraps as a sentence does and the

@@ -50,11 +50,11 @@ object VoicemailAudio {
         if (cached.exists() && cached.length() > 0) return Result.Ready(cached)
 
         val base = Config.backendUrl(ctx)
-        if (!base.startsWith("http")) return Result.Failed("no assistant service configured")
+        if (!base.startsWith("http")) return Result.Failed(Unavailable.NOT_PAIRED)
         val url = (if (base.endsWith("/v1/device")) base.removeSuffix("/v1/device") else base.trimEnd('/')) +
             "/v1/voicemail/$id/audio"
         val bearer = Config.authToken(ctx).takeIf { it.isNotBlank() }
-            ?: return Result.Failed("this device isn't set up yet")
+            ?: return Result.Failed(Unavailable.NOT_PAIRED)
 
         return runCatching {
             val client = OkHttpClient.Builder()
@@ -71,8 +71,8 @@ object VoicemailAudio {
                             else -> copyBounded(body.byteStream(), tmp, MAX_AUDIO_BYTES)
                         }
                         when {
-                            size == null -> Result.Failed("the recording was too large")
-                            size == 0L -> { tmp.delete(); Result.Failed("the recording was empty") }
+                            size == null -> { Log.w(TAG, "recording over the size cap for $id"); Result.Failed(Unavailable.VOICEMAIL) }
+                            size == 0L -> { tmp.delete(); Log.w(TAG, "empty recording for $id"); Result.Failed(Unavailable.VOICEMAIL) }
                             else -> {
                                 tmp.renameTo(cached)
                                 Log.i(TAG, "fetched $size bytes for $id")
@@ -82,20 +82,20 @@ object VoicemailAudio {
                     }
                     resp.code == 410 -> { Log.i(TAG, "audio expired for $id"); Result.Expired }
                     resp.code == 404 -> { Log.i(TAG, "no audio for $id"); Result.NotFound }
-                    resp.code == 401 -> { Enrolment.onCredentialDead(ctx); Result.Failed("not authorised") }
+                    resp.code == 401 -> { Enrolment.onCredentialDead(ctx); Result.Failed(Unavailable.PAIR_AGAIN) }
                     resp.code == 403 -> if (Enrolment.isExplicitRevocation(403, resp.header(Enrolment.REVOKED_HEADER))) {
-                        Enrolment.onRevoked(ctx); Result.Failed("access turned off")
-                    } else Result.Failed("access refused")
+                        Enrolment.onRevoked(ctx); Result.Failed(Unavailable.REMOVED)
+                    } else Result.Failed(Unavailable.VOICEMAIL)
                     resp.code == Billing.PAYMENT_REQUIRED -> {
                         val lapse = Billing.lapseWithLine(resp)
                         Billing.onLapsed(ctx, lapse)
-                        Result.Failed(Billing.lineFor(lapse))
+                        Result.Failed(Unavailable.sentence(Billing.lineFor(lapse)))
                     }
-                    else -> Result.Failed("couldn't fetch it (${resp.code})")
+                    else -> run { Log.w(TAG, "audio HTTP ${resp.code}"); Result.Failed(Unavailable.VOICEMAIL) }
                 }
             }
         }.onFailure { Log.w(TAG, "audio fetch failed", it) }
-            .getOrElse { Result.Failed("couldn't reach Rist") }
+            .getOrElse { Result.Failed(Unavailable.orOffline(ctx, Unavailable.VOICEMAIL)) }
     }
 
     private fun cacheDir(ctx: Context): File =

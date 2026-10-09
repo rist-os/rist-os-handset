@@ -236,21 +236,19 @@ class OtaSectionTest {
     }
 
     @Test
-    fun `a phone that cannot reach its server says how long it has been failing`() {
+    fun `a phone that cannot reach its server says only that updates are unavailable`() {
         val h = otaHeadline(
             view(failures = OTA_PERSISTENT_FAILURES, lastSuccessAtSeconds = now - 28 * 86400)
         )
-        assertTrue("expected an age from the last success, got: $h", h.contains("28 days ago"))
-        assertTrue(h.contains("not receiving security updates"))
+        assertEquals(OTA_UNAVAILABLE, h)
 
         assertEquals("two failures is a tunnel, not a fault", "", otaHeadline(view(failures = 2)))
     }
 
     @Test
-    fun `a phone that has never succeeded says never`() {
+    fun `a phone that has never succeeded says the same, with no count or age`() {
         val h = otaPersistentFailureText(view(failures = 5, lastSuccessAtSeconds = 0L))
-        assertTrue("expected NEVER, got: $h", h.contains("NEVER"))
-        assertFalse("must not date an age from the epoch", h.contains("ago"))
+        assertEquals("Updates are currently unavailable.", h)
     }
 
     @Test
@@ -286,6 +284,8 @@ class OtaSectionTest {
         assertEquals("a number here runs the bar backwards from 100 to 0",
             OtaState.PERCENT_UNKNOWN, otaProgressPercent(verifying))
         assertEquals("Checking the download…", otaProgressLine(verifying))
+        assertEquals(OTA_UNAVAILABLE,
+            otaProgressLine(verifying.copy(applyingStatus = OtaApply.Status.REPORTING_ERROR_EVENT)))
     }
 
     @Test
@@ -363,14 +363,18 @@ class OtaSectionTest {
     }
 
     @Test
-    fun `engine faults are explained in plain language`() {
+    fun `engine faults name only what the person can undo`() {
         for (r in OtaEngine.Reason.values()) {
             val text = otaEngineFaultText(r)
             assertTrue("$r produced nothing", text.isNotBlank())
             assertFalse("$r leaked its enum name onto the screen: $text", text.contains(r.name))
         }
         assertTrue(otaHeadline(view(engineFault = OtaEngine.Reason.NO_CALLBACK_CLASS))
-            .contains("cannot install them"))
+            .contains("developer copy"))
+        for (r in listOf(OtaEngine.Reason.SERVICE_NOT_VISIBLE, OtaEngine.Reason.BIND_REFUSED,
+                OtaEngine.Reason.APPLY_REFUSED)) {
+            assertEquals(OTA_UNAVAILABLE, otaHeadline(view(engineFault = r)))
+        }
         assertTrue(otaHeadline(view(engineFault = OtaEngine.Reason.NO_CALLBACK_CLASS))
             .contains("Remove the developer copy before updating"))
     }
