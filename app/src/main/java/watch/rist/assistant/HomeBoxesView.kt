@@ -425,7 +425,8 @@ internal class BoxBoard(
             // The icon sits top left and the label's first line beside it, as tall as the icon;
             // a second line runs below the icon, so a long label wraps at the tile's full width.
             val top = FrameLayout(activity)
-            val icon = boxIcon(b, t.ink)
+            // The icon's colour role (a yellow sun, blue rain), legible on the tile; else the text colour.
+            val icon = boxIcon(b, TileTones.face(t, b, t.tileFill))
             top.addView(label(face.label, muted,
                 lead = if (icon != null) px(ICON_DP) + px(ICON_GAP_DP) else 0,
                 firstLine = if (icon != null) px(ICON_DP) else 0).apply {

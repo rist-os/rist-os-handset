@@ -285,7 +285,7 @@ class HomeBoxesTest {
         assertEquals(1, HomeBoxes.flush(ctx))
         val req = s.takeRequest(30, TimeUnit.SECONDS)!!
         assertEquals("/v1/device/boxes", req.requestUrl!!.encodedPath)
-        assertEquals("the reply's list carries checklists", Checklists.COMPONENT, req.requestUrl!!.queryParameter("components"))
+        assertEquals("the reply's list carries checklists", "checklist_v1,tile_blocks_v1,item_edit_v1", req.requestUrl!!.queryParameter("components"))
         assertEquals("POST", req.method)
         val sent = BoxEdit.parseFrom(req.body.readByteArray())
         assertEquals(listOf("a"), sent.deleteIdsList)
@@ -370,7 +370,7 @@ class HomeBoxesTest {
         val url = WakeLoop.wakeUrlFor(ctx, emptyList())!!.toHttpUrl()
         assertEquals("/v1/device/wake", url.encodedPath)
         assertEquals("5", url.queryParameter("boxes"))
-        assertEquals("home_boxes", url.queryParameter("components"))
+        assertEquals("home_boxes,tile_blocks_v1,item_edit_v1", url.queryParameter("components"))
     }
 
     @Test

@@ -529,7 +529,7 @@ class DesignSyncTest {
         assertEquals("3", url.queryParameter("design"))
         assertEquals("2", url.queryParameter("settings"))
         assertEquals(listOf("home_boxes", "design_v1"),
-            url.queryParameter("components")!!.split(",").filter { it != Checklists.COMPONENT })
+            url.queryParameter("components")!!.split(",").filter { it != Checklists.COMPONENT && it !in TileBlocks.components() })
 
         WakeLoop.apply(ctx, WakeSignal.newBuilder()
             .setDesign(spec(4, "color.ground" to "#14284B", "color.ink" to "#F5F1E8"))

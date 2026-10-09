@@ -23,12 +23,28 @@ class DeviceProfileTest {
         assertEquals(3 * 1024 * 1024, caps.maxImageBytes)
         assertEquals(listOf("button", "voice", "touch"), caps.inputList)
         assertTrue(caps.componentsList.containsAll(
-            listOf("card", "stack", "text", "stat", "list", "image", "chart", "button", "divider",
-                   "map_tiles", "map_tiles_hd")
+            listOf("card", "stack", "text", "image", "map_tiles", "map_tiles_hd")
         ))
+        // ViewSpec kinds nothing on the phone draws are not advertised.
+        for (gone in listOf("stat", "list", "chart", "button", "divider")) {
+            assertTrue("$gone is advertised", gone !in caps.componentsList)
+        }
         // capabilities(w, h) lists no fonts; the device's own call adds one "font:<id>" per font.
-        val expected = 11 + listOf(VideoCalls.SHIPPED, HomeBoxes.SHIPPED, DesignSync.SHIPPED, Checklists.SHIPPED, NoteEdits.SHIPPED).count { it }
+        val expected = 6 + listOf(VideoCalls.SHIPPED, HomeBoxes.SHIPPED, DesignSync.SHIPPED, Checklists.SHIPPED,
+            NoteEdits.SHIPPED, TileBlocks.SHIPPED, ItemEdits.SHIPPED).count { it }
         assertEquals(expected, caps.componentsCount)
+    }
+
+    @Test
+    fun tileComponents_areDeclaredOnlyWithBoxes_andEditsOnlyWithBlocks() {
+        val all = DeviceProfile.capabilities(1080, 2400, homeBoxes = true, tileBlocks = true, itemEdit = true).componentsList
+        assertTrue(all.containsAll(listOf("home_boxes", "tile_blocks_v1", "item_edit_v1")))
+        val noEdits = DeviceProfile.capabilities(1080, 2400, homeBoxes = true, tileBlocks = true, itemEdit = false).componentsList
+        assertTrue("tile_blocks_v1" in noEdits && "item_edit_v1" !in noEdits)
+        val noBlocks = DeviceProfile.capabilities(1080, 2400, homeBoxes = true, tileBlocks = false, itemEdit = true).componentsList
+        assertTrue("tile_blocks_v1" !in noBlocks && "item_edit_v1" !in noBlocks)
+        val noBoxes = DeviceProfile.capabilities(1080, 2400, homeBoxes = false, tileBlocks = true, itemEdit = true).componentsList
+        assertTrue("tile_blocks_v1" !in noBoxes && "item_edit_v1" !in noBoxes)
     }
 
     @Test

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tile_edit_saving">Saving…</string>
+    <string name="tile_edit_saved">Saved</string>
+    <string name="tile_edit_unavailable">Saving from a tile is currently unavailable.</string>
+    <string name="tile_edit_unavailable_nothing_changed">Saving from a tile is currently unavailable. Nothing was changed.</string>
+    <string name="tile_edit_save">Save</string>
+    <string name="tile_edit_cancel">Cancel</string>
+    <string name="tile_edit_action">Edit</string>
+    <string name="tile_edit_delete">Delete</string>
+    <string name="tile_edit_delete_named">Delete %1$s</string>
+    <string name="tile_edit_deleted">Deleted</string>
+    <string name="tile_edit_undo">Undo</string>
+    <string name="tile_edit_double_tap">Double tap to edit</string>
+    <string name="tile_add_todo">Add to your to-do list</string>
+    <string name="tile_add_shopping">Add to your shopping list</string>
+    <string name="tile_add_notes">Add a note</string>
+    <string name="tile_add_other">Add</string>
+</resources>

@@ -119,10 +119,11 @@ object Checklists {
     /**
      * The box list version the wake asks with. A phone that has just started declaring
      * checklists may already hold the current version, without the tiles' checklists; until a
-     * list has arrived since, it asks with 0 so the backend sends the whole list at once.
+     * list has arrived since, it asks with 0 so the backend sends the whole list at once. The
+     * same holds for a phone that has just started declaring tile blocks.
      */
     fun boxesVersionToAsk(ctx: Context, held: Long): Long =
-        if (declared() && !Config.checklistBoxesSeen(ctx)) 0L else held
+        if ((declared() && !Config.checklistBoxesSeen(ctx)) || TileBlocks.needsWholeList(ctx)) 0L else held
 
     /**
      * A box list arrived: from now on it was asked for with checklists declared, and an accepted

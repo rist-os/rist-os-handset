@@ -118,7 +118,7 @@ object HomeBoxes {
             .setBody(clipUtf8(b.body, BODY_MAX_BYTES))
         // An oversized or malformed custom icon is not kept at all: the box simply has no icon.
         if (!b.iconImage.isEmpty && !BoxIcons.imageAcceptable(b.iconImage.toByteArray())) c.clearIconImage()
-        return c.build()
+        return TileBlocks.clamp(c.build())
     }
 
     /** Clamps every box and drops any without an id, which nothing could act on. */
@@ -170,6 +170,8 @@ object HomeBoxes {
             var set = clamp(incoming)
             for (edit in queued(ctx)) set = applyLocally(set, edit)
             runCatching { Checklists.observe(ctx, set.boxesList) }
+            runCatching { TileBlocks.observe(ctx) }
+            runCatching { ItemEdits.observe(ctx, set.boxesList) }
             val before = held(ctx)
             if (before == set) return false
             store(ctx, set)
@@ -355,15 +357,20 @@ object HomeBoxes {
     }
 
     /**
-     * `…/v1/device` becomes `…/v1/device/boxes`, naming `checklist_v1` when this build declares
-     * it, so the list in the reply carries the tiles' checklists too.
+     * `…/v1/device` becomes `…/v1/device/boxes`, naming `checklist_v1` and the tile components
+     * ([tiles]) this build declares, so the list in the reply carries what the phone can draw.
      */
-    internal fun boxesUrl(backendUrl: String, checklists: Boolean = Checklists.declared()): String? {
+    internal fun boxesUrl(
+        backendUrl: String,
+        checklists: Boolean = Checklists.declared(),
+        tiles: List<String> = emptyList(),
+    ): String? {
         val base = backendUrl.trim().trimEnd('/')
         if (base.isEmpty()) return null
         val url = if (base.endsWith("/v1/device")) "$base/boxes" else "$base/v1/device/boxes"
         val parsed = url.toHttpUrlOrNull() ?: return null
-        return (if (checklists) parsed.newBuilder().addQueryParameter("components", Checklists.COMPONENT).build() else parsed)
+        val components = (if (checklists) listOf(Checklists.COMPONENT) else emptyList()) + tiles
+        return (if (components.isNotEmpty()) parsed.newBuilder().addQueryParameter("components", components.joinToString(",")).build() else parsed)
             .toString()
     }
 
@@ -422,7 +429,7 @@ object HomeBoxes {
 
     private fun flushOneAtATime(ctx: Context, http: OkHttpClient): Int {
         val bearer = Uploader.bearer(ctx)
-        val url = boxesUrl(Config.backendUrl(ctx)) ?: return 0
+        val url = boxesUrl(Config.backendUrl(ctx), tiles = TileBlocks.components()) ?: return 0
         var done = 0
         while (true) {
             val edit = queued(ctx).firstOrNull() ?: break
@@ -580,6 +587,8 @@ object HomeBoxes {
         sending.clear()
         removed.clear()
         BoxCreate.resetForTest()
+        TileBlocks.resetForTest(ctx)
+        ItemEdits.resetForTest(ctx)
         Config.setHomeBoxes(ctx, "")
         Config.setBoxEditQueue(ctx, "")
     }

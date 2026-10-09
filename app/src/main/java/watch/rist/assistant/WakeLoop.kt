@@ -131,6 +131,7 @@ object WakeLoop {
         designVersions: Pair<Long, Long>? = null,
         checklists: Boolean = false,
         holdS: Long? = null,
+        tiles: List<String> = emptyList(),
     ): String? {
         val base = backendUrl.trim().trimEnd('/')
         if (base.isEmpty()) return null
@@ -152,6 +153,7 @@ object WakeLoop {
                     components += DesignSync.COMPONENT
                 }
                 if (checklists) components += Checklists.COMPONENT
+                components += tiles
                 if (holdS != null) {
                     addQueryParameter("hold_s", holdS.toString())
                     components += HOLD_V2_COMPONENT
@@ -239,6 +241,7 @@ object WakeLoop {
         if (HomeBoxes.declared()) runCatching { HomeBoxes.flush(ctx) }
         if (Checklists.declared()) runCatching { Checklists.flush(ctx) }
         if (NoteEdits.declared()) runCatching { NoteEdits.flush(ctx) }
+        if (ItemEdits.declared()) runCatching { ItemEdits.flush(ctx) }
         if (DesignSync.declared()) {
             DesignSync.migrateLegacyTheme(ctx)
             runCatching { DesignSync.flush(ctx) }
@@ -256,7 +259,9 @@ object WakeLoop {
         wakeUrl(Config.backendUrl(ctx), acks, CommsFeed.MAX_NOTIFICATIONS,
             if (HomeBoxes.declared()) Checklists.boxesVersionToAsk(ctx, HomeBoxes.version(ctx)) else null,
             if (DesignSync.declared()) DesignSync.version(ctx) to Config.settingsVersion(ctx) else null,
-            Checklists.declared(), holdS)
+            Checklists.declared(), holdS,
+            // Tile blocks ride on the box list, so they are named only by a phone that asks for boxes.
+            if (HomeBoxes.declared()) TileBlocks.components() else emptyList())
 
     /** The HTTP half of [poll], apart from the stores so it can be tested on its own. */
     internal fun exchange(http: OkHttpClient, url: String, bearer: String, device: String, acks: List<String>): Outcome {

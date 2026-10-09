@@ -58,6 +58,30 @@ object ChecklistView {
     }
 
     /**
+     * A checkbox alone, for a row whose text is a separate view (a tile row whose text opens an
+     * editor). [onLook] gets every state it shows, a tap or a newer list; [onTap] only taps.
+     */
+    fun bareBox(
+        ctx: Context, itemId: String, checked: Boolean, rt: RistTheme,
+        onLook: (Boolean) -> Unit, onTap: (Boolean) -> Unit,
+    ): CheckBox {
+        val d = ctx.resources.displayMetrics.density
+        return CheckBox(ctx).apply {
+            tag = TAG_ROW
+            buttonTintList = ColorStateList.valueOf(rt.ink)
+            minHeight = (48 * d).toInt()
+            minWidth = (48 * d).toInt()
+            isChecked = checked
+            onlyTapsToggle(this)
+            setOnCheckedChangeListener { box, now ->
+                onLook(now)
+                if (box.getTag(R.id.checklist_quiet) != true) onTap(now)
+            }
+            synchronized(live) { live[this] = itemId }
+        }
+    }
+
+    /**
      * A row ticks on a tap and on nothing else. Once the finger has moved past the touch slop
      * the press is cancelled, so a swipe or a drag that happens to start on a row, and ends
      * still over it, never changes the owner's list.
