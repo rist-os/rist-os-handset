@@ -123,7 +123,7 @@ class NetworkLocationPromptActivity : AppCompatActivity() {
 
     private fun showRefused() {
         val col = column()
-        col.addView(heading("RIST COULD NOT SWITCH IT ON"))
+        col.addView(heading("TURN IT ON IN SETTINGS"))
         col.addView(body(
             "This phone only lets its own Settings app change that. Nothing has changed — " +
                 "finding where you are still works from satellites only.",
@@ -142,7 +142,7 @@ class NetworkLocationPromptActivity : AppCompatActivity() {
                     Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 )
-            }.onFailure { toast("Couldn't open Settings") }
+            }.onFailure { toast(Unavailable.SETTINGS) }
             finish()
         })
         col.addView(button("NOT NOW", primary = false) { finish() })

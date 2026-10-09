@@ -84,8 +84,7 @@ object NetworkLocationSection {
 
         if (status == NetworkLocationConsent.Status.REFUSED) {
             box.addView(TextView(a).apply {
-                text = "You chose to turn this on and Rist could not — this phone only lets " +
-                    "its own Settings app change it. Tap here to open Settings, then Location, " +
+                text = "This phone only lets its own Settings app turn this on. Tap here to open Settings, then Location, " +
                     "then Location services, then Network location."
                 setTextColor(ink); textSize = 11.5f; typeface = bodyTf
                 setPadding(0, px(8f), 0, px(8f))
@@ -99,7 +98,7 @@ object NetworkLocationSection {
                         )
                     }.onFailure {
                         android.widget.Toast.makeText(
-                            a, "Couldn't open Settings", android.widget.Toast.LENGTH_SHORT
+                            a, Unavailable.SETTINGS, android.widget.Toast.LENGTH_SHORT
                         ).show()
                     }
                 }
@@ -121,9 +120,9 @@ object NetworkLocationSection {
         SettingsApply.reportLocal(a, SettingsApply.KEY_NETWORK_LOCATION)
         val msg = when {
             outcome == NetworkLocationConsent.Outcome.REFUSED && enable ->
-                "Rist couldn't change this — see below"
+                "Turn this on in the phone's Settings — see below"
             outcome == NetworkLocationConsent.Outcome.REFUSED ->
-                "Rist couldn't change this"
+                "Turn this off in the phone's Settings"
             enable -> "On — this phone can now find itself indoors"
             else -> "Off — nothing about nearby Wi‑Fi leaves this phone"
         }

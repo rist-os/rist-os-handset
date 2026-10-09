@@ -220,7 +220,7 @@ class BoxRefreshTest {
         advance(3_000)
         assertFalse(a.isRefreshing)
         assertFalse(a.isSpinning)
-        assertEquals("Couldn't update", status(a))
+        assertEquals("Currently unavailable", status(a))
         assertTrue("a refresh that failed can be tried again", button(a)!!.isEnabled)
         assertTrue(BoxRefresh.restingMs("w", System.currentTimeMillis()) == 0L)
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(BoxExpandedActivity.STATUS_MS + 100))
@@ -250,7 +250,7 @@ class BoxRefreshTest {
         assertEquals(1, edits.size)
         assertTrue(HomeBoxes.queued(app).isEmpty())
         assertFalse(a.isRefreshing)
-        assertEquals("Couldn't update", status(a))
+        assertEquals("Currently unavailable", status(a))
         assertTrue("a refused refresh unlocks at once", button(a)!!.isEnabled)
         assertEquals(0, kicks.get())
     }

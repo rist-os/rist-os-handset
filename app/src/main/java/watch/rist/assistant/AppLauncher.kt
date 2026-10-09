@@ -81,7 +81,7 @@ object AppLauncher {
                 Log.w(TAG, "Fallback launch failed for $fallbackPkg", e)
             }
         }
-        Toast.makeText(ctx, "App unavailable", Toast.LENGTH_SHORT).show()
+        Toast.makeText(ctx, "This app is currently unavailable.", Toast.LENGTH_SHORT).show()
         Log.w(TAG, "No handler for $intent and no launch intent for $fallbackPkg")
     }
 

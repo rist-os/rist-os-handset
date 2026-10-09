@@ -357,7 +357,7 @@ class SettingsActivity : AppCompatActivity() {
             setOnClickListener {
                 if (!CarrierVoicemail.call(this@SettingsActivity)) {
                     android.widget.Toast.makeText(
-                        this@SettingsActivity, "Couldn't reach your mailbox",
+                        this@SettingsActivity, Unavailable.VOICEMAIL,
                         android.widget.Toast.LENGTH_SHORT
                     ).show()
                 } else finish()

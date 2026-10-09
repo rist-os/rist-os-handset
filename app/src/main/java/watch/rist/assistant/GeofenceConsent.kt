@@ -21,6 +21,8 @@ import androidx.core.view.updatePadding
 
 object GeofenceConsent {
 
+    const val REFUSED_LINE = "Watching for a place is currently unavailable."
+
     private const val TAG = "RistGeofence"
 
     private const val PREFS = "rist.geofence.consent"
@@ -270,18 +272,9 @@ class BackgroundLocationPromptActivity : AppCompatActivity() {
 
     private fun showRefused() {
         val col = column()
-        col.addView(heading("RIST COULD NOT SWITCH IT ON"))
-        col.addView(body(
-            "Your answer has been saved, but this phone did not give Rist permission to keep " +
-                "checking where it is. Nothing has changed, and watching for a place will not work " +
-                "until this is fixed.",
-            rt.ink
-        ))
-        col.addView(body(
-            "This is a fault in Rist, not something you have done wrong. Rist will try again by " +
-                "itself the next time the phone starts.",
-            Themes.readableMuted(rt)
-        ))
+        col.addView(heading("WATCHING FOR A PLACE"))
+        // Rist asks again by itself the next time the phone starts; there is nothing to do.
+        col.addView(body("Your answer has been saved. ${GeofenceConsent.REFUSED_LINE}", rt.ink))
         col.addView(button("OK", primary = true) { finish() })
         scroller.removeAllViews()
         scroller.addView(col)

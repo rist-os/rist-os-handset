@@ -42,7 +42,7 @@ class SmsResultReceiver : BroadcastReceiver() {
                 if (failedEarlier(context, cid)) return
                 rememberFailed(cid)
                 CommsResults.record(context, cid, "send_sms", false, why)
-                toast(context, "Could not text $who — $why")
+                toast(context, notSentLine(who, resultCode))
             }
         }
     }
@@ -60,6 +60,12 @@ class SmsResultReceiver : BroadcastReceiver() {
         const val EXTRA_CID = "cid"
         const val EXTRA_PART = "part"
         const val EXTRA_PARTS = "parts"
+
+        /** What the person sees for an unsent text: the fix when it is theirs, else unavailable. */
+        internal fun notSentLine(who: String, resultCode: Int): String =
+            if (resultCode == SmsManager.RESULT_ERROR_RADIO_OFF)
+                "Not sent to $who. Turn off airplane mode and try again."
+            else "Not sent to $who. ${Unavailable.TEXTING}"
 
         /** The sent-result intent for part [part] of [parts] of the text [cid]. */
         fun sentIntent(ctx: Context, cid: String, who: String, part: Int, parts: Int): android.app.PendingIntent =

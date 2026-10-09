@@ -425,8 +425,7 @@ internal fun otaHeadline(v: OtaStatusView): String = when {
     otaOfferOpen(v) -> "Update ${v.offeredBuild} is downloading. You can keep using the phone."
     v.baseUrl.isBlank() ->
         "Automatic updates are OFF. No update server is set, so this phone will never check."
-    v.engineFault != null ->
-        "This phone can look for updates but cannot install them: ${otaEngineFaultText(v.engineFault)}."
+    v.engineFault != null -> otaEngineFaultText(v.engineFault)
     v.failures >= OTA_PERSISTENT_FAILURES -> otaPersistentFailureText(v)
     else -> ""
 }
@@ -434,27 +433,20 @@ internal fun otaHeadline(v: OtaStatusView): String = when {
 private fun otaSizeTail(v: OtaStatusView): String =
     if (v.offeredSize.isBlank()) "" else " — about ${v.offeredSize}"
 
-internal fun otaPersistentFailureText(v: OtaStatusView): String {
-    val head = if (v.lastSuccessAtSeconds <= 0L)
-        "This phone has NEVER successfully checked for updates, after ${v.failures} attempts."
-    else
-        "This phone has not been able to check for updates since " +
-            "${otaAgo(v.lastSuccessAtSeconds, v.nowSeconds)} (${v.failures} failed attempts)."
-    return "$head It is not receiving security updates."
-}
+// The count and the last good check stay in the log (OtaState); the screen says only this.
+@Suppress("UNUSED_PARAMETER")
+internal fun otaPersistentFailureText(v: OtaStatusView): String = OTA_UNAVAILABLE
 
+// Only a developer copy installed over the built-in one is something the person can undo.
 internal fun otaEngineFaultText(reason: OtaEngine.Reason): String = when (reason) {
-    OtaEngine.Reason.NO_SYSTEM_API ->
-        "this copy of Rist was installed over the top of the system, not built into it"
     // A copy installed from a computer (push.sh) replaces the built-in one and cannot apply updates.
+    OtaEngine.Reason.NO_SYSTEM_API,
     OtaEngine.Reason.NO_CALLBACK_CLASS ->
-        "a developer copy of Rist is installed over the built-in one. Remove the developer copy " +
-            "before updating"
-    OtaEngine.Reason.SERVICE_NOT_VISIBLE ->
-        "the system's update service will not talk to Rist on this build"
+        "Updates can't be installed while a developer copy of Rist is installed over the " +
+            "built-in one. Remove the developer copy before updating."
+    OtaEngine.Reason.SERVICE_NOT_VISIBLE,
     OtaEngine.Reason.BIND_REFUSED,
-    OtaEngine.Reason.APPLY_REFUSED ->
-        "the system's update service refused the request"
+    OtaEngine.Reason.APPLY_REFUSED -> OTA_UNAVAILABLE
 }
 
 internal fun otaBuildLine(v: OtaStatusView): String {
@@ -468,8 +460,7 @@ internal fun otaLastCheckLine(v: OtaStatusView): String =
     else "Last checked ${otaAgo(v.lastCheckAtSeconds, v.nowSeconds)}: ${otaPlainResult(v.lastResult)}"
 
 internal const val OTA_UP_TO_DATE = "Up to date."
-internal const val OTA_UNAVAILABLE = "Update currently unavailable."
-internal const val OTA_UNAVAILABLE_TRY_LATER = "Update currently unavailable. Try again later."
+internal const val OTA_UNAVAILABLE = watch.rist.assistant.Unavailable.UPDATES
 
 // What OtaScheduler.recordRefusal stores for a policy ROLLBACK refusal.
 private val OTA_ROLLBACK_REFUSAL =
@@ -483,9 +474,6 @@ internal fun otaPlainResult(stored: String): String {
         r.startsWith("up to date") || r.startsWith("no build published") -> OTA_UP_TO_DATE
         // The server offers a build no newer than this one: nothing to install.
         r.startsWith(OTA_ROLLBACK_REFUSAL) -> OTA_UP_TO_DATE
-        r.startsWith("unreachable") || r.startsWith("check failed") ||
-            r.startsWith("preflight failed") || r.startsWith("server asked for") ||
-            r.startsWith("package busy") -> OTA_UNAVAILABLE_TRY_LATER
         r.startsWith("applying ") || r.startsWith("installing ") -> "Installing an update."
         r.contains("restart to finish updating") -> "Update installed. Restart to finish."
         Regex("""^\S+ available \([^)]*\)$""").matches(r) -> "An update is available."
@@ -513,12 +501,13 @@ internal fun otaProgressLabel(status: Int): String = when (status) {
     OtaApply.Status.VERIFYING -> "Checking the download"
     OtaApply.Status.FINALIZING -> "Finishing up"
     OtaApply.Status.UPDATED_NEED_REBOOT -> "Installed"
-    OtaApply.Status.REPORTING_ERROR_EVENT -> "Something went wrong"
+    OtaApply.Status.REPORTING_ERROR_EVENT -> OTA_UNAVAILABLE
     else -> "Preparing"
 }
 
 internal fun otaProgressLine(v: OtaStatusView): String {
     val label = otaProgressLabel(v.applyingStatus)
+    if (v.applyingStatus == OtaApply.Status.REPORTING_ERROR_EVENT) return label
     if (v.applyingStatus != OtaApply.Status.DOWNLOADING) return "$label…"
     val pct = otaProgressPercent(v)
     return if (pct < 0) "$label…" else "$label $pct%"

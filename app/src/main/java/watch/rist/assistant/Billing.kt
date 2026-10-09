@@ -211,7 +211,7 @@ object Billing {
         Portal.NoSubscription -> "There is no subscription on this account to update."
         Portal.Unauthorised -> "This device needs to be paired again before it can open the payment page."
         Portal.Revoked -> "This device's access was turned off. Pair it again in Settings."
-        Portal.Unavailable -> "Couldn't open the payment page — try again in a minute."
+        Portal.Unavailable -> watch.rist.assistant.Unavailable.PAYMENT_PAGE
     }
 
     internal fun classifyPortal(code: Int, body: String): Portal = when {

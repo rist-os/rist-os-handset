@@ -38,7 +38,7 @@
     <string name="photo_menu_title">Photo</string>
     <string name="photo_save">Save to Photos</string>
     <string name="photo_saved">Saved to Photos</string>
-    <string name="photo_save_failed">The photo could not be saved.</string>
+    <string name="photo_save_failed">Saving photos is currently unavailable.</string>
     <string name="photo_close">Close</string>
     <string name="photo_gone">That photo is no longer on the phone.</string>
     <string name="call_untitled">Video call</string>
@@ -53,7 +53,7 @@
     <string name="call_cancel">Cancel</string>
     <string name="call_hang_up">Hang up</string>
     <string name="link_qr_only">Links open only from a scanned QR code.</string>
-    <string name="link_failed">The site could not be opened.</string>
+    <string name="link_failed">This site is currently unavailable.</string>
     <string name="call_leave_ask">Leave the call?</string>
     <string name="call_leave">Leave</string>
     <string name="call_stay">Stay</string>
@@ -63,7 +63,7 @@
     <string name="call_mic_allowed">Mic on</string>
     <string name="call_mic_blocked">Mic off</string>
     <string name="call_invite_ready">Invitation ready — tap to send it</string>
-    <string name="call_failed">The call could not be opened.</string>
+    <string name="call_failed">Video calls are currently unavailable.</string>
     <string name="web_close">Close</string>
     <string name="web_back">Back</string>
     <string name="web_reload">Reload</string>
@@ -71,13 +71,13 @@
     <string name="web_blocked_stay">Stay</string>
     <string name="web_blocked_other">This page tried to open something that is not a web page. It was stopped.</string>
     <string name="web_no_downloads">Downloads are off in this browser.</string>
-    <string name="web_no_engine">This phone has no web engine installed, so pages cannot be shown.</string>
-    <string name="web_failed">This page could not be loaded.</string>
+    <string name="web_no_engine">Web pages are currently unavailable.</string>
+    <string name="web_failed">This page is currently unavailable.</string>
     <string name="text_sending">✎ sending — awaiting reply</string>
 
     <string name="camera_capture">CAPTURE</string>
     <string name="camera_cancel">CANCEL</string>
-    <string name="camera_unavailable">Camera unavailable on this device</string>
+    <string name="camera_unavailable">The camera is currently unavailable.</string>
     <string name="camera_permission_denied">Camera permission denied</string>
     <string name="photo_compose_close">✕</string>
     <string name="photo_compose_close_desc">Discard these photos and go back</string>
@@ -118,7 +118,7 @@
     <string name="nav_close_desc">Close navigation</string>
     <string name="nav_pill_fmt">NAV &gt; %1$s</string>
     <string name="nav_pill_desc">Expand navigation</string>
-    <string name="nav_routing_unavailable">routing unavailable</string>
+    <string name="nav_routing_unavailable">Directions are currently unavailable.</string>
     <string name="nav_eta_fmt">%1$.1f mi · about %2$d min</string>
     <string name="nav_dest_fmt">DEST %1$.5f, %2$.5f</string>
     <string name="nav_here_fmt">HERE %1$.5f, %2$.5f · ±%3$dm</string>
@@ -208,7 +208,7 @@
     <string name="phone_settings_hint">Wi-Fi, Bluetooth, display and the rest of the phone.</string>
 
     <string name="ota_offer_started">Update starting. It will install in the background, and the phone will ask you to restart when it is ready.</string>
-    <string name="ota_offer_refused">That update could not be started. It may have been replaced by a newer one. Please try again later.</string>
+    <string name="ota_offer_refused">That update is currently unavailable.</string>
     <string name="ota_metered_title">Use mobile data?</string>
     <string name="ota_metered_body">This update is about %1$s. Downloading it on mobile data may use your allowance or cost money. Wi\u2011Fi is recommended.</string>
     <string name="ota_metered_yes">Use mobile data</string>
@@ -245,21 +245,21 @@
     <string name="attach_size_mb">%1$s MB</string>
     <string name="attach_size_gb">%1$s GB</string>
 
-    <string name="attach_no_bytes">Could not be shown: the picture did not arrive with this reply.</string>
-    <string name="attach_bad_format">Could not be shown: this picture is in a format this phone cannot read (%1$s).</string>
-    <string name="attach_empty_note">Could not be shown: this note arrived empty.</string>
+    <string name="attach_no_bytes">This picture is currently unavailable.</string>
+    <string name="attach_bad_format">This picture is currently unavailable.</string>
+    <string name="attach_empty_note">This note is currently unavailable.</string>
 
     <string name="attach_show_all">Show all</string>
     <string name="attach_show_all_desc">Show the whole note</string>
 
     <string name="attach_cannot_open">This file cannot be opened on this phone.</string>
 
-    <string name="attach_reason_too_big">This was too big to show.</string>
-    <string name="attach_reason_unreadable">This picture could not be read.</string>
-    <string name="attach_reason_unknown">This could not be shown.</string>
-    <string name="attach_reason_absent">This did not arrive.</string>
+    <string name="attach_reason_too_big">This is currently unavailable.</string>
+    <string name="attach_reason_unreadable">This picture is currently unavailable.</string>
+    <string name="attach_reason_unknown">This is currently unavailable.</string>
+    <string name="attach_reason_absent">This is currently unavailable.</string>
 
-    <string name="attach_card_failed">%1$s \u2014 could not be shown: this card would not draw.</string>
+    <string name="attach_card_failed">%1$s is currently unavailable.</string>
 
     <string name="attach_announce_failed">%1$s. %2$s</string>
 
@@ -283,12 +283,12 @@
     <string name="boxes_refreshing_state">Refreshing</string>
     <string name="boxes_refresh_slow">Still working…</string>
     <string name="boxes_refresh_offline">Offline</string>
-    <string name="boxes_refresh_failed">Couldn\'t update</string>
+    <string name="boxes_refresh_failed">Currently unavailable</string>
     <string name="boxes_create_label">New tile</string>
     <string name="boxes_creating">Creating…</string>
     <string name="boxes_creating_desc">Creating tile: %1$s. Hold to cancel.</string>
     <string name="boxes_create_still">Still creating…</string>
-    <string name="boxes_create_failed">Couldn\'t create that tile</string>
+    <string name="boxes_create_failed">Tiles are currently unavailable.</string>
     <string name="boxes_add_queued">Offline. The tile will be added when you\'re back online</string>
     <string name="boxes_create_cancel">Cancel</string>
     <string name="boxes_edit">Edit</string>

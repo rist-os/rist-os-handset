@@ -186,7 +186,7 @@ class OtaService : android.app.Service() {
             OtaApply.Status.VERIFYING -> "Verifying update ($pct%)"
             OtaApply.Status.FINALIZING -> "Finishing update ($pct%)"
             OtaApply.Status.UPDATED_NEED_REBOOT -> "Update installed; restart to finish"
-            OtaApply.Status.REPORTING_ERROR_EVENT -> "Update failed"
+            OtaApply.Status.REPORTING_ERROR_EVENT -> watch.rist.assistant.Unavailable.UPDATES
             else -> "Preparing update"
         }
     }

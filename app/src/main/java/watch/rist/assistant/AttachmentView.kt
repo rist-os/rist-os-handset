@@ -180,7 +180,7 @@ object AttachmentView {
         val reqH = (MAX_IMAGE_HEIGHT_DP * d).toInt().coerceAtLeast(1)
         val bmp = item.bitmap ?: bytes?.let { decodeBounded(it, reqW, reqH) }
         if (bmp == null) {
-            fail(error, res.getString(R.string.attach_bad_format, item.mime))
+            Log.w(TAG, "unreadable picture (${item.mime})"); fail(error, res.getString(R.string.attach_bad_format))
             return
         }
         image.setImageBitmap(bmp)

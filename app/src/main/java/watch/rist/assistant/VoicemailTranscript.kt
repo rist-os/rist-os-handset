@@ -25,11 +25,11 @@ object VoicemailTranscript {
         if (!VoicemailAudio.safeId(id)) return Result.NotFound
 
         val base = Config.backendUrl(ctx)
-        if (!base.startsWith("http")) return Result.Failed("no assistant service configured")
+        if (!base.startsWith("http")) return Result.Failed(Unavailable.NOT_PAIRED)
         val url = (if (base.endsWith("/v1/device")) base.removeSuffix("/v1/device") else base.trimEnd('/')) +
             "/v1/voicemail/$id/transcript"
         val bearer = Config.authToken(ctx).takeIf { it.isNotBlank() }
-            ?: return Result.Failed("this device isn't set up yet")
+            ?: return Result.Failed(Unavailable.NOT_PAIRED)
 
         return runCatching {
             val client = OkHttpClient.Builder()
@@ -49,28 +49,28 @@ object VoicemailTranscript {
                             ?.toString(Charsets.UTF_8).orEmpty(), id)
                     resp.code == 410 -> { Log.i(TAG, "audio expired for $id; nothing to read"); Result.Expired }
                     resp.code == 404 -> { Log.i(TAG, "no transcript route or no such message: $id"); Result.NotFound }
-                    resp.code == 401 -> { Enrolment.onCredentialDead(ctx); Result.Failed("not authorised") }
+                    resp.code == 401 -> { Enrolment.onCredentialDead(ctx); Result.Failed(Unavailable.PAIR_AGAIN) }
                     resp.code == 403 -> if (Enrolment.isExplicitRevocation(403, resp.header(Enrolment.REVOKED_HEADER))) {
-                        Enrolment.onRevoked(ctx); Result.Failed("access turned off")
-                    } else Result.Failed("access refused")
+                        Enrolment.onRevoked(ctx); Result.Failed(Unavailable.REMOVED)
+                    } else Result.Failed(Unavailable.VOICEMAIL)
                     resp.code == Billing.PAYMENT_REQUIRED -> {
                         val lapse = Billing.lapseWithLine(resp)
                         Billing.onLapsed(ctx, lapse)
-                        Result.Failed(Billing.lineFor(lapse))
+                        Result.Failed(Unavailable.sentence(Billing.lineFor(lapse)))
                     }
-                    else -> Result.Failed("couldn't read that one (${resp.code})")
+                    else -> run { Log.w(TAG, "transcript HTTP ${resp.code}"); Result.Failed(Unavailable.VOICEMAIL) }
                 }
             }
         }.onFailure { Log.w(TAG, "transcript fetch failed", it) }
-            .getOrElse { Result.Failed("couldn't reach Rist") }
+            .getOrElse { Result.Failed(Unavailable.orOffline(ctx, Unavailable.VOICEMAIL)) }
     }
 
     private fun parse(body: String, id: String): Result {
         val text = runCatching { JSONObject(body).optString("transcript") }
             .onFailure { Log.w(TAG, "unparseable transcript body for $id", it) }
             .getOrNull()
-            ?: return Result.Failed("Rist couldn't read that reply")
-        if (text.isBlank()) return Result.Failed("there were no words in that one")
+            ?: return Result.Failed(Unavailable.VOICEMAIL)
+        if (text.isBlank()) return Result.Failed("There were no words in that message.")
         Log.i(TAG, "transcribed $id on request (${text.length} chars)")
         return Result.Ready(text)
     }

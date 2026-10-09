@@ -1075,7 +1075,7 @@ object CommsFeedView {
         }.onFailure { Log.w(TAG, "could not place the call", it) }.getOrDefault(false)
 
         if (!placed) {
-            Toast.makeText(activity, "Couldn't place the call", Toast.LENGTH_LONG).show()
+            Toast.makeText(activity, Unavailable.CALLING, Toast.LENGTH_LONG).show()
             return
         }
         runCatching {
@@ -1085,7 +1085,7 @@ object CommsFeedView {
 
     private fun dialMailbox(activity: Activity) {
         if (!CarrierVoicemail.call(activity)) {
-            Toast.makeText(activity, "Couldn't reach your mailbox", Toast.LENGTH_LONG).show()
+            Toast.makeText(activity, Unavailable.VOICEMAIL, Toast.LENGTH_LONG).show()
         }
     }
 }

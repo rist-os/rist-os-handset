@@ -65,14 +65,14 @@ object DeveloperModeSection {
                     build(a, host, anchor, confirmCredential)
                 } else {
                     if (!DeveloperMode.mayTurnOn(a)) {
-                        toast(a, "Developer mode can't be turned on right now.")
+                        toast(a, Unavailable.DEVELOPER_MODE)
                         build(a, host, anchor, confirmCredential)
                         return@setOnClickListener
                     }
                     confirmCredential {
                         val ok = DeveloperMode.turnOn(a)
                         toast(a, if (ok) "Developer mode is on. USB debugging is allowed."
-                            else "Developer mode can't be turned on right now.")
+                            else Unavailable.DEVELOPER_MODE)
                         build(a, host, anchor, confirmCredential)
                     }
                 }

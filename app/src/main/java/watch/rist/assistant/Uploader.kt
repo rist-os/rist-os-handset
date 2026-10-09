@@ -88,7 +88,7 @@ class Uploader(private val ctx: Context) {
 
         /** Said when a turn's connection drops after the request was sent. */
         internal const val MAY_HAVE_HAPPENED =
-            "I lost the connection, so that may still have gone through — check before asking again"
+            "I lost the connection, so that may still have gone through. Check before asking again."
         private val turnClient: OkHttpClient by lazy {
             client.newBuilder().readTimeout(TURN_READ_TIMEOUT_S, TimeUnit.SECONDS).build()
         }
@@ -168,9 +168,26 @@ class Uploader(private val ctx: Context) {
         internal fun releasesInboundSms(toolId: String): Boolean =
             toolId.trim().lowercase() == "message"
 
-        internal fun smsUnreadableFailure(why: String): String =
-            "I cannot read your messages right now: " +
-                why.ifBlank { "this phone would not let Rist open its message store" }
+        // The cause (why) is logged by the caller; the person is told only that it is unavailable.
+        @Suppress("UNUSED_PARAMETER")
+        internal fun smsUnreadableFailure(why: String): String = Unavailable.MESSAGES
+
+        /** A refused turn: on a 401 or 403 the backend's own line when it sent one, else ours. */
+        internal fun httpFailure(code: Int, spoken: String?, revoked: Boolean): String = when {
+            code == 401 -> spoken?.let { Unavailable.sentence(it) } ?: Unavailable.PAIR_AGAIN
+            code == 403 && revoked -> spoken?.let { Unavailable.sentence(it) } ?: Unavailable.REMOVED
+            // A bare 403 says the backend's own line when it sent one.
+            code == 403 -> spoken?.let { Unavailable.sentence(it) } ?: Unavailable.ASSISTANT
+            else -> Unavailable.ASSISTANT
+        }
+
+        /** The line for a send that never got an answer; the exception is logged, never shown. */
+        internal fun transportFailure(t: Throwable, offline: Boolean): String = when (t) {
+            // The request reached the backend, which keeps working after a socket drops. So
+            // this is "unknown", not "failed": asking again could send the email twice.
+            is java.net.SocketTimeoutException -> MAY_HAVE_HAPPENED
+            else -> Unavailable.pick(offline, Unavailable.ASSISTANT)
+        }
 
         // Unconditional, including an empty list: an empty state is what makes the backend re-arm.
         internal fun attachGeofenceState(req: DeviceRequest, ids: List<String>): DeviceRequest =
@@ -601,13 +618,13 @@ class Uploader(private val ctx: Context) {
         if (LocationSwitch.isOff(ctx)) req = LocationSwitch.scrub(req, deviceTimezone())
 
         if (endpoint.isBlank()) {
-            lastFailure = "no assistant service is configured"
+            lastFailure = Unavailable.NOT_PAIRED
             Log.w(TAG, "no backend endpoint configured — set one in Rist Settings (gear \u203a SETTINGS)")
             return null
         }
         // A malformed URL makes Request.Builder.url() throw outside the try below.
         if (!endpoint.startsWith("https://") && !endpoint.startsWith("http://")) {
-            lastFailure = "the assistant service address is not valid"
+            lastFailure = Unavailable.BAD_ADDRESS
             Log.w(TAG, "backend endpoint is not a valid http(s) URL; refusing to send")
             return null
         }
@@ -625,7 +642,7 @@ class Uploader(private val ctx: Context) {
                 .apply { bearer(ctx)?.let { header("Authorization", it) } }
                 .build()
         }.getOrElse {
-            lastFailure = "the assistant service address is not valid"
+            lastFailure = Unavailable.BAD_ADDRESS
             Log.w(TAG, "could not build a request for endpoint '$endpoint'", it)
             return null
         }
@@ -647,7 +664,7 @@ class Uploader(private val ctx: Context) {
                             Log.w(TAG, "backend 413 (too large) req_id=${parsed.requestId} speech=${parsed.speech.text.length} chars")
                             return parsed
                         }
-                        lastFailure = "that recording was too long"
+                        lastFailure = Unavailable.TOO_LONG
                         Log.w(TAG, "backend 413 with an unparseable body")
                         return null
                     }
@@ -664,7 +681,7 @@ class Uploader(private val ctx: Context) {
                             Log.w(TAG, "backend 402 (${lapse.reason}) req_id=${parsed.requestId}")
                             return parsed
                         }
-                        lastFailure = Billing.lineFor(lapse)
+                        lastFailure = Unavailable.sentence(Billing.lineFor(lapse))
                         Log.w(TAG, "backend 402 (${lapse.reason}) with an unparseable body")
                         return null
                     }
@@ -683,31 +700,17 @@ class Uploader(private val ctx: Context) {
                     // 401 = removed from its account or credential dead (pair again with a code);
                     // 403 + revoked header = revoked (pair again). Both stay failures so the pairing
                     // screen opens. A bare 403 (proxy, WAF) never latches.
-                    lastFailure = when (httpResp.code) {
-                        401 -> {
-                            Enrolment.onCredentialDead(ctx)
-                            spoken?.speech?.text?.trim()
-                                ?: "this phone is no longer connected to your account — pair it again with a code"
-                        }
-                        403 -> if (Enrolment.isExplicitRevocation(403, httpResp.header(Enrolment.REVOKED_HEADER))) {
-                            Enrolment.onRevoked(ctx)
-                            spoken?.speech?.text?.trim()
-                                ?: "this phone was removed from your account — pair it again in Settings"
-                        } else {
-                            spoken?.speech?.text?.trim() ?: "the assistant refused this request"
-                        }
-                        503 -> "the assistant can't be reached right now — try again in a moment"
-                        404 -> "the assistant endpoint wasn't found"
-                        429 -> "the assistant is busy — try again in a moment"
-                        in 500..599 -> "the assistant is having trouble right now"
-                        else -> "the assistant returned an error (${httpResp.code})"
-                    }
+                    val revoked = httpResp.code == 403 &&
+                        Enrolment.isExplicitRevocation(403, httpResp.header(Enrolment.REVOKED_HEADER))
+                    if (httpResp.code == 401) Enrolment.onCredentialDead(ctx)
+                    if (revoked) Enrolment.onRevoked(ctx)
+                    lastFailure = httpFailure(httpResp.code, spoken?.speech?.text?.trim()?.ifBlank { null }, revoked)
                     Log.w(TAG, "backend HTTP ${httpResp.code} -> $lastFailure")
                     return null
                 }
                 val body = httpResp.body
                 if (body == null) {
-                    lastFailure = "the assistant sent an empty reply"
+                    lastFailure = Unavailable.ASSISTANT
                     Log.w(TAG, "no response body")
                     return null
                 }
@@ -733,7 +736,7 @@ class Uploader(private val ctx: Context) {
                 } else {
                     val parsedOrNull = parseOneOrNull(body.byteStream())
                     if (parsedOrNull == null) {
-                        lastFailure = "the assistant sent an empty reply"
+                        lastFailure = Unavailable.ASSISTANT
                         Log.w(TAG, "empty response body")
                         return null
                     }
@@ -748,15 +751,7 @@ class Uploader(private val ctx: Context) {
                 return null
             }
             if (streamed) StreamingStatus.publishEnd(ctx, reqId, StreamingStatus.ENDING_TRUNCATED)
-            lastFailure = when (t) {
-                // The request reached the backend, which keeps working after a socket drops. So
-                // this is "unknown", not "failed": asking again could send the email twice.
-                is java.net.SocketTimeoutException -> MAY_HAVE_HAPPENED
-                is java.net.UnknownHostException, is java.net.ConnectException -> "I can't reach the network"
-                is com.google.protobuf.InvalidProtocolBufferException -> "the reply was garbled"
-                is javax.net.ssl.SSLException -> "the secure connection failed"
-                else -> "the network failed"
-            }
+            lastFailure = transportFailure(t, Unavailable.offline(ctx))
             Log.e(TAG, "upload/parse failed ($lastFailure) ${t.javaClass.simpleName}: ${t.message}", t)
             return null
         } finally {

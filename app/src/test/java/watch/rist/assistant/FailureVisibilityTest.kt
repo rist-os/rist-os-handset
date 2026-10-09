@@ -43,13 +43,25 @@ class FailureVisibilityTest {
     private fun home(): MainActivity = Robolectric.buildActivity(MainActivity::class.java).create().get()
 
     @Test
-    fun `our own reasons get an apology, the backend's sentence is shown as it is`() {
-        assertEquals("Sorry — the assistant is busy — try again in a moment.",
+    fun `a sentence for the person is shown as it is, any other cause reads as unavailable`() {
+        assertEquals(Unavailable.ASSISTANT,
             MainActivity.failureLine("the assistant is busy — try again in a moment"))
-        assertEquals("Sorry — I can't reach the network.", MainActivity.failureLine("I can't reach the network"))
+        assertEquals(Unavailable.ASSISTANT, MainActivity.failureLine("I can't reach the network"))
+        assertEquals(Unavailable.ASSISTANT, MainActivity.failureLine("no reply"))
+        assertEquals(Unavailable.ASSISTANT, MainActivity.failureLine("interrupted"))
         val renew = Billing.fallbackLine("ristmobile.com")
         assertEquals(renew, MainActivity.failureLine(renew))
-        assertEquals("Sorry — something went wrong reaching the network.", MainActivity.failureLine(" "))
+        assertEquals(Unavailable.NO_NETWORK, MainActivity.failureLine(Unavailable.NO_NETWORK))
+        assertEquals(Uploader.MAY_HAVE_HAPPENED, MainActivity.failureLine(Uploader.MAY_HAVE_HAPPENED))
+        assertEquals(Unavailable.ASSISTANT, MainActivity.failureLine(" "))
+    }
+
+    @Test
+    fun `a failed feed row says unavailable, never the cause`() {
+        assertEquals("⚠ " + Unavailable.ASSISTANT, MainActivity.failedEntryLine("the network failed"))
+        assertEquals("⚠ " + Unavailable.ASSISTANT, MainActivity.failedEntryLine(""))
+        assertEquals("⚠ " + Unavailable.NO_NETWORK, MainActivity.failedEntryLine(Unavailable.NO_NETWORK))
+        assertEquals("⚠ no answer (cancelled)", MainActivity.failedEntryLine("cancelled"))
     }
 
     @Test

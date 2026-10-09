@@ -526,9 +526,8 @@ class AttachmentViewTest {
             host, listOf(attachment("image", mime = "image/heif", title = "Scan", bytes = truncatedPng()))
         )
         assertEquals(
-            "the \"this phone cannot read that format\" line does not name the format it could not " +
-                "read, so the one fact in the sentence is missing",
-            a.getString(R.string.attach_bad_format, "image/heif"),
+            "an unreadable picture says only that it is unavailable, never its format",
+            a.getString(R.string.attach_bad_format),
             tv(cards(host)[0], R.id.attachmentError).text.toString()
         )
 
@@ -574,8 +573,8 @@ class AttachmentViewTest {
 
         assertTrue("the failure is not visible; the attachment vanished", shown(error))
         assertTrue(
-            "the reason is not on the screen: \"${error.text}\"",
-            error.text.toString().contains("too big to show")
+            "the card does not say it is unavailable: \"${error.text}\"",
+            error.text.toString().contains("currently unavailable")
         )
         assertFalse(
             "the ingest layer's own wording reached the card: \"${error.text}\"",
@@ -623,9 +622,8 @@ class AttachmentViewTest {
 
         assertTrue("nothing on the card explains why there is no picture", shown(error))
         assertTrue(
-            "an empty byte array is being reported as \"${error.text}\" — the user is told the " +
-                "format is unreadable when in fact nothing arrived to read",
-            error.text.toString().contains("did not arrive")
+            "an empty picture is not said to be unavailable: \"${error.text}\"",
+            error.text.toString().contains("currently unavailable")
         )
         assertFalse(
             "an empty picture still drew an ImageView, which is a heading over a void",
@@ -658,7 +656,7 @@ class AttachmentViewTest {
 
         val said = (drawn[0] as TextView).text.toString()
         assertTrue("the fallback card does not name which attachment failed: \"$said\"", said.contains("Prescription"))
-        assertTrue("the fallback card does not say anything went wrong: \"$said\"", said.contains("could not be shown"))
+        assertTrue("the fallback card does not say anything went wrong: \"$said\"", said.contains("is currently unavailable"))
         assertEquals(
             "the fallback line is not the theme's accent, so the one thing on the card is not the " +
                 "colour this app uses to say something is wrong",
@@ -961,7 +959,7 @@ class AttachmentViewTest {
             "a failed attachment was drawn and never spoken: $spoken — the assistant has just said " +
                 "\"here is your prescription\" and a blind user has no way to learn that it is not " +
                 "on the screen",
-            spoken.any { it.contains("Prescription") && it.contains("too big to show") }
+            spoken.any { it.contains("Prescription") && it.contains("currently unavailable") }
         )
     }
 
