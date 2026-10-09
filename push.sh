@@ -79,3 +79,4 @@ fi
 # The install kills the running app; bring the home screen back so the phone is not left on an empty recents screen.
 "$ADB" shell am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1 || true
 echo ">> pushed vc$NEW; installed: $("$ADB" shell dumpsys package watch.rist.assistant | grep -oE 'versionCode=[0-9]+' | head -1)"
+echo ">> This copy replaces the built-in app. An OTA cannot install while it is here: restore the built-in app before taking an update."
