@@ -33,8 +33,13 @@ object Config {
     private const val KEY_TRANSCRIPT_MAX = "transcript_max_entries"
     private const val KEY_TRANSCRIPT_AGE_MS = "transcript_max_age_ms"
     private const val KEY_SESSION_ID = "session_id"
-    private const val KEY_SESSION_AT = "session_last_at"
-    private const val KEY_AWAITING_REPLY = "awaiting_reply"
+    /** Older builds kept an idle clock and a reply flag beside the id; removed on first use. */
+    private const val LEGACY_SESSION_AT = "session_last_at"
+    private const val LEGACY_AWAITING_REPLY = "awaiting_reply"
+    /** The account the conversation belongs to: the `user_id` the enroll answer named. */
+    private const val KEY_SESSION_ACCOUNT = "session_account"
+    /** The session id a user-started new conversation belongs to, until a reply has been had. */
+    private const val KEY_NEW_CONVERSATION_FOR = "new_conversation_for"
     private const val KEY_KIOSK_STAMP = "kiosk_provisioned_vc"
     private const val KEY_TIMERS = "running_timers"
     private const val KEY_SMS_QUEUE = "sms_queue"
@@ -188,9 +193,35 @@ object Config {
         return BackendChoice(override, Override.KEEP)
     }
 
+    /** The turn path. Every other path (wake, items, enroll, ...) is derived from the host. */
+    internal const val DEVICE_PATH = "/v1/device"
+
+    /**
+     * The endpoint in its one canonical form, `<scheme>://<host>[:port]<path>`, where a bare host
+     * or a URL with no path (or only "/") gets [DEVICE_PATH]. A URL already carrying a path keeps it,
+     * less any trailing slash, so `/v1/device` is never doubled. Null when it is not an http(s) URL
+     * with a host; a scheme is never guessed.
+     */
+    internal fun normalizeEndpoint(raw: String): String? {
+        val t = raw.trim()
+        if (t.isEmpty()) return null
+        val uri = runCatching { java.net.URI(t) }.getOrNull() ?: return null
+        val scheme = uri.scheme?.lowercase() ?: return null
+        if (scheme != "https" && scheme != "http") return null
+        val authority = uri.rawAuthority?.takeIf { it.isNotBlank() } ?: return null
+        if (uri.host.isNullOrBlank()) return null
+        if (uri.rawQuery != null || uri.rawFragment != null) return null
+        val path = uri.rawPath.orEmpty().trimEnd('/')
+        return "$scheme://$authority" + path.ifEmpty { DEVICE_PATH }
+    }
+
+    /** Normalized when it parses; otherwise as stored, so an odd value is never silently dropped. */
+    internal fun canonical(raw: String?): String? =
+        raw?.takeIf { it.isNotBlank() }?.let { normalizeEndpoint(it) ?: it.trim() }
+
     fun backendUrl(ctx: Context): String {
-        val stored = prefs(ctx).getString(KEY_BACKEND, null)
-        val default = deploy(ctx).first
+        val stored = canonical(prefs(ctx).getString(KEY_BACKEND, null))
+        val default = canonical(deploy(ctx).first).orEmpty()
         val choice = resolveBackend(stored, default, isDebugBuild(ctx))
         when (choice.action) {
             Override.KEEP -> Unit
@@ -224,8 +255,8 @@ object Config {
 
     // Changing the host drops the token: a credential must not follow to a new host.
     fun setBackendEndpoint(ctx: Context, url: String) {
-        val next = url.trim()
-        if (next != prefs(ctx).getString(KEY_BACKEND, "").orEmpty()) clearAuthTokenForHostChange(ctx)
+        val next = canonical(url).orEmpty()
+        if (next != canonical(prefs(ctx).getString(KEY_BACKEND, "")).orEmpty()) clearAuthTokenForHostChange(ctx)
         prefs(ctx).edit().putString(KEY_BACKEND, next).apply()
     }
 
@@ -598,6 +629,13 @@ object Config {
     fun deviceId(ctx: Context): String =
         Settings.Secure.getString(ctx.contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown"
 
+    /** Characters of the device id shown on the settings screen. */
+    internal const val SHORT_DEVICE_ID_LEN = 12
+
+    /** The first [SHORT_DEVICE_ID_LEN] characters, with an ellipsis when the id is longer. */
+    internal fun shortDeviceId(id: String): String =
+        if (id.length <= SHORT_DEVICE_ID_LEN) id else id.take(SHORT_DEVICE_ID_LEN) + "…"
+
     fun authToken(ctx: Context): String =
         prefs(ctx).getString(KEY_AUTH_TOKEN, "") ?: ""
 
@@ -648,39 +686,79 @@ object Config {
         }.onFailure { Log.w(TAG, "token import failed", it) }
     }
 
-    private const val SESSION_IDLE_MS = 5L * 60L * 1000L
-
-    private const val SESSION_IDLE_AWAITING_MS = 20L * 60L * 1000L
-
-    fun setAwaitingReply(ctx: Context, awaiting: Boolean) {
-        prefs(ctx).edit().putBoolean(KEY_AWAITING_REPLY, awaiting).apply()
-    }
-
+    /**
+     * The conversation id. It has no time limit: it survives idle time, app restarts, reboots, app
+     * updates, endpoint changes and re-pairing to the same account. Only [newSession] (the user's
+     * "New conversation") and pairing to a different account ([onPairedAccount]) replace it.
+     */
     fun sessionId(ctx: Context): String = synchronized(this) {
         val p = prefs(ctx)
-        val now = System.currentTimeMillis()
-        val existing = p.getString(KEY_SESSION_ID, null)?.takeIf { it.isNotEmpty() }
-        val last = p.getLong(KEY_SESSION_AT, 0L)
-        val window = if (p.getBoolean(KEY_AWAITING_REPLY, false)) SESSION_IDLE_AWAITING_MS
-                     else SESSION_IDLE_MS
-        val stale = last > 0L && now - last > window
-        if (existing == null || stale) {
-            val id = UUID.randomUUID().toString()
-            p.edit().putString(KEY_SESSION_ID, id).putLong(KEY_SESSION_AT, now).apply()
-            if (stale) Log.i("RistCfg", "session rotated after ${(now - last) / 1000}s idle")
-            return id
+        if (p.contains(LEGACY_SESSION_AT) || p.contains(LEGACY_AWAITING_REPLY)) {
+            p.edit().remove(LEGACY_SESSION_AT).remove(LEGACY_AWAITING_REPLY).apply()
         }
-        p.edit().putLong(KEY_SESSION_AT, now).apply()
-        return existing
+        p.getString(KEY_SESSION_ID, null)?.takeIf { it.isNotEmpty() }?.let { return it }
+        val id = UUID.randomUUID().toString()
+        p.edit().putString(KEY_SESSION_ID, id).apply()
+        return id
     }
 
     fun currentSessionId(ctx: Context): String =
         prefs(ctx).getString(KEY_SESSION_ID, null)?.takeIf { it.isNotEmpty() } ?: ""
 
-    fun newSession(ctx: Context): String {
+    /**
+     * A new session id. The server keeps one conversation per account whatever the id, so this
+     * alone does not end it; [startNewConversation] is what the user's control calls. Used on its
+     * own only for a change of account, whose conversation is a different one anyway.
+     */
+    fun newSession(ctx: Context): String = synchronized(this) {
         val id = UUID.randomUUID().toString()
         prefs(ctx).edit().putString(KEY_SESSION_ID, id).apply()
         return id
+    }
+
+    /**
+     * The user's "New conversation": a new session id, and `new_conversation = true` on the next
+     * request (Uploader.post) until a reply to it arrives. Nothing is sent now; with nothing said,
+     * the flag waits for the next request.
+     */
+    fun startNewConversation(ctx: Context): String = synchronized(this) {
+        val id = newSession(ctx)
+        prefs(ctx).edit().putString(KEY_NEW_CONVERSATION_FOR, id).apply()
+        return id
+    }
+
+    /**
+     * Whether a request in [sessionId] must carry `new_conversation`. Tied to the id so a later
+     * change of account (which rotates the id) drops the flag rather than ending the new account's
+     * conversation.
+     */
+    internal fun newConversationPendingFor(ctx: Context, sessionId: String): Boolean =
+        sessionId.isNotEmpty() && prefs(ctx).getString(KEY_NEW_CONVERSATION_FOR, null) == sessionId
+
+    /** A request carrying the flag got its reply. A newer tap (a different id) stays pending. */
+    internal fun clearNewConversation(ctx: Context, sessionId: String) = synchronized(this) {
+        if (newConversationPendingFor(ctx, sessionId)) prefs(ctx).edit().remove(KEY_NEW_CONVERSATION_FOR).apply()
+    }
+
+    internal fun sessionAccount(ctx: Context): String =
+        prefs(ctx).getString(KEY_SESSION_ACCOUNT, null).orEmpty()
+
+    /**
+     * A pairing succeeded for [userId]. The conversation carries over when it is the account it was
+     * held with, and is replaced otherwise, including when either side is unknown (a phone paired by
+     * an older build, or an answer without `user_id`): one account's conversation must never
+     * continue under another. Returns whether a new conversation was started.
+     */
+    internal fun onPairedAccount(ctx: Context, userId: String): Boolean = synchronized(this) {
+        val now = userId.trim()
+        val before = sessionAccount(ctx)
+        val same = now.isNotEmpty() && now == before
+        if (!same) {
+            newSession(ctx)
+            Log.i(TAG, "paired to ${if (before.isEmpty()) "an unrecorded" else "a different"} account; new conversation")
+        }
+        prefs(ctx).edit().putString(KEY_SESSION_ACCOUNT, now).apply()
+        return !same
     }
 
     // Keys that must never reach the plaintext fallback store.

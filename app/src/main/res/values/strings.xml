@@ -140,10 +140,17 @@
 
     <string name="reply_voice_checkbox">Read replies aloud</string>
 
-    <string name="device_info_fmt">device: %1$s\nversion: %2$s</string>
+    <string name="device_info_fmt">Phone ID: %1$s (tap to copy)\nversion: %2$s</string>
+    <string name="device_id_label">Rist phone ID</string>
+    <string name="device_id_copy_hint">Phone ID. Tap to copy the full ID.</string>
+    <string name="device_id_copied">Phone ID copied</string>
+    <string name="new_conversation">New conversation</string>
+    <string name="new_conversation_hint">Rist keeps one conversation going with no time limit. Start a new one to leave the earlier one behind.</string>
+    <string name="new_conversation_started">New conversation started. Rist won\'t use what was said before.</string>
     <string name="backend_section_heading">Assistant service</string>
     <string name="backend_endpoint_label">Endpoint (advanced)</string>
     <string name="backend_hint">https://host/v1/device</string>
+    <string name="backend_invalid">Enter the full address, starting with https:// (for example https://api.example.com).</string>
     <string name="backend_save">Save endpoint</string>
     <string name="backend_reset">Reset to default</string>
 

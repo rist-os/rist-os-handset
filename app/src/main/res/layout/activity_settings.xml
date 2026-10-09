@@ -291,6 +291,41 @@
             android:layout_marginBottom="16dp" />
 
         <TextView
+            android:id="@+id/newConversation"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:minHeight="48dp"
+            android:gravity="center"
+            android:textColor="@color/ink"
+            android:textSize="12sp"
+            android:fontFamily="@font/pixel"
+            android:clickable="true"
+            android:focusable="true"
+            android:text="@string/new_conversation" />
+
+        <TextView
+            android:id="@+id/newConversationStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="6dp"
+            android:textColor="@color/ink_muted"
+            android:textSize="12sp"
+            android:fontFamily="@font/pixel"
+            android:accessibilityLiveRegion="polite"
+            android:text="@string/new_conversation_hint" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/border"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
             android:id="@+id/deviceInfo"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

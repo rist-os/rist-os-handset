@@ -123,8 +123,8 @@ class SettingsActivity : AppCompatActivity() {
                 // performClick() ignores isEnabled; the IME and accessibility route through it.
                 if (!save.isEnabled) return@setOnClickListener
                 val url = backendInput.text.toString().trim()
-                if (!url.startsWith("http://") && !url.startsWith("https://")) {
-                    android.widget.Toast.makeText(this, "Enter a valid http(s):// URL", android.widget.Toast.LENGTH_SHORT).show()
+                if (Config.normalizeEndpoint(url) == null) {
+                    android.widget.Toast.makeText(this, R.string.backend_invalid, android.widget.Toast.LENGTH_LONG).show()
                     return@setOnClickListener
                 }
                 confirmBackendChange(getString(R.string.backend_change_confirm)) {
@@ -145,8 +145,8 @@ class SettingsActivity : AppCompatActivity() {
             findViewById<View>(R.id.backendSection).visibility = View.GONE
         }
 
-        deviceInfo.text = getString(R.string.device_info_fmt, Config.deviceId(this),
-            runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "?")
+        bindDeviceInfo()
+        bindNewConversation()
 
         findViewById<TextView>(R.id.openPhoneSettings)?.apply {
             val t = Themes.current(this@SettingsActivity)
@@ -555,6 +555,37 @@ class SettingsActivity : AppCompatActivity() {
         android.widget.Toast.makeText(this, saidWhat, android.widget.Toast.LENGTH_SHORT).show()
     }
 
+    /**
+     * The only user-driven way to end a conversation. No confirmation dialog: it acts, then says so.
+     * The earlier conversation leaves the home screen too (pinned answers stay); the server keeps it.
+     */
+    private fun bindNewConversation() {
+        val button = findViewById<TextView>(R.id.newConversation) ?: return
+        val status = findViewById<TextView>(R.id.newConversationStatus)
+        asButton(button, Themes.current(this), primary = false)
+        button.setOnClickListener {
+            Config.startNewConversation(applicationContext)
+            runCatching { Transcript.clear(applicationContext) }
+            status?.text = getString(R.string.new_conversation_started)
+        }
+    }
+
+    /**
+     * The id this phone pairs under (the server's device_id), shortened, for matching against the
+     * Phones list on the website. Read-only; a tap copies the full id.
+     */
+    private fun bindDeviceInfo() {
+        val id = Config.deviceId(this)
+        val version = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "?"
+        deviceInfo.text = getString(R.string.device_info_fmt, Config.shortDeviceId(id), version)
+        deviceInfo.contentDescription = getString(R.string.device_id_copy_hint)
+        deviceInfo.setOnClickListener {
+            val cm = getSystemService(android.content.ClipboardManager::class.java)
+            cm?.setPrimaryClip(android.content.ClipData.newPlainText(getString(R.string.device_id_label), id))
+            android.widget.Toast.makeText(this, R.string.device_id_copied, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun buildPairSection() {
         val status = findViewById<TextView>(R.id.pairStatus) ?: return
         val input = findViewById<android.widget.EditText>(R.id.pairCodeInput) ?: return
@@ -598,16 +629,16 @@ class SettingsActivity : AppCompatActivity() {
             submit.isEnabled = false
             status.text = getString(R.string.pair_working)
             Thread {
-                val result = Enrolment.pair(applicationContext, code)
+                val reply = Enrolment.pairWithReply(applicationContext, code)
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     submit.isEnabled = true
-                    if (result == Enrolment.PairResult.OK) {
+                    if (reply.result == Enrolment.PairResult.OK) {
                         runCatching { buildPairSection() }
-                        status.text = Enrolment.explainPair(result)
+                        status.text = Enrolment.explainPair(reply)
                     } else {
-                        status.text = Enrolment.explainPair(result)
-                        input.setText("")
+                        status.text = Enrolment.explainPair(reply)
+                        if (!Enrolment.keepsCode(reply.result)) input.setText("")
                     }
                 }
             }.start()
