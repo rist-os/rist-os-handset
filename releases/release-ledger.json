@@ -236,6 +236,22 @@
         "sha256": "4199b39845022b6c884b0528a26a4851cd24befd6de66ee4ec3926a8109fbed0"
       },
       "variant": "public"
+    },
+    {
+      "acknowledged_previous_lost": null,
+      "acknowledged_spl_change": null,
+      "build": "2026100800",
+      "recorded_utc": "2026-10-09T05:20:23Z",
+      "rollback_index": null,
+      "spl": "2026-09-01",
+      "spl_month": "2026-09",
+      "target_files": {
+        "bytes": 4562828076,
+        "entries": 9336,
+        "path": "stallion-target_files.zip",
+        "sha256": "0055acb671e58a79dcf404c429251b03afe98ddb727a32c16a1480551a15ba68"
+      },
+      "variant": "public"
     }
   ]
 }
