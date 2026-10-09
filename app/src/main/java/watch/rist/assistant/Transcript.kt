@@ -25,11 +25,14 @@ data class TranscriptEntry(
     var checklists: List<Checklist> = emptyList(),
     /** Notes the reply showed as editable cards, with the edits saved on them since. */
     var noteCards: List<NoteCard> = emptyList(),
+    /** When the entry got its answer or its failure; 0 while it waits. Retention counts from here. */
+    var closedAt: Long = 0L,
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", localId).put("at", at).put("prompt", prompt)
         .put("state", state.name).put("answer", answer)
         .put("requestId", requestId).put("error", error).put("pinned", pinned)
+        .apply { if (closedAt > 0L) put("closedAt", closedAt) }
         .apply {
             if (checklists.isNotEmpty()) put("checklists", JSONArray().also { arr ->
                 checklists.forEach { arr.put(Base64.encodeToString(it.toByteArray(), Base64.NO_WRAP)) }
@@ -49,6 +52,7 @@ data class TranscriptEntry(
             requestId = o.optString("requestId"),
             error = o.optString("error"),
             pinned = o.optBoolean("pinned", false),
+            closedAt = o.optLong("closedAt", 0L),
             checklists = o.optJSONArray("checklists")?.let { arr ->
                 (0 until arr.length()).mapNotNull {
                     runCatching { Checklist.parseFrom(Base64.decode(arr.getString(it), Base64.NO_WRAP)) }.getOrNull()
@@ -122,7 +126,7 @@ object Transcript {
             val inFlight = e.state == EntryState.RECORDING || e.state == EntryState.WAITING ||
                 e.state == EntryState.SENT
             if (inFlight && now - e.at > timeoutOf(e)) {
-                e.state = EntryState.FAILED
+                e.state = EntryState.FAILED; e.closedAt = now
                 if (e.error.isBlank()) e.error = "no answer"
                 changed = true
             }
@@ -131,7 +135,7 @@ object Transcript {
         if (maxAge > 0L) {
             val cutoff = System.currentTimeMillis() - maxAge
             entries.removeAll {
-                !it.pinned && it.at < cutoff &&
+                !it.pinned && maxOf(it.at, it.closedAt) < cutoff &&
                     it.state != EntryState.RECORDING && it.state != EntryState.WAITING &&
                     it.state != EntryState.SENT
             }
@@ -171,7 +175,10 @@ object Transcript {
         ensureLoaded(ctx)
         if (state == EntryState.ANSWERED || state == EntryState.FAILED) live.remove(localId)
         val e = entries.firstOrNull { it.localId == localId } ?: return
-        state?.let { e.state = it }
+        state?.let {
+            if (it != e.state && (it == EntryState.ANSWERED || it == EntryState.FAILED)) e.closedAt = System.currentTimeMillis()
+            e.state = it
+        }
         checklists?.let { e.checklists = it }
         noteCards?.let { e.noteCards = it }
         prompt?.let { e.prompt = it }
@@ -289,7 +296,8 @@ object Transcript {
         ensureLoaded(ctx)
         val i = entries.indexOfFirst { it.localId == localId }
         if (i < 0) return
-        entries[i] = entries[i].copy(at = entries[i].at - byMs)
+        val e = entries[i]
+        entries[i] = e.copy(at = e.at - byMs, closedAt = if (e.closedAt > 0L) e.closedAt - byMs else 0L)
         save(ctx)
     }
 

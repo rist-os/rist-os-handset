@@ -320,6 +320,29 @@ class TurnSurvivesNavigationTest {
     }
 
     @Test
+    fun `an answer that lands minutes after the question is kept for the whole window after it`() {
+        val window = Config.DEFAULT_TRANSCRIPT_MAX_AGE_MS
+        Config.setTranscriptMaxAgeMs(app, window)
+        val id = Transcript.begin(app, "a slow question", EntryState.WAITING)
+        val gate = CountDownLatch(1)
+        TurnRunner.launch(app, id, "message", send = { gate.await(30, TimeUnit.SECONDS); reply })
+        // Asked three minutes ago, past the two-minute window, and only answered now.
+        Transcript.ageForTest(app, id, 3 * 60_000L)
+        gate.countDown()
+        replies.countDown()
+        waitFor("the slow turn to be answered") {
+            Transcript.all(app).any { it.localId == id && it.state == EntryState.ANSWERED }
+        }
+        assertEquals("Sent.", Transcript.all(app).single { it.localId == id }.answer)
+
+        // Kept through the window counted from the answer, and gone after it as configured.
+        Transcript.ageForTest(app, id, window - 10_000L)
+        assertTrue("the answer was deleted inside its window", Transcript.all(app).any { it.localId == id })
+        Transcript.ageForTest(app, id, 20_000L)
+        assertTrue("retention past the window changed", Transcript.all(app).none { it.localId == id })
+    }
+
+    @Test
     fun `a reply held for a home screen that has not come back in minutes is not shown`() {
         TurnRunner.finish(app, TurnRunner.Outcome(0L, null, "the network failed", "message"))
         settle()
