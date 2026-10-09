@@ -3,6 +3,7 @@ package watch.rist.assistant
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -61,7 +62,12 @@ object TurnRunner {
 
     private val main = Handler(Looper.getMainLooper())
     private var host: Host? = null
-    private val undelivered = ArrayDeque<Outcome>()
+    /** How long a reply waits for a home screen before it is left to the feed alone. */
+    internal const val HELD_FOR_MS = 5 * 60_000L
+
+    private class Held(val outcome: Outcome, val at: Long)
+
+    private val undelivered = ArrayDeque<Held>()
 
     /**
      * Runs [send] off the main thread and finishes the turn for [entryId] with its reply. [after]
@@ -75,6 +81,7 @@ object TurnRunner {
         after: (Uploader, DeviceResponse?) -> Unit = { _, _ -> },
     ): Job {
         val app = ctx.applicationContext
+        Transcript.markLive(entryId)
         return scope.launch {
             val uploader = Uploader(app)
             val reply = try {
@@ -133,17 +140,25 @@ object TurnRunner {
             return
         }
         outcome.late = true
-        undelivered.addLast(outcome)
+        undelivered.addLast(Held(outcome, SystemClock.elapsedRealtime()))
         while (undelivered.size > MAX_UNDELIVERED) undelivered.removeFirst()
         Log.i(TAG, "${outcome.subject} reply kept for the home screen (${undelivered.size} waiting)")
     }
 
-    /** Main thread. [h] is shown every reply from now on, and first those that came while none was. */
+    /**
+     * Main thread. [h] is shown every reply from now on, and first those that came while none was
+     * and are still recent: an older one is only in the feed, so it cannot start its media, route
+     * or confirmation long after it was asked for.
+     */
     fun attach(h: Host) {
         host = h
         while (host === h && undelivered.isNotEmpty()) {
-            val o = undelivered.removeFirst()
-            runCatching { h.onTurnOutcome(o) }.onFailure { Log.w(TAG, "the home screen could not show a reply", it) }
+            val held = undelivered.removeFirst()
+            if (SystemClock.elapsedRealtime() - held.at > HELD_FOR_MS) {
+                Log.i(TAG, "${held.outcome.subject} reply waited too long for a home screen; left in the feed")
+                continue
+            }
+            runCatching { h.onTurnOutcome(held.outcome) }.onFailure { Log.w(TAG, "the home screen could not show a reply", it) }
         }
     }
 

@@ -87,13 +87,31 @@ object Transcript {
      */
     internal const val IN_FLIGHT_TIMEOUT_MS = (Uploader.TURN_READ_TIMEOUT_S + 20L) * 1000L
 
+    /**
+     * How long an entry whose turn this process is still running may wait. A recording, a
+     * location follow-up and a streamed answer each take their own time, so a live turn can pass
+     * [IN_FLIGHT_TIMEOUT_MS] and still be answered; the sweep is for turns that were lost.
+     */
+    internal const val LIVE_TIMEOUT_MS = 10 * 60_000L
+
+    /** Entries whose turn is running in this process. Not saved: a restart loses the turn too. */
+    private val live = HashSet<Long>()
+
+    /** The turn for [localId] is running; the sweep leaves it alone until it is closed. */
+    @Synchronized
+    fun markLive(localId: Long) {
+        if (localId != 0L) live.add(localId)
+    }
+
+    private fun timeoutOf(e: TranscriptEntry) = if (e.localId in live) LIVE_TIMEOUT_MS else IN_FLIGHT_TIMEOUT_MS
+
     @Synchronized
     fun nextStaleAtMs(ctx: Context): Long {
         ensureLoaded(ctx)
         return entries.filter {
             it.state == EntryState.RECORDING || it.state == EntryState.WAITING ||
                 it.state == EntryState.SENT
-        }.minOfOrNull { it.at + IN_FLIGHT_TIMEOUT_MS } ?: 0L
+        }.minOfOrNull { it.at + timeoutOf(it) } ?: 0L
     }
 
     private fun prune(ctx: Context): Boolean {
@@ -103,7 +121,7 @@ object Transcript {
         entries.forEach { e ->
             val inFlight = e.state == EntryState.RECORDING || e.state == EntryState.WAITING ||
                 e.state == EntryState.SENT
-            if (inFlight && now - e.at > IN_FLIGHT_TIMEOUT_MS) {
+            if (inFlight && now - e.at > timeoutOf(e)) {
                 e.state = EntryState.FAILED
                 if (e.error.isBlank()) e.error = "no answer"
                 changed = true
@@ -151,6 +169,7 @@ object Transcript {
         noteCards: List<NoteCard>? = null,
     ) {
         ensureLoaded(ctx)
+        if (state == EntryState.ANSWERED || state == EntryState.FAILED) live.remove(localId)
         val e = entries.firstOrNull { it.localId == localId } ?: return
         state?.let { e.state = it }
         checklists?.let { e.checklists = it }
@@ -167,6 +186,7 @@ object Transcript {
     @Synchronized
     fun discard(ctx: Context, localId: Long) {
         ensureLoaded(ctx)
+        live.remove(localId)
         if (entries.removeAll { it.localId == localId }) save(ctx)
     }
 
@@ -259,6 +279,7 @@ object Transcript {
     internal fun clearForTest(ctx: Context) {
         ensureLoaded(ctx)
         entries.clear()
+        live.clear()
         save(ctx)
     }
 
