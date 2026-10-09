@@ -16,6 +16,8 @@ import rist.v1.DeviceResponse
 import rist.v1.ImageInput
 import rist.v1.Confirmation
 import rist.v1.Location
+import rist.v1.NavCommand
+import rist.v1.NavReroute
 
 class Uploader(private val ctx: Context) {
 
@@ -283,6 +285,16 @@ class Uploader(private val ctx: Context) {
                 .setAuthToken(authToken)
                 .setCaps(caps)
                 .build()
+
+        /** The route a reroute continues, copied from the NavCommand being followed (schema v31). */
+        internal fun rerouteOf(nav: NavCommand): NavReroute =
+            NavReroute.newBuilder()
+                .setRouteId(nav.routeId)
+                .setDestLat(nav.destLat)
+                .setDestLon(nav.destLon)
+                .setLabel(nav.label)
+                .setMode(nav.mode)
+                .build()
     }
 
     // Blocking; call on IO.
@@ -368,14 +380,16 @@ class Uploader(private val ctx: Context) {
         text: String,
         targetToolId: String,
         fix: LocationProvider.Fix?,
-        routeId: String = "",
+        // The route being followed, set only on the phone's own off-corridor reroute. The backend
+        // routes to its destination and never geocodes the label, which carries no town.
+        reroute: NavCommand? = null,
         onLocationInterim: ((DeviceResponse) -> Unit)? = null
     ): DeviceResponse? {
         if (text.isBlank()) {
             Log.w(TAG, "sendNav: blank text, nothing to send")
             return null
         }
-        if (routeId.isNotBlank()) Log.d(TAG, "sendNav reroute: route_id=$routeId (echo pending backend field)")
+        if (reroute != null) Log.i(TAG, "sendNav reroute: route_id=${reroute.routeId}")
         var req = buildTextRequest(
             deviceId = Config.deviceId(ctx),
             sessionId = Config.sessionId(ctx),
@@ -386,6 +400,8 @@ class Uploader(private val ctx: Context) {
         ).toBuilder()
             .setTargetToolId(targetToolId)
             .apply { if (fix != null) setLocation(protoLocation(fix)) }
+            // The location_request re-send copies this request, so it carries the same reroute.
+            .apply { if (reroute != null) setReroute(rerouteOf(reroute)) }
             .build()
         return post(req, onLocationInterim = onLocationInterim)
     }
