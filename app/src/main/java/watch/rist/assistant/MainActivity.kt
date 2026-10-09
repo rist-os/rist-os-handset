@@ -381,34 +381,39 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         override fun onReceive(context: Context, intent: Intent) = updateNowPlaying(intent)
     }
 
-    private val replyReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            val text = intent.getStringExtra(RecordService.EXTRA_REPLY_TEXT).orEmpty()
-            keepAwake(awakeWindowFor(text))
-            val st = intent.getStringExtra(RecordService.EXTRA_REPLY_STATUS).orEmpty()
-            val proto = intent.getByteArrayExtra(RecordService.EXTRA_REPLY_PROTO)
-            val reply = proto?.let { runCatching { DeviceResponse.parseFrom(it) }.getOrNull() }
-            val userCancelled = reply == null && StreamingCancel.takeCancelledFlag()
-            recordLabel.text = getString(R.string.record_label)
-            setKnobRecording(false)
-            if (activeEntryId != 0L) runCatching {
-                val answered = reply != null || text.isNotBlank()
-                Transcript.update(
-                    this@MainActivity, activeEntryId,
-                    state = if (answered) EntryState.ANSWERED else EntryState.FAILED,
-                    answer = reply?.speech?.text?.takeIf { it.isNotBlank() } ?: text,
-                    requestId = reply?.requestId.orEmpty(),
-                    checklists = reply?.checklistsList,
-                    noteCards = reply?.noteCardsList,
-                    error = if (answered) "" else if (userCancelled) "cancelled" else st.ifBlank { "no reply" },
-                )
+    /**
+     * Every turn's reply comes here, from [TurnRunner], whether or not this screen was in front
+     * when it came: the entry is already closed and its device commands already run.
+     */
+    private val turnHost = TurnRunner.Host { o -> showTurnOutcome(o) }
+
+    internal fun showTurnOutcome(o: TurnRunner.Outcome) {
+        val reply = o.reply
+        if (o.voice) {
+            // An answer that names no entry is the last recording's, never the one under way now.
+            if (o.entryId == 0L && activeEntryId != 0L && !recordingNow) {
+                TurnRunner.closeEntry(this, activeEntryId, o)
+                activeEntryId = 0L
             }
-            activeEntryId = 0L
-            if (userCancelled) statusText.text = getString(R.string.status_idle)
-            else if (reply == null && text.isBlank()) showFailure(failureLine(st))
-            else status(if (text.isBlank()) st else "$st\n  “$text”")
+            if (o.entryId != 0L && o.entryId == activeEntryId) activeEntryId = 0L
+            val text = reply?.speech?.text.orEmpty()
+            keepAwake(awakeWindowFor(text))
+            if (!recordingNow) {
+                recordLabel.text = getString(R.string.record_label)
+                setKnobRecording(false)
+            }
+            if (o.cancelled) statusText.text = getString(R.string.status_idle)
+            else if (reply == null) showFailure(failureLine(o.failure))
+            else status(if (text.isBlank()) o.status else "${o.status}\n  “$text”")
             renderReply(reply, fallbackText = text)
+            return
         }
+        if (reply == null) {
+            if (o.cancelled) statusText.text = getString(R.string.status_idle)
+            else announceFailure(o.failure)
+        }
+        renderBoxes()
+        handleReply(reply, subject = o.subject, clear = true, speak = !o.late)
     }
 
     private val awakeHandler = Handler(Looper.getMainLooper())
@@ -617,6 +622,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         LocalBroadcastManager.getInstance(this)
             .registerReceiver(locationOffReceiver, IntentFilter(LocationSwitch.ACTION_LOCATION_OFF))
         refreshTalkEnabled()
+        TurnRunner.attach(turnHost)
     }
 
     // The account's location switch went off: navigation GPS stops at once, not on its next fix.
@@ -632,6 +638,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
     }
 
     override fun onDestroy() {
+        TurnRunner.detach(turnHost)
         runCatching { LocalBroadcastManager.getInstance(this).unregisterReceiver(locationOffReceiver) }
         mediaHandler.removeCallbacksAndMessages(null)
         staleHandler.removeCallbacksAndMessages(null)
@@ -658,7 +665,6 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         }
         val lbm = LocalBroadcastManager.getInstance(this)
         lbm.registerReceiver(pushReceiver, IntentFilter(PushService.ACTION_PUSH_MESSAGE))
-        lbm.registerReceiver(replyReceiver, IntentFilter(RecordService.ACTION_ASSISTANT_REPLY))
         lbm.registerReceiver(mediaStatusReceiver, IntentFilter(PlaybackService.ACTION_MEDIA_STATUS))
         lbm.registerReceiver(nowPlayingReceiver, IntentFilter(PlaybackService.ACTION_NOW_PLAYING))
         lbm.registerReceiver(notifCountsReceiver, IntentFilter(NotificationHub.ACTION_COUNTS_CHANGED))
@@ -942,7 +948,6 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         lbm.unregisterReceiver(captureDiscardedReceiver)
         lbm.unregisterReceiver(notifCountsReceiver)
         lbm.unregisterReceiver(pushReceiver)
-        lbm.unregisterReceiver(replyReceiver)
         runCatching { unregisterReceiver(timeTickReceiver) }
         lbm.unregisterReceiver(mediaStatusReceiver)
         lbm.unregisterReceiver(nowPlayingReceiver)
@@ -1015,7 +1020,12 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
             permissionLauncher.launch(startupPermissions); return
         }
+        // Opened before the recorder starts, so a recording it stops itself at the time cap knows
+        // which entry its answer closes.
+        activeEntryId = runCatching { Transcript.begin(this, "(voice)", EntryState.RECORDING) }.getOrDefault(0L)
+        Transcript.markLive(activeEntryId)
         val svc = Intent(this, RecordService::class.java).setAction(RecordService.ACTION_START)
+            .putExtra(RecordService.EXTRA_ENTRY_ID, activeEntryId)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(svc)
         else startService(svc)
         recordLabel.text = getString(R.string.recording_label)
@@ -1025,10 +1035,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
             visibility = View.VISIBLE
             setOnClickListener { cancelRecord() }
         }
-        window.decorView.post {
-            activeEntryId = runCatching { Transcript.begin(this, "(voice)", EntryState.RECORDING) }.getOrDefault(0L)
-            renderTranscript()
-        }
+        window.decorView.post { renderTranscript() }
     }
 
     private val cmdTicker = object : Runnable {
@@ -1317,6 +1324,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
     private fun stopRecord() {
         accessibilityRecording = false
         val svc = Intent(this, RecordService::class.java).setAction(RecordService.ACTION_STOP)
+            .putExtra(RecordService.EXTRA_ENTRY_ID, activeEntryId)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(svc)
         else startService(svc)
         // INVISIBLE, not GONE: keeps the height so the ring does not shift.
@@ -1739,23 +1747,9 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                 status("could not read the photo")
                 return@launch
             }
-            val uploader = Uploader(applicationContext)
-            val reply = withContext(Dispatchers.IO) {
+            TurnRunner.launch(applicationContext, entryId, "photo", send = { uploader ->
                 uploader.sendPhotos(photos, caption, onLocationInterim = { resp -> speakInterim(resp) })
-            }
-            if (reply == null) announceFailure(uploader.lastFailure)
-            if (entryId != 0L) runCatching {
-                Transcript.update(
-                    this@MainActivity, entryId,
-                    state = if (reply != null) EntryState.ANSWERED else EntryState.FAILED,
-                    answer = reply?.speech?.text.orEmpty(),
-                    requestId = reply?.requestId.orEmpty(),
-                    checklists = reply?.checklistsList,
-                    noteCards = reply?.noteCardsList,
-                    error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
-                )
-            }
-            handleReply(reply, subject = "photo", clear = true)
+            })
         }
     }
 
@@ -1781,7 +1775,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         }
     }
 
-    internal fun handleReply(reply: DeviceResponse?, subject: String, clear: Boolean) {
+    internal fun handleReply(reply: DeviceResponse?, subject: String, clear: Boolean, speak: Boolean = true) {
         if (reply == null) { status("$subject not sent / no reply (transport error)"); return }
 
         val speech = reply.speech
@@ -1792,7 +1786,8 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         val voiceOn = Config.isReplyVoiceEnabled(this)
         Log.i("RistReply", "speech: audio=${audio?.size() ?: 0}B codec='${speech?.audioCodec.orEmpty()}' " +
             "text=${text.length}c voiceOn=$voiceOn")
-        if (voiceOn && hasAudio) Playback.play(applicationContext, audio!!.toByteArray(), speech.audioCodec)
+        // A reply that waited for this screen is shown, not said long after it was asked for.
+        if (speak && voiceOn && hasAudio) Playback.play(applicationContext, audio!!.toByteArray(), speech.audioCodec)
 
         awaitingUserReply = reply.expectsReply
         renderAwaitingReply()
@@ -1826,26 +1821,9 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         status(getString(R.string.text_sending))
         val entryId = runCatching { Transcript.begin(this, text, EntryState.WAITING) }.getOrDefault(0L)
         renderTranscript()
-        uiScope.launch {
-            val uploader = Uploader(applicationContext)
-            val reply = withContext(Dispatchers.IO) {
-                uploader.sendText(text, onLocationInterim = { resp -> speakInterim(resp) })
-            }
-            if (reply == null) announceFailure(uploader.lastFailure)
-            if (entryId != 0L) runCatching {
-                val answer = reply?.speech?.text.orEmpty()
-                Transcript.update(
-                    this@MainActivity, entryId,
-                    state = if (reply != null) EntryState.ANSWERED else EntryState.FAILED,
-                    answer = answer,
-                    requestId = reply?.requestId.orEmpty(),
-                    checklists = reply?.checklistsList,
-                    noteCards = reply?.noteCardsList,
-                    error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
-                )
-            }
-            handleReply(reply, subject = "message", clear = true)
-        }
+        TurnRunner.launch(applicationContext, entryId, "message", send = { uploader ->
+            uploader.sendText(text, onLocationInterim = { resp -> speakInterim(resp) })
+        })
     }
 
     // ---- home boxes ----
@@ -1934,40 +1912,25 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         val creating = HomeBoxes.addWords(turn)?.let { BoxCreate.start(this, it) }
         renderTranscript()
         renderBoxes()
-        uiScope.launch {
-            val uploader = Uploader(applicationContext)
-            val reply = try {
-                withContext(Dispatchers.IO) {
-                    if (turn.targetToolId.isBlank()) {
-                        uploader.sendText(turn.text, onLocationInterim = { resp -> speakInterim(resp) }, boxId = turn.boxId)
-                    } else {
-                        uploader.sendToolCall(turn.targetToolId, turn.text, boxId = turn.boxId)
-                    }
+        val app = applicationContext
+        // The same reply handling as a typed or spoken turn: a tile tap is the user's words.
+        TurnRunner.launch(app, entryId, "message", send = { uploader ->
+            try {
+                if (turn.targetToolId.isBlank()) {
+                    uploader.sendText(turn.text, onLocationInterim = { resp -> speakInterim(resp) }, boxId = turn.boxId)
+                } else {
+                    uploader.sendToolCall(turn.targetToolId, turn.text, boxId = turn.boxId)
                 }
             } finally {
                 if (fromCommand) HomeBoxes.endSend(turn.boxId)
             }
+        }, after = { uploader, reply ->
             if (creating != null) BoxCreate.turnEnded(
-                applicationContext, creating, replied = reply != null,
+                app, creating, replied = reply != null,
                 carriedBoxes = reply?.hasBoxes() == true, expectsReply = reply?.expectsReply == true,
                 mayHaveHappened = uploader.lastFailure == Uploader.MAY_HAVE_HAPPENED,
             )
-            if (reply == null) announceFailure(uploader.lastFailure)
-            if (entryId != 0L) runCatching {
-                Transcript.update(
-                    this@MainActivity, entryId,
-                    state = if (reply != null) EntryState.ANSWERED else EntryState.FAILED,
-                    answer = reply?.speech?.text.orEmpty(),
-                    requestId = reply?.requestId.orEmpty(),
-                    checklists = reply?.checklistsList,
-                    noteCards = reply?.noteCardsList,
-                    error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
-                )
-            }
-            renderBoxes()
-            // The same reply handling as a typed or spoken turn: a tile tap is the user's words.
-            handleReply(reply, subject = "message", clear = true)
-        }
+        })
     }
 
     private fun hideKeyboard() {
@@ -2074,63 +2037,20 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
     private fun sendActionText(text: String) {
         val entryId = runCatching { Transcript.begin(this, text, EntryState.WAITING) }.getOrDefault(0L)
         renderTranscript()
-        uiScope.launch {
-            val uploader = Uploader(applicationContext)
-            val reply = withContext(Dispatchers.IO) { uploader.sendText(text) }
-            if (reply == null) announceFailure(uploader.lastFailure)
-            if (entryId != 0L) runCatching {
-                Transcript.update(
-                    this@MainActivity, entryId,
-                    state = if (reply != null) EntryState.ANSWERED else EntryState.FAILED,
-                    answer = reply?.speech?.text.orEmpty(),
-                    requestId = reply?.requestId.orEmpty(),
-                    checklists = reply?.checklistsList,
-                    noteCards = reply?.noteCardsList,
-                    error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
-                )
-            }
-            handleReply(reply, subject = "action", clear = true)
-        }
+        TurnRunner.launch(applicationContext, entryId, "action", send = { it.sendText(text) })
     }
 
     private fun sendActionConfirm(actionId: String) {
         VideoCalls.releaseDeferred(applicationContext)
         val entryId = runCatching { Transcript.begin(this, "(confirmed)", EntryState.WAITING) }.getOrDefault(0L)
         renderTranscript()
-        uiScope.launch {
-            val uploader = Uploader(applicationContext)
-            val reply = withContext(Dispatchers.IO) { uploader.sendConfirmation(actionId, true) }
-            if (reply == null) announceFailure(uploader.lastFailure)
-            finishActionEntry(entryId, reply, uploader.lastFailure)
-            handleReply(reply, subject = "confirmation", clear = true)
-        }
+        TurnRunner.launch(applicationContext, entryId, "confirmation", send = { it.sendConfirmation(actionId, true) })
     }
 
     private fun sendActionToolCall(toolId: String, text: String) {
         val entryId = runCatching { Transcript.begin(this, text.ifBlank { toolId }, EntryState.WAITING) }.getOrDefault(0L)
         renderTranscript()
-        uiScope.launch {
-            val uploader = Uploader(applicationContext)
-            val reply = withContext(Dispatchers.IO) { uploader.sendToolCall(toolId, text) }
-            if (reply == null) announceFailure(uploader.lastFailure)
-            finishActionEntry(entryId, reply, uploader.lastFailure)
-            handleReply(reply, subject = "action", clear = true)
-        }
-    }
-
-    private fun finishActionEntry(entryId: Long, reply: DeviceResponse?, failure: String) {
-        if (entryId == 0L) return
-        runCatching {
-            Transcript.update(
-                this, entryId,
-                state = if (reply != null) EntryState.ANSWERED else EntryState.FAILED,
-                answer = reply?.speech?.text.orEmpty(),
-                requestId = reply?.requestId.orEmpty(),
-                checklists = reply?.checklistsList,
-                noteCards = reply?.noteCardsList,
-                error = if (reply != null) "" else failure.ifBlank { "no reply" },
-            )
-        }
+        TurnRunner.launch(applicationContext, entryId, "action", send = { it.sendToolCall(toolId, text) })
     }
 
     // The status line is hidden on this layout, so a failure is also put where it can be seen.
@@ -2225,23 +2145,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
             Transcript.begin(this, if (approved) "(confirmed)" else "(declined)", EntryState.WAITING)
         }.getOrDefault(0L)
         renderTranscript()
-        uiScope.launch {
-            val uploader = Uploader(applicationContext)
-            val reply = withContext(Dispatchers.IO) { uploader.sendConfirmation(actionId, approved) }
-            if (entryId != 0L) runCatching {
-                Transcript.update(
-                    this@MainActivity, entryId,
-                    state = if (reply != null) EntryState.ANSWERED else EntryState.FAILED,
-                    answer = reply?.speech?.text.orEmpty(),
-                    requestId = reply?.requestId.orEmpty(),
-                    checklists = reply?.checklistsList,
-                    noteCards = reply?.noteCardsList,
-                    error = if (reply != null) "" else uploader.lastFailure.ifBlank { "no reply" },
-                )
-            }
-            if (reply == null) announceFailure(uploader.lastFailure)
-            handleReply(reply, subject = "confirmation", clear = true)
-        }
+        TurnRunner.launch(applicationContext, entryId, "confirmation", send = { it.sendConfirmation(actionId, approved) })
     }
 
     private val staleHandler = Handler(Looper.getMainLooper())
