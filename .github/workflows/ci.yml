@@ -144,5 +144,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: test-reports
-          path: app/build/reports/tests/
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
           retention-days: 7
