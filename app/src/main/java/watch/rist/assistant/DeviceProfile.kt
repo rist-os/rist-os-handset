@@ -14,9 +14,9 @@ object DeviceProfile {
 
     private val INPUT = listOf("button", "voice", "touch")
 
-    private val COMPONENTS = listOf(
-        "card", "stack", "text", "stat", "list", "image", "chart", "button", "divider"
-    )
+    // The ViewSpec kinds ViewRenderer draws. "stat", "list", "chart", "button" and "divider" are not
+    // listed: nothing here draws them (tiles draw their own blocks, declared below).
+    private val COMPONENTS = listOf("card", "stack", "text", "image")
 
     internal fun maxImageBytes(): Int = MAX_IMAGE_BYTES
 
@@ -39,6 +39,8 @@ object DeviceProfile {
         checklists: Boolean = Checklists.declared(),
         noteEdit: Boolean = NoteEdits.declared(),
         textsOnRequest: Boolean = false,
+        tileBlocks: Boolean = TileBlocks.declared(),
+        itemEdit: Boolean = ItemEdits.declared(),
     ): Capabilities =
         Capabilities.newBuilder()
             // v18 carries every field this build reads; the video_call component alone decides
@@ -62,6 +64,10 @@ object DeviceProfile {
             .apply { if (checklists) addComponents(Checklists.COMPONENT) }
             // Whether this phone edits notes in place; without it notes are only spoken.
             .apply { if (noteEdit) addComponents(NoteEdits.COMPONENT) }
+            // Whether this phone draws a tile's typed blocks and coloured icon roles, and whether
+            // it can send edits, adds and deletes from them. Both ride on the box list.
+            .apply { if (homeBoxes && tileBlocks) addComponents(TileBlocks.COMPONENT) }
+            .apply { if (homeBoxes && tileBlocks && itemEdit) addComponents(ItemEdits.COMPONENT) }
             // Whether this phone answers inbound_sms_request: the owner's switch, and the permission.
             .apply { if (textsOnRequest) addComponents(TextsOnRequest.COMPONENT) }
             .setMaxImageBytes(MAX_IMAGE_BYTES)

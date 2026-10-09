@@ -69,6 +69,8 @@ object Config {
     private const val KEY_ITEM_CHECK_QUEUE = "item_check_queue"
     private const val KEY_CHECKLIST_BOXES_SEEN = "checklist_boxes_seen"
     private const val KEY_NOTE_EDIT_QUEUE = "note_edit_queue"
+    private const val KEY_ITEM_EDIT_QUEUE = "item_edit_queue"
+    private const val KEY_TILE_BLOCK_BOXES_SEEN = "tile_block_boxes_seen"
     private const val KEY_CONTACTS_SYNC_OFF = "contacts_sync_off"
     private const val KEY_CONTACTS_REFUSED = "contacts_refused"
     private const val KEY_CONTACTS_CURSOR = "contacts_cursor"
@@ -403,6 +405,14 @@ object Config {
     /** Whether a box list has arrived since this phone first declared checklists. */
     fun checklistBoxesSeen(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_CHECKLIST_BOXES_SEEN, false)
     fun setChecklistBoxesSeen(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_CHECKLIST_BOXES_SEEN, v).apply() }
+
+    /** Tile edits, adds and deletes not yet answered by the backend, as a JSON array. */
+    fun itemEditQueue(ctx: Context): String = prefs(ctx).getString(KEY_ITEM_EDIT_QUEUE, "") ?: ""
+    fun setItemEditQueue(ctx: Context, json: String) { prefs(ctx).edit().putString(KEY_ITEM_EDIT_QUEUE, json).apply() }
+
+    /** Whether a box list has arrived since this phone first declared tile blocks. */
+    fun tileBlockBoxesSeen(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_TILE_BLOCK_BOXES_SEEN, false)
+    fun setTileBlockBoxesSeen(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_TILE_BLOCK_BOXES_SEEN, v).apply() }
 
     fun contactsSyncOff(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_CONTACTS_SYNC_OFF, false)
     fun setContactsSyncOff(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(KEY_CONTACTS_SYNC_OFF, v).apply() }

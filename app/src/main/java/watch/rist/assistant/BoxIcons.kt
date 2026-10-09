@@ -140,6 +140,13 @@ object BoxIcons {
         Source.None -> null
     }
 
+    /** A named icon in [colour], or null when this phone does not have the name. */
+    fun named(ctx: Context, name: String, colour: Int): Drawable? {
+        val cp = codepoint(ctx, name) ?: return null
+        val tf = typeface(ctx) ?: return null
+        return GlyphDrawable(String(Character.toChars(cp)), tf, colour)
+    }
+
     internal fun clearForTest() = masks.evictAll()
 
     /** One glyph of the icon font, filling its bounds. */

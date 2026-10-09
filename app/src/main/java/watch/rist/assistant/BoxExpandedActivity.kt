@@ -52,6 +52,9 @@ class BoxExpandedActivity : AppCompatActivity() {
 
     /** Rows ticked while this view is open, by item id: they stay on screen until it closes. */
     private val kept = HashMap<String, ChecklistView.Kept>()
+
+    /** The tile's blocks, when it sent them; it keeps an open editor and ticked rows across redraws. */
+    private val tileView by lazy { TileBlockView(this, rt, tf).apply { onChange { fill() } } }
     private lateinit var refreshButton: FrameLayout
     private lateinit var refreshIcon: ImageView
     private lateinit var refreshStatus: TextView
@@ -201,6 +204,10 @@ class BoxExpandedActivity : AppCompatActivity() {
         }
         root.addView(ScrollView(this).apply { addView(content) },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        // Back closes an open row editor without saving; otherwise it closes the tile.
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() { if (tileView.closeEditor()) fill() else finish() }
+        })
         fill()
     }
 
@@ -208,12 +215,15 @@ class BoxExpandedActivity : AppCompatActivity() {
         super.onStart()
         LocalBroadcastManager.getInstance(this).registerReceiver(changed, android.content.IntentFilter(HomeBoxes.ACTION_CHANGED))
         LocalBroadcastManager.getInstance(this).registerReceiver(designChanged, android.content.IntentFilter(DesignSync.ACTION_CHANGED))
+        LocalBroadcastManager.getInstance(this).registerReceiver(changed, android.content.IntentFilter(ItemEdits.ACTION_CHANGED))
+        ItemEdits.watch()
         BoxRefresh.watch(ended)
         fill()
     }
 
     override fun onStop() {
         BoxRefresh.unwatch(ended)
+        ItemEdits.unwatch()
         LocalBroadcastManager.getInstance(this).unregisterReceiver(changed)
         LocalBroadcastManager.getInstance(this).unregisterReceiver(designChanged)
         super.onStop()
@@ -285,7 +295,7 @@ class BoxExpandedActivity : AppCompatActivity() {
         val b = HomeBoxes.find(this, boxId)
         if (b == null) { finish(); return }
         titleView.text = b.title
-        val icon = BoxIcons.drawable(this, b, rt.ink)
+        val icon = BoxIcons.drawable(this, b, TileTones.face(rt, b, rt.ground))
         iconView.setImageDrawable(icon)
         iconView.visibility = if (icon != null) View.VISIBLE else View.GONE
         val nowS = System.currentTimeMillis() / 1000
@@ -298,6 +308,16 @@ class BoxExpandedActivity : AppCompatActivity() {
         }
         // A box that sent no full text shows what it has: the glance value and its line.
         val body = b.body.ifBlank { listOf(face.value, face.detail).filter { it.isNotBlank() }.joinToString("\n\n") }
+        // Blocks first, then checklists, then the markdown body.
+        val blocks = TileBlocks.toDraw(b)
+        if (blocks.isNotEmpty()) {
+            bodyView.visibility = View.GONE
+            listsView.visibility = View.VISIBLE
+            tileView.draw(listsView, blocks)
+            BoxRefresh.observe(HomeBoxes.boxes(this))
+            drawRefresh()
+            return
+        }
         val lists = if (Checklists.declared()) b.checklistsList else emptyList()
         bodyView.visibility = if (lists.isEmpty()) View.VISIBLE else View.GONE
         listsView.visibility = if (lists.isEmpty()) View.GONE else View.VISIBLE

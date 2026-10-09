@@ -736,6 +736,55 @@ message HomeBox {
   // section and this holds EVERY section of the tile, in order, for the expanded view. Sent only
   // to a phone that lists "checklist_v1".
   repeated Checklist checklists = 16;
+  // v30 (tile blocks): every section of the expanded view as typed blocks, in order. Non-empty:
+  // draw these instead of checklists and body (both still sent). Sent only to a phone that lists
+  // "tile_blocks_v1".
+  repeated TileBlock blocks = 17;
+  // v30: the colour role of the face icon ("warm", "cool", "cold", "neutral", "storm", "night",
+  // "alert", "good", "bad", "accent"); "" or unknown = the theme's text colour. Never a colour.
+  string icon_tone = 18;
+}
+
+// v30: one section of a tile's expanded view. Plain text in every slot except fallback_markdown.
+message TileBlock {
+  // "text" | "list" | "checklist" | "forecast" | "stat" | "table" | "progress"; anything else is
+  // drawn as fallback_markdown. A "text" block's content is its fallback_markdown.
+  string kind              = 1;
+  string title             = 2;
+  string fallback_markdown = 3;
+  repeated TileRow rows    = 4;
+  // "todo" | "shopping" | "notes": show an add row that adds there. "" = none.
+  string add_to            = 5;
+  // Table only: the header cells.
+  repeated string columns  = 6;
+  // Shown when rows is empty.
+  string empty             = 7;
+}
+
+// v30: one row of a block. Which slots each kind draws is in home_boxes.md section 10.2.
+message TileRow {
+  // The record's id when the row has an action; "" otherwise. Opaque.
+  string id         = 1;
+  // A Material Symbols name; one this phone does not have draws no icon.
+  string icon       = 2;
+  // What the icon means, for TalkBack; "" = decorative.
+  string icon_desc  = 3;
+  string icon_tone  = 4;
+  string label      = 5;
+  string text       = 6;
+  string detail     = 7;
+  string extra      = 8;
+  repeated string cells = 9;
+  double value      = 10;
+  double max        = 11;
+  // What id names: "item" | "note" | "event".
+  string target     = 12;
+  bool   checkable  = 13;
+  bool   checked    = 14;
+  bool   editable   = 15;
+  bool   deletable  = 16;
+  // The stored text the editor starts from; sent back as ItemEdit.base_text.
+  string edit_text  = 17;
 }
 
 // Proposed (home boxes): the whole list, in display order, every time it is sent.
@@ -832,6 +881,57 @@ message ItemCheck {
 // The body of POST /v1/device/items, at most 50 checks. The phone reads only the HTTP status.
 message ItemCheckBatch {
   repeated ItemCheck checks = 1;
+}
+
+// v30: the whole new text of a tile row, sent when the user ticks the edit.
+message ItemEdit {
+  // Minted on the phone; echoed in ItemOutcome.op_id.
+  string edit_id     = 1;
+  string target      = 2;
+  string item_id     = 3;
+  string base_text   = 4;
+  // Never empty: deleting is ItemDelete.
+  string text        = 5;
+  uint64 at_epoch_ms = 6;
+}
+
+// v30: one new item or note from a block's add row.
+message ItemAdd {
+  string add_id      = 1;
+  // TileBlock.add_to.
+  string add_to      = 2;
+  string text        = 3;
+  uint64 at_epoch_ms = 4;
+}
+
+// v30: a row deleted from a tile, sent once its undo window has passed.
+message ItemDelete {
+  string delete_id   = 1;
+  string target      = 2;
+  string item_id     = 3;
+  uint64 at_epoch_ms = 4;
+}
+
+// v30: the body of POST /v1/device/items/edit, at most 20 ops in all.
+message ItemEditBatch {
+  repeated ItemEdit   edits   = 1;
+  repeated ItemAdd    adds    = 2;
+  repeated ItemDelete deletes = 3;
+}
+
+// v30: what happened to one op. outcome is "saved", "unchanged", "copied", "stale", "deleted",
+// "gone", "refused" or "failed"; note is the backend's own sentence for the user, shown verbatim.
+message ItemOutcome {
+  string op_id   = 1;
+  string outcome = 2;
+  // Where the text now lives (a new id for an add or a copy); "" if none.
+  string item_id = 3;
+  string text    = 4;
+  string note    = 5;
+}
+
+message ItemEditReply {
+  repeated ItemOutcome outcomes = 1;
 }
 
 // v25 (notes edited in place): one note on screen. `text` is the body, verbatim, plain text.
