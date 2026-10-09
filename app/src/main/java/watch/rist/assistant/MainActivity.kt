@@ -390,9 +390,12 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
     internal fun showTurnOutcome(o: TurnRunner.Outcome) {
         val reply = o.reply
         if (o.voice) {
-            // A recording that stopped itself at the time cap was never told its entry.
-            if (o.entryId == 0L && activeEntryId != 0L) TurnRunner.closeEntry(this, activeEntryId, o)
-            if (o.entryId == 0L || o.entryId == activeEntryId) activeEntryId = 0L
+            // An answer that names no entry is the last recording's, never the one under way now.
+            if (o.entryId == 0L && activeEntryId != 0L && !recordingNow) {
+                TurnRunner.closeEntry(this, activeEntryId, o)
+                activeEntryId = 0L
+            }
+            if (o.entryId != 0L && o.entryId == activeEntryId) activeEntryId = 0L
             val text = reply?.speech?.text.orEmpty()
             keepAwake(awakeWindowFor(text))
             if (!recordingNow) {
@@ -1017,7 +1020,12 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
             permissionLauncher.launch(startupPermissions); return
         }
+        // Opened before the recorder starts, so a recording it stops itself at the time cap knows
+        // which entry its answer closes.
+        activeEntryId = runCatching { Transcript.begin(this, "(voice)", EntryState.RECORDING) }.getOrDefault(0L)
+        Transcript.markLive(activeEntryId)
         val svc = Intent(this, RecordService::class.java).setAction(RecordService.ACTION_START)
+            .putExtra(RecordService.EXTRA_ENTRY_ID, activeEntryId)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(svc)
         else startService(svc)
         recordLabel.text = getString(R.string.recording_label)
@@ -1027,10 +1035,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
             visibility = View.VISIBLE
             setOnClickListener { cancelRecord() }
         }
-        window.decorView.post {
-            activeEntryId = runCatching { Transcript.begin(this, "(voice)", EntryState.RECORDING) }.getOrDefault(0L)
-            renderTranscript()
-        }
+        window.decorView.post { renderTranscript() }
     }
 
     private val cmdTicker = object : Runnable {

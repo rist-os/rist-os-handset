@@ -31,7 +31,7 @@ class RecordService : Service() {
         const val ACTION_STOP = "watch.rist.assistant.RECORD_STOP"
         const val ACTION_CANCEL = "watch.rist.assistant.RECORD_CANCEL"
 
-        /** On [ACTION_STOP]: the transcript entry this recording answers. */
+        /** On [ACTION_START] and [ACTION_STOP]: the transcript entry this recording answers. */
         const val EXTRA_ENTRY_ID = "entry_id"
         const val ACTION_CAPTURE_WARNING = "watch.rist.assistant.action.CAPTURE_WARNING"
         const val EXTRA_SECS_LEFT = "secs_left"
@@ -82,9 +82,12 @@ class RecordService : Service() {
         // Every start arrives via startForegroundService(); startForeground() must run on every path.
         startForegroundCompat()
         when (intent?.action) {
-            ACTION_START -> startRecording()
+            ACTION_START -> {
+                if (!recording) entryId = intent.getLongExtra(EXTRA_ENTRY_ID, 0L)
+                startRecording()
+            }
             ACTION_STOP -> {
-                entryId = intent.getLongExtra(EXTRA_ENTRY_ID, 0L)
+                if (recording) intent.getLongExtra(EXTRA_ENTRY_ID, 0L).takeIf { it != 0L }?.let { entryId = it }
                 stopRecording()
             }
             ACTION_CANCEL -> cancelRecording()
