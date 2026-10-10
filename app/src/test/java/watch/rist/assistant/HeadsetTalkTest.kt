@@ -117,18 +117,72 @@ class HeadsetTalkTest {
         assertEquals(RecordService.ACTION_STOP, svc!!.action)
     }
 
-    @Test
-    fun `speech then quiet ends listening, and silence gives up`() {
-        val ep = Endpointer(speechFloor = 250, quietAfterSpeechMs = 1_200, nothingSaidMs = 6_000)
-        assertEquals(Endpointer.Verdict.LISTEN, ep.feed(900, 500))
-        assertEquals(Endpointer.Verdict.LISTEN, ep.feed(900, 600))
-        assertEquals(Endpointer.Verdict.LISTEN, ep.feed(30, 1_500))
-        assertEquals(Endpointer.Verdict.SPOKEN, ep.feed(30, 1_800))
+    private class Listening(
+        val controller: org.robolectric.android.controller.ServiceController<RecordService>,
+        val link: FakeLink,
+        val discards: IntArray,
+    )
 
-        val quiet = Endpointer(speechFloor = 250, nothingSaidMs = 6_000)
-        assertEquals(Endpointer.Verdict.LISTEN, quiet.feed(2_000, 100))
-        assertEquals("one bump is not speech", Endpointer.Verdict.LISTEN, quiet.feed(10, 3_000))
-        assertEquals(Endpointer.Verdict.NOTHING_SAID, quiet.feed(10, 6_000))
+    /** A headset turn with its microphone open, counting recordings thrown away unsent. */
+    private fun listening(): Listening {
+        val link = FakeLink()
+        HeadsetTalk.linkFactory = { link }
+        val discards = intArrayOf(0)
+        androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(app).registerReceiver(
+            object : android.content.BroadcastReceiver() {
+                override fun onReceive(c: android.content.Context, i: Intent) { discards[0]++ }
+            },
+            android.content.IntentFilter(RecordService.ACTION_CAPTURE_DISCARDED),
+        )
+        val controller = Robolectric.buildService(RecordService::class.java).create()
+        controller.withIntent(
+            Intent(app, RecordService::class.java).setAction(RecordService.ACTION_START)
+                .putExtra(RecordService.EXTRA_HEADSET, true)
+        ).startCommand(0, 1)
+        link.ready!!(null)
+        ShadowLooper.idleMainLooper(2_000, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertTrue("listening once the microphone is open", HeadsetTalk.listening)
+        return Listening(controller, link, discards)
+    }
+
+    @Test
+    fun `silence never ends a headset turn`() {
+        val t = listening()
+        ShadowLooper.idleMainLooper(RecordService.MAX_CAPTURE_MS - 5_000, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertTrue("no stop when speech ends, and no give-up when none comes", HeadsetTalk.listening)
+        assertEquals(0, t.link.closed)
+        assertEquals(0, t.discards[0])
+    }
+
+    @Test
+    fun `a headset turn stops at the on-screen button's cap and sends`() {
+        val t = listening()
+        ShadowLooper.idleMainLooper(RecordService.MAX_CAPTURE_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertFalse(HeadsetTalk.listening)
+        assertEquals("the headset's microphone is given back", 1, t.link.closed)
+        assertEquals("sent, as the on-screen button does at its cap", 0, t.discards[0])
+    }
+
+    @Test
+    fun `a press that closes the headset's voice session sends`() {
+        val t = listening()
+        t.link.dropped!!()
+        ShadowLooper.idleMainLooper()
+        assertFalse(HeadsetTalk.listening)
+        assertEquals(1, t.link.closed)
+        assertEquals("a press sends; it does not cancel", 0, t.discards[0])
+    }
+
+    @Test
+    fun `a press that arrives as a new voice request sends`() {
+        val t = listening()
+        val stop = launch(Intent.ACTION_VOICE_COMMAND, uid = 1002)!!
+        assertEquals(RecordService.ACTION_STOP, stop.action)
+        t.controller.withIntent(stop).startCommand(0, 2)
+        ShadowLooper.idleMainLooper()
+        assertFalse(HeadsetTalk.listening)
+        assertEquals(1, t.link.closed)
+        assertEquals("a press sends; it does not cancel", 0, t.discards[0])
     }
 
     @Test
@@ -213,7 +267,7 @@ class HeadsetTalkTest {
     }
 
     @Test
-    fun `a turn listens on the headset, and a second press gives everything back`() {
+    fun `a press too soon after the cue is dropped like a too-short hold, and media plays on`() {
         val link = FakeLink()
         HeadsetTalk.linkFactory = { link }
         val controller = Robolectric.buildService(RecordService::class.java).create()
@@ -228,14 +282,11 @@ class HeadsetTalkTest {
 
         link.ready!!(null)
         ShadowLooper.idleMainLooper(150, java.util.concurrent.TimeUnit.MILLISECONDS)
-        assertTrue("still listening once the microphone is open", HeadsetTalk.listening)
-
         link.dropped!!()
         ShadowLooper.idleMainLooper()
         assertFalse(HeadsetTalk.listening)
         assertEquals("the headset's microphone and routing are given back", 1, link.closed)
-        assertSame("too short to send, so media plays on at once",
-            focus!!.audioFocusRequest, shadowOf(am).lastAbandonedAudioFocusRequest)
+        assertSame(focus!!.audioFocusRequest, shadowOf(am).lastAbandonedAudioFocusRequest)
     }
 
     @Test

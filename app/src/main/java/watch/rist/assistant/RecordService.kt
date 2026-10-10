@@ -53,7 +53,7 @@ class RecordService : Service() {
         // Opus encode bitrate, bps.
         private const val OPUS_BITRATE = 32_000
         // Hard capture ceiling; the backend rejects longer audio with 413.
-        private const val MAX_CAPTURE_MS = 60_000L
+        internal const val MAX_CAPTURE_MS = 60_000L
         private const val CAPTURE_WARN_MS = 10_000L
         private const val MIN_CAPTURE_MS = 300L
         // MediaRecorder amplitude scale (0..32767).
@@ -79,7 +79,6 @@ class RecordService : Service() {
     private val capHandler = android.os.Handler(android.os.Looper.getMainLooper())
     /** The headset turn listening now, if this recording is one. */
     private var headsetTurn: HeadsetTurn? = null
-    private var endpointer: Endpointer? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -107,8 +106,9 @@ class RecordService : Service() {
     }
 
     /**
-     * Hands-free: the headset's microphone opens, the listening cue plays, and the recording ends
-     * itself when speech does, or on the next press. Media is paused until the reply is spoken.
+     * Hands-free: the headset's microphone opens, the listening cue plays, and the next press
+     * sends, as letting go of the on-screen button does; so does the same time cap. Silence never
+     * ends it. Media is paused until the reply is spoken.
      */
     private fun startHeadsetTurn() {
         if (recording || headsetTurn != null) return
@@ -119,7 +119,6 @@ class RecordService : Service() {
             onReady = { input ->
                 if (headsetTurn === turn) turn.cue(input) {
                     if (headsetTurn !== turn || recording) return@cue
-                    endpointer = Endpointer(SPEECH_RMS_MIN)
                     startRecordingOpus(input)
                 }
             },
@@ -131,7 +130,6 @@ class RecordService : Service() {
     private fun endHeadsetTurn() {
         val turn = headsetTurn ?: return
         headsetTurn = null
-        endpointer = null
         HeadsetTalk.listening = false
         turn.end()
     }
@@ -248,20 +246,9 @@ class RecordService : Service() {
 
     private fun pollAmplitude() {
         if (!recording) return
-        val amp = runCatching { mediaRecorder?.maxAmplitude }.getOrNull()
-        if (amp != null) {
+        runCatching { mediaRecorder?.maxAmplitude }.getOrNull()?.let { amp ->
             if (amp > peakAmplitude) peakAmplitude = amp
             if (amp > 0) { ampSumSq += amp.toDouble() * amp; ampSamples++ }
-        }
-        endpointer?.let { ep ->
-            when (ep.feed(amp ?: 0, SystemClock.elapsedRealtime() - captureStartedAtMs)) {
-                Endpointer.Verdict.SPOKEN -> { stopRecording(); return }
-                Endpointer.Verdict.NOTHING_SAID -> {
-                    Log.i(TAG, "headset turn: nothing said")
-                    cancelRecording(); return
-                }
-                Endpointer.Verdict.LISTEN -> {}
-            }
         }
         capHandler.postDelayed(::pollAmplitude, AMPLITUDE_POLL_MS)
     }
@@ -383,7 +370,6 @@ class RecordService : Service() {
         // as media does; media itself waits until the reply has been spoken.
         val turn = headsetTurn
         headsetTurn = null
-        endpointer = null
         HeadsetTalk.listening = false
         turn?.releaseRoute()
         stopForegroundCompat()
