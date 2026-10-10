@@ -13,9 +13,7 @@ import android.content.IntentFilter
 import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
-import android.media.AudioFormat
 import android.media.AudioManager
-import android.media.AudioTrack
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -401,46 +399,24 @@ internal class HeadsetTurn(
         main.postDelayed(releaseMediaLate, MEDIA_HELD_MAX_MS)
     }
 
+    /** Where the cues play: the headset the turn listens on, or wherever sound goes now. */
+    private var cueOut: AudioDeviceInfo? = null
+
     /** The listening cue: the usual tap, and a short tone in the headset before the mic opens. */
     fun cue(input: AudioDeviceInfo?, then: () -> Unit) {
         Haptics.ack(ctx)
-        val out = input?.let { i ->
+        cueOut = input?.let { i ->
             runCatching { am?.getDevices(AudioManager.GET_DEVICES_OUTPUTS) }.getOrNull()
                 ?.firstOrNull { it.type == i.type }
         }
-        val played = runCatching { tone(out) }.getOrDefault(false)
+        val played = CueTone.play(880, CUE_MS, cueOut)
         if (played) main.postDelayed(then, CUE_MS + 80L) else then()
     }
 
-    private fun tone(out: AudioDeviceInfo?): Boolean {
-        val rate = 16_000
-        val n = rate * CUE_MS / 1000
-        val pcm = ShortArray(n) { i ->
-            val fade = minOf(1.0, minOf(i, n - i) / (rate * 0.01))
-            (kotlin.math.sin(2 * Math.PI * 880 * i / rate) * 6000 * fade).toInt().toShort()
-        }
-        val track = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ASSISTANT)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build()
-            )
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setSampleRate(rate)
-                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                    .build()
-            )
-            .setBufferSizeInBytes(n * 2)
-            .setTransferMode(AudioTrack.MODE_STATIC)
-            .build()
-        if (out != null) track.setPreferredDevice(out)
-        track.write(pcm, 0, n)
-        track.play()
-        main.postDelayed({ runCatching { track.release() } }, CUE_MS + 400L)
-        return true
+    /** Nothing was heard: a low tone where the listening cue played, then the turn ends. */
+    fun nothingHeard() {
+        val played = CueTone.play(NothingHeard.TONE_HZ, NothingHeard.TONE_MS, cueOut)
+        if (played) main.postDelayed({ end() }, NothingHeard.TONE_MS + 80L) else end()
     }
 
     /** Listening is over: the headset's microphone and its routing go back at once. */

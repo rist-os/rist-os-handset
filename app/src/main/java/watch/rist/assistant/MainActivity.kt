@@ -1282,7 +1282,11 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
 
     private val captureDiscardedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (activeEntryId != 0L) {
+            if (intent.getBooleanExtra(RecordService.EXTRA_NOTHING_HEARD, false)) {
+                // The entry stays: it now says nothing was heard.
+                activeEntryId = 0L
+                renderTranscript()
+            } else if (activeEntryId != 0L) {
                 runCatching { Transcript.discard(this@MainActivity, activeEntryId) }
                 activeEntryId = 0L
                 renderTranscript()
