@@ -127,6 +127,8 @@ object KioskManager {
             // Video calls: a kiosk cannot count on a runtime dialog, and a call page that is
             // refused a headset or a microphone fails without a word.
             Manifest.permission.BLUETOOTH_CONNECT,
+            // "Pair my headphones": finding devices in pairing mode.
+            Manifest.permission.BLUETOOTH_SCAN,
         )
         for (p in perms) {
             runCatching {

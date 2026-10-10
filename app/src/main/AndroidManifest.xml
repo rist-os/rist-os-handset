@@ -28,6 +28,12 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- A video call's audio through a Bluetooth headset; the web engine needs it to use one. -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- "Pair my headphones": finding devices in pairing mode. Never used to locate anyone. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <!-- "Connect my headphones": BluetoothDevice.connect()/disconnect() are system APIs. Must ship
+         in the same image as its line in aosp/sysconfig/rist-privapp-permissions-watch.rist.assistant.xml. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_PRIVILEGED" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
