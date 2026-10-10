@@ -1962,8 +1962,9 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                 voipCall = am.mode == android.media.AudioManager.MODE_IN_COMMUNICATION,
                 alarmRinging = DeviceCommands.ringing(),
                 picked = volumePanel.target,
-                voiceSounding = Playback.isActive(),
-                mediaSounding = am.isMusicActive,
+                voiceSounding = Playback.isActive() ||
+                    (VolumeKeys.voiceHasOwnVolume(this) && VoicemailPlayback.isPlaying()),
+                mediaSounding = VolumeKeys.mediaSounding(am),
                 voiceOwnVolume = VolumeKeys.voiceHasOwnVolume(this),
             )
             if (channel != null) {
