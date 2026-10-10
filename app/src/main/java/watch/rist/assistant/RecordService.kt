@@ -38,6 +38,8 @@ class RecordService : Service() {
         const val ACTION_CAPTURE_WARNING = "watch.rist.assistant.action.CAPTURE_WARNING"
         const val EXTRA_SECS_LEFT = "secs_left"
         const val ACTION_CAPTURE_DISCARDED = "watch.rist.assistant.action.CAPTURE_DISCARDED"
+        /** On [ACTION_CAPTURE_DISCARDED]: nothing was heard, and the entry now says so; keep it. */
+        const val EXTRA_NOTHING_HEARD = "nothing_heard"
 
         private const val TAG = "RistRecord"
         private const val CHANNEL_ID = "rist_record"
@@ -61,6 +63,9 @@ class RecordService : Service() {
         private const val AMPLITUDE_POLL_MS = 100L
         private const val DUPLICATE_WINDOW_MS = 1_000L
         @Volatile private var lastSentAtMs = 0L
+
+        /** The recorder's loudest sample since the last read. Replaced in tests. */
+        internal var amplitudeOf: (MediaRecorder) -> Int = { it.maxAmplitude }
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + Job())
@@ -246,7 +251,7 @@ class RecordService : Service() {
 
     private fun pollAmplitude() {
         if (!recording) return
-        runCatching { mediaRecorder?.maxAmplitude }.getOrNull()?.let { amp ->
+        runCatching { mediaRecorder?.let(amplitudeOf) }.getOrNull()?.let { amp ->
             if (amp > peakAmplitude) peakAmplitude = amp
             if (amp > 0) { ampSumSq += amp.toDouble() * amp; ampSamples++ }
         }
@@ -290,19 +295,21 @@ class RecordService : Service() {
             "ms=$ms sent=${if (sent) "yes" else "no"} bytes=$bytes codec=opus")
     }
 
-    private fun captureNotSpeech(): Boolean {
+    private enum class Drop { NONE, TOO_SHORT, REPEAT, SILENCE }
+
+    private fun captureNotSpeech(): Drop {
         val heldMs = SystemClock.elapsedRealtime() - captureStartedAtMs
         val rms = rmsAmplitude()
         if (captureStartedAtMs > 0L && heldMs < MIN_CAPTURE_MS) {
             Log.i(TAG, "discard: ${heldMs}ms < ${MIN_CAPTURE_MS}ms")
             logClip(sent = false, ms = heldMs, bytes = 0)
-            return true
+            return Drop.TOO_SHORT
         }
         val sinceLastSend = captureStartedAtMs - lastSentAtMs
         if (lastSentAtMs > 0L && sinceLastSend in 0..DUPLICATE_WINDOW_MS && rms < SPEECH_RMS_MIN) {
             Log.i(TAG, "discard: silent repeat ${sinceLastSend}ms after the last send (rms=$rms)")
             logClip(sent = false, ms = heldMs, bytes = 0)
-            return true
+            return Drop.REPEAT
         }
         if (rms in 1 until SPEECH_RMS_MIN) {
             if (rms > SPEECH_RMS_MIN / 2) {
@@ -310,27 +317,43 @@ class RecordService : Service() {
             }
             Log.i(TAG, "discard: rms=$rms < $SPEECH_RMS_MIN (silence)")
             logClip(sent = false, ms = heldMs, bytes = 0)
-            return true
+            return Drop.SILENCE
         }
         Log.i(TAG, "capture accepted: ${heldMs}ms rms=$rms peak=$peakAmplitude")
-        return false
+        return Drop.NONE
     }
 
     private fun stopRecording() {
         capHandler.removeCallbacksAndMessages(null)
         // Pressed again before the headset's microphone was open: nothing was heard.
-        if (!recording && headsetTurn != null) { cancelRecording(); return }
-        if (captureNotSpeech()) {
-            cancelRecording()
-            return
+        if (!recording && headsetTurn != null) { dropUnheard(); return }
+        when (captureNotSpeech()) {
+            Drop.NONE -> {}
+            // A repeat right after a send is a second trigger, not something the person said.
+            Drop.REPEAT -> { cancelRecording(); return }
+            Drop.TOO_SHORT, Drop.SILENCE -> { dropUnheard(); return }
         }
         if (USE_OPUS_UPLINK) stopRecordingOpus() else stopRecordingPcm()
     }
 
-    private fun cancelRecording() {
+    /** The person spoke to Rist and nothing was heard: they are told, and nothing is sent. */
+    private fun dropUnheard() {
+        val turn = headsetTurn
+        headsetTurn = null
+        HeadsetTalk.listening = false
+        // A headset turn keeps its route until the low tone has played in the headset.
+        NothingHeard.tell(applicationContext, entryId, turn)
+        entryId = 0L
+        cancelRecording(nothingHeard = true)
+    }
+
+    private fun cancelRecording(nothingHeard: Boolean = false) {
         capHandler.removeCallbacksAndMessages(null)
         endHeadsetTurn()
-        if (!recording) { stopForegroundCompat(); stopSelf(); return }
+        if (!recording) {
+            if (nothingHeard) broadcastDiscarded(nothingHeard = true)
+            stopForegroundCompat(); stopSelf(); return
+        }
         recording = false
         captureJob?.cancel()
         val rec = mediaRecorder; mediaRecorder = null
@@ -342,10 +365,14 @@ class RecordService : Service() {
         recorder = null
         f?.delete()
         stopForegroundCompat()
-        LocalBroadcastManager.getInstance(applicationContext)
-            .sendBroadcast(Intent(ACTION_CAPTURE_DISCARDED))
+        broadcastDiscarded(nothingHeard)
         Log.i(TAG, "recording cancelled — nothing uploaded")
         stopSelf()
+    }
+
+    private fun broadcastDiscarded(nothingHeard: Boolean) {
+        LocalBroadcastManager.getInstance(applicationContext)
+            .sendBroadcast(Intent(ACTION_CAPTURE_DISCARDED).putExtra(EXTRA_NOTHING_HEARD, nothingHeard))
     }
 
     // stopSelf() must run after the POST completes so the service outlives the round-trip.

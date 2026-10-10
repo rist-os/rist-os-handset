@@ -326,7 +326,8 @@ class HeadsetTalkTest {
         link.ready!!(null)
         ShadowLooper.idleMainLooper(150, java.util.concurrent.TimeUnit.MILLISECONDS)
         link.dropped!!()
-        ShadowLooper.idleMainLooper()
+        // After the nothing-heard tone has played in the headset.
+        ShadowLooper.idleMainLooper(500, java.util.concurrent.TimeUnit.MILLISECONDS)
         assertFalse(HeadsetTalk.listening)
         assertEquals("the headset's microphone and routing are given back", 1, link.closed)
         assertSame(focus!!.audioFocusRequest, shadowOf(am).lastAbandonedAudioFocusRequest)
@@ -346,6 +347,7 @@ class HeadsetTalkTest {
                 .putExtra(RecordService.EXTRA_HEADSET, true)
         ).startCommand(0, 2)
         assertFalse(HeadsetTalk.listening)
+        ShadowLooper.idleMainLooper(500, java.util.concurrent.TimeUnit.MILLISECONDS)
         assertEquals(1, link.closed)
     }
 }
