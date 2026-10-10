@@ -30,7 +30,12 @@ import android.util.Log
  * phone's Bluetooth service answers by starting `ACTION_VOICE_COMMAND` and gives the app five
  * seconds to take the request with [BluetoothHeadset.startVoiceRecognition], which opens the
  * headset's microphone. [HeadsetTalkActivity] takes that intent; [RecordService] runs the turn: it
- * listens through the headset until the person stops speaking or presses again, then sends.
+ * listens through the headset until the next press, or the on-screen button's time cap, then sends.
+ *
+ * A press while it listens reaches the phone one of two ways, and both send. Over an open voice
+ * session the headset ends the session (AT+BVRA=0, or the request again, which Bluetooth answers by
+ * ending the open one), and its audio link closes. Without one, as when listening fell back to the
+ * phone's microphone, the press is a fresh request: `ACTION_VOICE_COMMAND` again.
  *
  * A single tap is play/pause, sent to the media player and never seen here.
  */
@@ -84,32 +89,6 @@ class HeadsetTalkActivity : Activity() {
             HeadsetTalk.onVoiceCommand(this, HeadsetTalk.launcherUidOf(this))
         }
         finish()
-    }
-}
-
-/** Ends listening when the person has spoken and gone quiet, or never spoke at all. */
-internal class Endpointer(
-    private val speechFloor: Int,
-    private val quietAfterSpeechMs: Long = 1_200L,
-    private val nothingSaidMs: Long = 6_000L,
-) {
-    enum class Verdict { LISTEN, SPOKEN, NOTHING_SAID }
-
-    private var loudPolls = 0
-    private var lastLoudAt = 0L
-
-    /** [amp] is the loudest sample since the last poll; [atMs] is time since listening began. */
-    fun feed(amp: Int, atMs: Long): Verdict {
-        if (amp >= speechFloor) {
-            loudPolls++
-            lastLoudAt = atMs
-            return Verdict.LISTEN
-        }
-        // One loud poll is a click or a bump, not speech.
-        val heard = loudPolls >= 2
-        if (heard && atMs - lastLoudAt >= quietAfterSpeechMs) return Verdict.SPOKEN
-        if (!heard && atMs >= nothingSaidMs) return Verdict.NOTHING_SAID
-        return Verdict.LISTEN
     }
 }
 
@@ -322,7 +301,8 @@ internal class HeadsetTurn(
         private const val CUE_MS = 120
         /** A reply that never reports its end still hands media back. */
         private const val MEDIA_HELD_MAX_MS = 3 * 60_000L
-        private const val AWAKE_MAX_MS = 75_000L
+        /** Past the time cap, with room for the headset's audio to come up first. */
+        private const val AWAKE_MAX_MS = RecordService.MAX_CAPTURE_MS + 15_000L
     }
 
     private val main = Handler(Looper.getMainLooper())
