@@ -57,6 +57,17 @@ object KioskManager {
         }.onFailure { Log.w(TAG, "setAsDefaultLauncher failed", it) }
     }
 
+    /** A headset's voice request comes to Rist with no chooser, whatever else could take it. */
+    fun setAsDefaultForHeadsetTalk(context: Context) {
+        if (!isDeviceOwner(context)) return
+        val filter = IntentFilter(Intent.ACTION_VOICE_COMMAND).apply { addCategory(Intent.CATEGORY_DEFAULT) }
+        runCatching {
+            dpm(context).addPersistentPreferredActivity(
+                admin(context), filter, ComponentName(context, HeadsetTalkActivity::class.java)
+            )
+        }.onFailure { Log.w(TAG, "could not make Rist the handler for headset voice requests", it) }
+    }
+
     /** Full browsers on the image. Hidden, not removed: the web engine Rist uses is separate. */
     internal val BROWSERS = listOf("app.vanadium.browser")
 
@@ -166,6 +177,7 @@ object KioskManager {
         configureLockTask(context)
         setAsDefaultLauncher(context)
         setAsDefaultForLinks(context, always = true)
+        setAsDefaultForHeadsetTalk(context)
         applyUserRestrictions(context)
         Config.setKioskProvisionedFor(context, versionCode(context))
     }

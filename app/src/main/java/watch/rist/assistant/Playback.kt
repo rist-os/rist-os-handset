@@ -113,7 +113,11 @@ object Playback {
             val trackIndex = (0 until extractor.trackCount).firstOrNull {
                 extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
             }
-            if (trackIndex == null) { Log.w(TAG, "no audio track in Opus stream"); return }
+            if (trackIndex == null) {
+                Log.w(TAG, "no audio track in Opus stream")
+                if (onDone != null) main.post(onDone)
+                return
+            }
             extractor.selectTrack(trackIndex)
 
             val format = extractor.getTrackFormat(trackIndex)
