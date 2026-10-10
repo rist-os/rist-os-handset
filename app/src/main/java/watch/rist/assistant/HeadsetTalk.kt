@@ -110,7 +110,7 @@ internal interface Hfp {
     /**
      * Takes the headset's voice request. [started] gets the headset's address, or null when no
      * hands-free headset is connected or the request was refused. [audio] reports the headset's
-     * audio link coming up (true) and going down (false).
+     * audio path opening (true) and closing (false); see [HeadsetAudioPath].
      */
     fun start(audio: (Boolean) -> Unit, started: (String?) -> Unit)
     fun stop()
@@ -215,6 +215,55 @@ internal class BluetoothHeadsetLink(
     }
 }
 
+/**
+ * Whether the headset's audio path is open, from two signals.
+ *
+ * Where the audio system manages the headset's call audio (Android 16 and later), taking the voice
+ * request makes the Bluetooth service choose the headset as the call device, and the audio link
+ * itself only comes up once something plays or records through it. So the route turning to the
+ * headset already means its microphone can be recorded from; waiting for the link first waits
+ * forever. On older systems the link comes up on its own. Either one opens the path. It closes when
+ * the link drops (the headset ended the session) or the route leaves the headset (the Bluetooth
+ * service ended it, as it does when the headset asks again).
+ */
+internal class HeadsetAudioPath(private val report: (Boolean) -> Unit) {
+
+    companion object {
+        fun isHeadsetRoute(dev: AudioDeviceInfo?, address: String): Boolean =
+            dev?.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO &&
+                (dev.address.isEmpty() || dev.address.equals(address, ignoreCase = true))
+    }
+
+    private var linkUp = false
+    private var routed = false
+    private var open = false
+
+    fun link(up: Boolean) {
+        // A link that failed to come up was never open, and is not a press.
+        val wasUp = linkUp
+        linkUp = up
+        update(dropping = !up && wasUp)
+    }
+
+    fun route(toHeadset: Boolean) {
+        val wasRouted = routed
+        routed = toHeadset
+        update(dropping = !toHeadset && wasRouted)
+    }
+
+    private fun update(dropping: Boolean) {
+        if (!open && (linkUp || routed)) {
+            open = true
+            report(true)
+        } else if (open && dropping) {
+            open = false
+            linkUp = false
+            routed = false
+            report(false)
+        }
+    }
+}
+
 @SuppressLint("MissingPermission")
 private class SystemHfp(private val ctx: Context) : Hfp {
 
@@ -222,6 +271,8 @@ private class SystemHfp(private val ctx: Context) : Hfp {
     private var proxy: BluetoothHeadset? = null
     private var device: BluetoothDevice? = null
     private var receiver: BroadcastReceiver? = null
+    private var routeListener: AudioManager.OnCommunicationDeviceChangedListener? = null
+    private val am = ctx.getSystemService(AudioManager::class.java)
     private var stopped = false
 
     override fun start(audio: (Boolean) -> Unit, started: (String?) -> Unit) {
@@ -253,23 +304,32 @@ private class SystemHfp(private val ctx: Context) : Hfp {
     }
 
     private fun watchAudio(d: BluetoothDevice, audio: (Boolean) -> Unit) {
+        val path = HeadsetAudioPath(audio)
         val r = object : BroadcastReceiver() {
             override fun onReceive(c: Context, i: Intent) {
                 val from = i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
                 if (from != null && from != d) return
                 when (i.getIntExtra(BluetoothProfile.EXTRA_STATE, -1)) {
-                    BluetoothHeadset.STATE_AUDIO_CONNECTED -> audio(true)
-                    BluetoothHeadset.STATE_AUDIO_DISCONNECTED -> audio(false)
+                    BluetoothHeadset.STATE_AUDIO_CONNECTED -> path.link(true)
+                    BluetoothHeadset.STATE_AUDIO_DISCONNECTED -> path.link(false)
                 }
             }
         }
         receiver = r
         ctx.registerReceiver(r, IntentFilter(BluetoothHeadset.ACTION_AUDIO_STATE_CHANGED), Context.RECEIVER_EXPORTED)
+        val audioManager = am ?: return
+        val onRoute = AudioManager.OnCommunicationDeviceChangedListener { dev ->
+            path.route(HeadsetAudioPath.isHeadsetRoute(dev, d.address))
+        }
+        routeListener = onRoute
+        runCatching { audioManager.addOnCommunicationDeviceChangedListener(ctx.mainExecutor, onRoute) }
     }
 
     private fun unwatch() {
         receiver?.let { r -> runCatching { ctx.unregisterReceiver(r) } }
         receiver = null
+        routeListener?.let { l -> runCatching { am?.removeOnCommunicationDeviceChangedListener(l) } }
+        routeListener = null
     }
 
     override fun stop() {

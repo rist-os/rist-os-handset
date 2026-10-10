@@ -210,6 +210,49 @@ class HeadsetTalkTest {
     }
 
     @Test
+    fun `the call route turning to the headset opens its microphone without waiting for the link`() {
+        // Android 16+: the link only comes up once something records through it.
+        val events = mutableListOf<Boolean>()
+        val path = HeadsetAudioPath { events += it }
+        path.route(true)
+        assertEquals(listOf(true), events)
+        path.link(true)
+        assertEquals("the link coming up after is the same open path", listOf(true), events)
+        path.link(false)
+        assertEquals("the headset ending its session is the second press", listOf(true, false), events)
+    }
+
+    @Test
+    fun `the Bluetooth service taking the route back is the second press`() {
+        val events = mutableListOf<Boolean>()
+        val path = HeadsetAudioPath { events += it }
+        path.route(true)
+        path.route(false)
+        assertEquals(listOf(true, false), events)
+    }
+
+    @Test
+    fun `a link that fails to come up, or an unrelated route change, is not a press`() {
+        val events = mutableListOf<Boolean>()
+        val path = HeadsetAudioPath { events += it }
+        path.link(false)
+        path.route(false)
+        assertEquals(emptyList<Boolean>(), events)
+        path.link(true)
+        path.route(false)
+        assertEquals("the route never was the headset's", listOf(true), events)
+    }
+
+    @Test
+    fun `only the headset's call device counts as its route`() {
+        val sco = AudioDeviceInfoBuilder.newBuilder().setType(AudioDeviceInfo.TYPE_BLUETOOTH_SCO).build()
+        val ear = AudioDeviceInfoBuilder.newBuilder().setType(AudioDeviceInfo.TYPE_BUILTIN_EARPIECE).build()
+        assertTrue(HeadsetAudioPath.isHeadsetRoute(sco, "00:11:22:33:44:55"))
+        assertFalse(HeadsetAudioPath.isHeadsetRoute(ear, "00:11:22:33:44:55"))
+        assertFalse(HeadsetAudioPath.isHeadsetRoute(null, "00:11:22:33:44:55"))
+    }
+
+    @Test
     fun `a headset whose audio never comes up falls back to the phone's microphone`() {
         val hfp = FakeHfp("00:11:22:33:44:55")
         val link = BluetoothHeadsetLink(app, hfp)
