@@ -102,33 +102,45 @@ object KioskManager {
         }.onFailure { Log.w(TAG, "could not make Rist the handler for links", it) }
     }
 
+    /** Runtime permissions the Device Owner grants itself (`grantSelfPermissions`). */
+    private val SELF_GRANTED = listOf(
+        Manifest.permission.RECORD_AUDIO,
+        Manifest.permission.CAMERA,
+        Manifest.permission.ACCESS_FINE_LOCATION,
+        Manifest.permission.ACCESS_COARSE_LOCATION,
+        Manifest.permission.POST_NOTIFICATIONS,
+        Manifest.permission.CALL_PHONE,
+        Manifest.permission.SEND_SMS,
+        Manifest.permission.ANSWER_PHONE_CALLS,
+        Manifest.permission.READ_SMS,
+        Manifest.permission.READ_PHONE_STATE,
+        Manifest.permission.READ_CALL_LOG,
+        Manifest.permission.READ_CONTACTS,
+        // Contact sync writes the owner's backend contacts into the address book, so caller
+        // ID names them with no network.
+        Manifest.permission.WRITE_CONTACTS,
+        Manifest.permission.ADD_VOICEMAIL,
+        // Video calls: a kiosk cannot count on a runtime dialog, and a call page that is
+        // refused a headset or a microphone fails without a word.
+        Manifest.permission.BLUETOOTH_CONNECT,
+        // "Pair my headphones": finding devices in pairing mode.
+        Manifest.permission.BLUETOOTH_SCAN,
+    )
+
+    /** READ_SMS and READ_CALL_LOG are hard-restricted and may be refused on an image; the rest
+     *  always land, so one missing means the grants have not run for this build's manifest. */
+    private fun grantsHeld(context: Context): Boolean = runCatching {
+        SELF_GRANTED.filterNot {
+            it == Manifest.permission.READ_SMS || it == Manifest.permission.READ_CALL_LOG
+        }.all { context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
+    }.getOrDefault(true)
+
     fun grantSelfPermissions(context: Context) {
         if (!isDeviceOwner(context)) return
         val dpm = dpm(context)
         val admin = admin(context)
         val pkg = context.packageName
-        val perms = listOf(
-            Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.CAMERA,
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.POST_NOTIFICATIONS,
-            Manifest.permission.CALL_PHONE,
-            Manifest.permission.SEND_SMS,
-            Manifest.permission.ANSWER_PHONE_CALLS,
-            Manifest.permission.READ_SMS,
-            Manifest.permission.READ_PHONE_STATE,
-            Manifest.permission.READ_CALL_LOG,
-            Manifest.permission.READ_CONTACTS,
-            // Contact sync writes the owner's backend contacts into the address book, so caller
-            // ID names them with no network.
-            Manifest.permission.WRITE_CONTACTS,
-            Manifest.permission.ADD_VOICEMAIL,
-            // Video calls: a kiosk cannot count on a runtime dialog, and a call page that is
-            // refused a headset or a microphone fails without a word.
-            Manifest.permission.BLUETOOTH_CONNECT,
-        )
-        for (p in perms) {
+        for (p in SELF_GRANTED) {
             runCatching {
                 dpm.setPermissionGrantState(
                     admin, pkg, p, DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED
@@ -256,7 +268,8 @@ object KioskManager {
         val vc = versionCode(context)
         // Checked every time: a browser shown again or restored later would take links back.
         setAsDefaultForLinks(context)
-        if (vc != 0L && Config.kioskProvisionedFor(context) == vc && allowlistIsCurrent(context)) return
+        if (vc != 0L && Config.kioskProvisionedFor(context) == vc && allowlistIsCurrent(context) &&
+            grantsHeld(context)) return
         Log.i(TAG, "kiosk policy stale (vc=$vc); provisioning")
         provisionNow(context)
     }

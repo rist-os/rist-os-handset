@@ -1,6 +1,7 @@
 // The device <-> backend contract, schema v18, with the proposed v19 features fields, the
 // proposed home boxes fields, the v23 checklist messages, the v25 note edit messages and the v26
-// texts-on-request fields, the v28 developer mode fields and the v29 new_conversation field.
+// texts-on-request fields, the v28 developer mode fields, the v29 new_conversation field, the v31
+// reroute and the v32 Bluetooth messages.
 // Copied from the backend's canonical file; change it there first.
 
 syntax = "proto3";
@@ -98,6 +99,10 @@ message DeviceRequest {
   // v31: set only on the phone's own off-corridor reroute; echoes the route being followed so the
   // backend routes to that destination instead of geocoding the label. Absent on every other turn.
   NavReroute reroute = 31;
+  // v32: the paired audio devices, on every turn of a phone that lists "bluetooth_v1".
+  BluetoothState bluetooth = 32;
+  // v32: what the phone did with a BluetoothCommand; only on the one re-send of that turn.
+  BluetoothResult bluetooth_result = 33;
 }
 
 // v31: the route a reroute continues, copied from the NavCommand the phone is following.
@@ -221,6 +226,10 @@ message DeviceResponse {
   // debugging) on this phone; present false = it may not, and it is turned off if on; absent =
   // keep the last state. Set on the final response of every device turn.
   optional bool developer_mode = 38;
+
+  // v32: connect, disconnect, scan for or pair a Bluetooth audio device. A request, not a fact:
+  // the phone carries it out and re-sends the turn with DeviceRequest.bluetooth_result.
+  BluetoothCommand bluetooth = 39;
 }
 
 message Notification {
@@ -548,6 +557,57 @@ message TimerCommand {
 
 message StopwatchCommand {
   string action = 1;
+}
+
+// v32: the phone's Bluetooth as it is right now.
+message BluetoothState {
+  bool adapter_on = 1;
+  bool permission = 2;
+  repeated BluetoothDevice devices = 3;   // paired audio devices only, at most 32
+}
+
+// v32: one paired device, or one found by a scan. `id` is minted on the phone, never the address.
+message BluetoothDevice {
+  string id        = 1;
+  string name      = 2;
+  string kind      = 3;   // headphones | headset | speaker | car | hearing_aid | other
+  bool   connected = 4;
+}
+
+message BluetoothCommand {
+  string command_id = 1;
+  Action action     = 2;
+  enum Action {
+    ACTION_UNSET = 0;
+    CONNECT      = 1;
+    DISCONNECT   = 2;
+    SCAN         = 3;
+    PAIR         = 4;
+  }
+  string device_id   = 3;
+  string device_name = 4;   // for the status line only; never matched on
+  uint32 scan_s      = 5;
+}
+
+message BluetoothResult {
+  string command_id = 1;
+  BluetoothCommand.Action action = 2;
+  string device_id  = 3;
+  Outcome outcome   = 4;
+  enum Outcome {
+    OUTCOME_UNSET        = 0;
+    DONE                 = 1;
+    ALREADY              = 2;
+    BLUETOOTH_OFF        = 3;
+    NO_PERMISSION        = 4;
+    NOT_IN_RANGE         = 5;
+    NOT_PAIRED           = 6;
+    PAIR_DECLINED        = 7;
+    PAIRED_NOT_CONNECTED = 8;
+    FAILED               = 9;
+  }
+  repeated BluetoothDevice discovered = 5;   // SCAN only, at most 16
+  string detail = 6;                         // for the backend's log; never spoken
 }
 
 message VideoCallCommand {

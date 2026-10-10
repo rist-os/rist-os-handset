@@ -26,7 +26,8 @@ object DeviceProfile {
         return capabilities(dm.widthPixels, dm.heightPixels,
             videoCalls = VideoCalls.SHIPPED && Features.isOn(ctx, Features.Id.VIDEO_CALLS),
             fontIds = if (DesignSync.declared()) Fonts.available(ctx) else emptyList(),
-            textsOnRequest = TextsOnRequest.declared(ctx))
+            textsOnRequest = TextsOnRequest.declared(ctx),
+            bluetooth = BluetoothAudio.declared(ctx))
     }
 
     internal fun capabilities(
@@ -41,6 +42,7 @@ object DeviceProfile {
         textsOnRequest: Boolean = false,
         tileBlocks: Boolean = TileBlocks.declared(),
         itemEdit: Boolean = ItemEdits.declared(),
+        bluetooth: Boolean = false,
     ): Capabilities =
         Capabilities.newBuilder()
             // v18 carries every field this build reads; the video_call component alone decides
@@ -70,6 +72,8 @@ object DeviceProfile {
             .apply { if (homeBoxes && tileBlocks && itemEdit) addComponents(ItemEdits.COMPONENT) }
             // Whether this phone answers inbound_sms_request: the owner's switch, and the permission.
             .apply { if (textsOnRequest) addComponents(TextsOnRequest.COMPONENT) }
+            // Whether this phone reports its paired audio devices and carries out BluetoothCommand.
+            .apply { if (bluetooth) addComponents(BluetoothAudio.COMPONENT) }
             .setMaxImageBytes(MAX_IMAGE_BYTES)
             // 0 or unset means "cannot do place triggers".
             .setMaxGeofences(Geofences.MAX_FENCES)

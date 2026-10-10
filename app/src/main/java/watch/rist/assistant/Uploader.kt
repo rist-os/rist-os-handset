@@ -1,6 +1,7 @@
 package watch.rist.assistant
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import com.google.protobuf.ByteString
 import okhttp3.MediaType.Companion.toMediaType
@@ -55,6 +56,13 @@ class Uploader(private val ctx: Context) {
          * backend runs the turn once (v18). A new request always gets a new one.
          */
         internal fun newUtteranceId(): String = java.util.UUID.randomUUID().toString()
+
+        /** Bluetooth: one command, one re-send; a SCAN's answer may bring a PAIR. No more. */
+        internal const val MAX_BLUETOOTH_RESENDS = 2
+        private const val MAX_INTERIM_WAIT_MS = 8_000L
+
+        /** Counts the person's turns; a Bluetooth re-send is dropped once a newer one started. */
+        private val userTurns = java.util.concurrent.atomic.AtomicLong()
 
         // Zero bytes parse as a valid empty message, so emptiness is checked before parsing.
         internal fun parseOneOrNull(input: java.io.InputStream): DeviceResponse? {
@@ -389,7 +397,7 @@ class Uploader(private val ctx: Context) {
             .setCaps(DeviceProfile.capabilities(ctx))
             .build()
         Log.i(TAG, "geofence check-in (no utterance)")
-        post(req)
+        post(req, userTurn = false)
     }
 
     // A radio verdict on a text, carried at once rather than on the next turn. post() attaches
@@ -407,7 +415,7 @@ class Uploader(private val ctx: Context) {
             .setCaps(DeviceProfile.capabilities(ctx))
             .build()
         Log.i(TAG, "comms result check-in (no utterance)")
-        post(req)
+        post(req, userTurn = false)
     }
 
     // Blocking; call on IO.
@@ -543,9 +551,14 @@ class Uploader(private val ctx: Context) {
         onLocationInterim: ((DeviceResponse) -> Unit)? = null,
         // The re-send answering inbound_sms_request: texts, calls, and the flag that an empty list means none.
         answeringTexts: Boolean = false,
+        // False for the phone's own check-ins: nothing the person said, so no command is carried out.
+        userTurn: Boolean = true,
+        // How many Bluetooth re-sends this utterance has made already (at most two).
+        bluetoothResends: Int = 0,
     ): DeviceResponse? {
         lastFailure = ""
         lastLapse = null
+        val turn = if (userTurn && !isResend) userTurns.incrementAndGet() else userTurns.get()
         var req = requestProto
         if (req.utteranceId.isBlank()) req = req.toBuilder().setUtteranceId(newUtteranceId()).build()
         // The user asked for a new conversation: every request carries it until one is answered.
@@ -634,6 +647,11 @@ class Uploader(private val ctx: Context) {
         }
         // The account's location switch is off: only the time zone name leaves the phone.
         if (LocationSwitch.isOff(ctx)) req = LocationSwitch.scrub(req, deviceTimezone())
+        // The paired audio devices, on every turn (v32); a Bluetooth re-send already carries them.
+        if (!req.hasBluetooth() && BluetoothAudio.declared(ctx)) {
+            runCatching { req = req.toBuilder().setBluetooth(BluetoothAudio.state(ctx)).build() }
+                .onFailure { Log.w(TAG, "bluetooth state unreadable", it) }
+        }
 
         if (endpoint.isBlank()) {
             lastFailure = Unavailable.NOT_PAIRED
@@ -879,8 +897,99 @@ class Uploader(private val ctx: Context) {
             return post(resendReq, includeInboundSms = true, isResend = true,
                 onLocationInterim = onLocationInterim, answeringTexts = true)
         }
+        if (resp.hasBluetooth()) {
+            return carryOutBluetooth(requestProto, resp, includeInboundSms, onLocationInterim,
+                userTurn, bluetoothResends, turn)
+        }
 
         return resp
+    }
+
+    /**
+     * A BluetoothCommand (v32): say its "one moment", carry it out, and send the same turn again
+     * with what really happened. Only the re-sent turn's answer says it worked. At most two
+     * re-sends per utterance (a SCAN's answer may carry a PAIR); never for a check-in, never once
+     * the person stopped the turn or said something new.
+     */
+    private fun carryOutBluetooth(
+        requestProto: DeviceRequest,
+        resp: DeviceResponse,
+        includeInboundSms: Boolean,
+        onInterim: ((DeviceResponse) -> Unit)?,
+        userTurn: Boolean,
+        resends: Int,
+        turn: Long,
+    ): DeviceResponse? {
+        val cmd = resp.bluetooth
+        if (!userTurn || !BluetoothAudio.declared(ctx)) {
+            Log.w(TAG, "bluetooth command on a turn that cannot carry it out; ignored")
+            return resp.toBuilder().clearBluetooth().build()
+        }
+        if (resends >= MAX_BLUETOOTH_RESENDS) {
+            Log.e(TAG, "a third bluetooth command for one utterance (${cmd.action}); ignored, a backend bug")
+            return resp.toBuilder().clearBluetooth().build()
+        }
+        // Other commands of the same turn (a timer, an alarm) still run: the re-sent turn's answer
+        // replaces this one and does not carry them again.
+        runCatching { DeviceCommands.handle(ctx, resp) }.onFailure { Log.w(TAG, "commands beside bluetooth failed", it) }
+        try { (onInterim ?: ::speakInterim).invoke(resp) } catch (t: Throwable) { Log.w(TAG, "interim hook threw", t) }
+
+        // The re-send's id is taken now, so the Stop on the status line reaches the wait below.
+        val resendId = newRequestId()
+        StreamingCancel.begin(resendId)
+        StreamingStatus.publish(ctx, resendId, rist.v1.Progress.newBuilder()
+            .setText(bluetoothStatusLine(cmd)).setKind("status").build())
+        val stack = BluetoothAudio.stack(ctx)
+        val result = BluetoothCommands(ctx, stack, stopped = {
+            StreamingCancel.isCancelled(resendId) || userTurns.get() != turn
+        }).run(cmd)
+
+        if (StreamingCancel.isCancelled(resendId)) {
+            StreamingCancel.end(resendId)
+            StreamingStatus.publishEnd(ctx, resendId, StreamingStatus.ENDING_CANCELLED)
+            Log.i(TAG, "bluetooth: stopped by the person; not re-sent")
+            lastFailure = ""
+            return null
+        }
+        if (userTurns.get() != turn) {
+            // The person has said something new; that is the conversation now.
+            StreamingCancel.end(resendId)
+            Log.i(TAG, "bluetooth: a new utterance came first; not re-sent")
+            return resp.toBuilder().clearBluetooth()
+                .setSpeech(resp.speech.toBuilder().clearAudio()).build()
+        }
+        // The "one moment" finishes before the answer to it starts.
+        val speechEnds = SystemClock.elapsedRealtime() + MAX_INTERIM_WAIT_MS
+        while (Playback.isActive() && SystemClock.elapsedRealtime() < speechEnds) Thread.sleep(100)
+
+        val fresh = runCatching { BluetoothAudio.state(ctx, stack) }
+            .getOrElse { rist.v1.BluetoothState.getDefaultInstance() }
+        val resendReq = requestProto.toBuilder()
+            .setRequestId(resendId).setUtteranceId(newUtteranceId())
+            .setBluetooth(fresh)
+            .setBluetoothResult(result)
+            .build()
+        return post(resendReq, includeInboundSms = includeInboundSms, isResend = true,
+            onLocationInterim = onInterim, bluetoothResends = resends + 1)
+    }
+
+    private fun bluetoothStatusLine(cmd: rist.v1.BluetoothCommand): String {
+        val name = cmd.deviceName.trim().ifBlank { "your device" }
+        return when (cmd.action) {
+            rist.v1.BluetoothCommand.Action.CONNECT -> "Connecting to $name…"
+            rist.v1.BluetoothCommand.Action.DISCONNECT -> "Disconnecting $name…"
+            rist.v1.BluetoothCommand.Action.SCAN -> "Looking for devices in pairing mode…"
+            rist.v1.BluetoothCommand.Action.PAIR -> "Pairing with $name…"
+            else -> "Bluetooth…"
+        }
+    }
+
+    /** For a turn with no screen to say it (a spoken turn): the reply voice plays it. */
+    private fun speakInterim(resp: DeviceResponse) {
+        val audio = resp.speech.audio
+        if (!audio.isEmpty && Config.isReplyVoiceEnabled(ctx)) {
+            Playback.play(ctx, audio.toByteArray(), resp.speech.audioCodec)
+        }
     }
 
     private val endpoint: String = Config.backendUrl(ctx)
