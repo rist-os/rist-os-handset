@@ -202,6 +202,21 @@
             </intent-filter>
         </activity>
 
+        <!-- A headset's held call button: Bluetooth starts VOICE_COMMAND. Shows nothing, and its
+             own empty task keeps whatever is on screen where it is. -->
+        <activity
+            android:name=".HeadsetTalkActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.VOICE_COMMAND" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".VideoCallJoinActivity"
             android:exported="false"

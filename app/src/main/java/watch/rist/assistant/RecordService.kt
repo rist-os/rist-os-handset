@@ -33,6 +33,8 @@ class RecordService : Service() {
 
         /** On [ACTION_START] and [ACTION_STOP]: the transcript entry this recording answers. */
         const val EXTRA_ENTRY_ID = "entry_id"
+        /** On [ACTION_START]: a headset press, so listen through the headset until speech ends. */
+        const val EXTRA_HEADSET = "headset"
         const val ACTION_CAPTURE_WARNING = "watch.rist.assistant.action.CAPTURE_WARNING"
         const val EXTRA_SECS_LEFT = "secs_left"
         const val ACTION_CAPTURE_DISCARDED = "watch.rist.assistant.action.CAPTURE_DISCARDED"
@@ -75,6 +77,9 @@ class RecordService : Service() {
     @Volatile private var clipId = ""
     @Volatile private var entryId = 0L
     private val capHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    /** The headset turn listening now, if this recording is one. */
+    private var headsetTurn: HeadsetTurn? = null
+    private var endpointer: Endpointer? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -83,8 +88,8 @@ class RecordService : Service() {
         startForegroundCompat()
         when (intent?.action) {
             ACTION_START -> {
-                if (!recording) entryId = intent.getLongExtra(EXTRA_ENTRY_ID, 0L)
-                startRecording()
+                if (!recording && headsetTurn == null) entryId = intent.getLongExtra(EXTRA_ENTRY_ID, 0L)
+                if (intent.getBooleanExtra(EXTRA_HEADSET, false)) startHeadsetTurn() else startRecording()
             }
             ACTION_STOP -> {
                 if (recording) intent.getLongExtra(EXTRA_ENTRY_ID, 0L).takeIf { it != 0L }?.let { entryId = it }
@@ -101,7 +106,37 @@ class RecordService : Service() {
         if (USE_OPUS_UPLINK) startRecordingOpus() else startRecordingPcm()
     }
 
-    private fun startRecordingOpus() {
+    /**
+     * Hands-free: the headset's microphone opens, the listening cue plays, and the recording ends
+     * itself when speech does, or on the next press. Media is paused until the reply is spoken.
+     */
+    private fun startHeadsetTurn() {
+        if (recording || headsetTurn != null) return
+        val turn = HeadsetTurn(applicationContext, HeadsetTalk.linkFactory(applicationContext))
+        headsetTurn = turn
+        HeadsetTalk.listening = true
+        turn.begin(
+            onReady = { input ->
+                if (headsetTurn === turn) turn.cue(input) {
+                    if (headsetTurn !== turn || recording) return@cue
+                    endpointer = Endpointer(SPEECH_RMS_MIN)
+                    startRecordingOpus(input)
+                }
+            },
+            onPressedAgain = { if (headsetTurn === turn) stopRecording() },
+        )
+    }
+
+    /** Ends a headset turn that has nothing to send. */
+    private fun endHeadsetTurn() {
+        val turn = headsetTurn ?: return
+        headsetTurn = null
+        endpointer = null
+        HeadsetTalk.listening = false
+        turn.end()
+    }
+
+    private fun startRecordingOpus(input: android.media.AudioDeviceInfo? = null) {
         startForegroundCompat()
         val rec = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(this)
                   else @Suppress("DEPRECATION") MediaRecorder()
@@ -116,6 +151,7 @@ class RecordService : Service() {
                 setAudioChannels(1)
                 setAudioEncodingBitRate(OPUS_BITRATE)
                 setOutputFile(f.absolutePath)
+                if (input != null) setPreferredDevice(input)
                 prepare()
                 start()
             }
@@ -127,6 +163,7 @@ class RecordService : Service() {
             false
         }
         if (!started) {
+            endHeadsetTurn()
             runCatching {
                 LocalBroadcastManager.getInstance(applicationContext)
                     .sendBroadcast(Intent(ACTION_CAPTURE_DISCARDED))
@@ -166,8 +203,9 @@ class RecordService : Service() {
         Log.i(TAG, "recording started")
     }
 
-    internal fun handleResponse(reply: DeviceResponse?, failure: String, entryId: Long) {
+    internal fun handleResponse(reply: DeviceResponse?, failure: String, entryId: Long, turn: HeadsetTurn? = null) {
         if (reply == null) {
+            turn?.releaseMedia()
             val cancelled = StreamingCancel.takeCancelledFlag()
             TurnRunner.finish(applicationContext, TurnRunner.Outcome(
                 entryId, null, failure.ifBlank { "no reply" }, "voice", voice = true, cancelled = cancelled,
@@ -188,7 +226,10 @@ class RecordService : Service() {
         Log.i("RistReply", "speech: audio=${audio?.size() ?: 0}B codec='${speech.audioCodec.orEmpty()}' " +
             "text=${text.length}c voiceOn=$voiceOn")
 
-        if (voiceOn && hasAudio) Playback.play(applicationContext, audio!!.toByteArray(), speech.audioCodec)
+        if (voiceOn && hasAudio) {
+            Playback.play(applicationContext, audio!!.toByteArray(), speech.audioCodec,
+                onDone = turn?.let { t -> { t.releaseMedia() } })
+        } else turn?.releaseMedia()
 
         val parts = buildList {
             when {
@@ -207,9 +248,20 @@ class RecordService : Service() {
 
     private fun pollAmplitude() {
         if (!recording) return
-        runCatching { mediaRecorder?.maxAmplitude }.getOrNull()?.let { amp ->
+        val amp = runCatching { mediaRecorder?.maxAmplitude }.getOrNull()
+        if (amp != null) {
             if (amp > peakAmplitude) peakAmplitude = amp
             if (amp > 0) { ampSumSq += amp.toDouble() * amp; ampSamples++ }
+        }
+        endpointer?.let { ep ->
+            when (ep.feed(amp ?: 0, SystemClock.elapsedRealtime() - captureStartedAtMs)) {
+                Endpointer.Verdict.SPOKEN -> { stopRecording(); return }
+                Endpointer.Verdict.NOTHING_SAID -> {
+                    Log.i(TAG, "headset turn: nothing said")
+                    cancelRecording(); return
+                }
+                Endpointer.Verdict.LISTEN -> {}
+            }
         }
         capHandler.postDelayed(::pollAmplitude, AMPLITUDE_POLL_MS)
     }
@@ -279,6 +331,8 @@ class RecordService : Service() {
 
     private fun stopRecording() {
         capHandler.removeCallbacksAndMessages(null)
+        // Pressed again before the headset's microphone was open: nothing was heard.
+        if (!recording && headsetTurn != null) { cancelRecording(); return }
         if (captureNotSpeech()) {
             cancelRecording()
             return
@@ -288,6 +342,7 @@ class RecordService : Service() {
 
     private fun cancelRecording() {
         capHandler.removeCallbacksAndMessages(null)
+        endHeadsetTurn()
         if (!recording) { stopForegroundCompat(); stopSelf(); return }
         recording = false
         captureJob?.cancel()
@@ -324,6 +379,13 @@ class RecordService : Service() {
             ByteArray(0)
         }
         f?.delete()
+        // The headset's microphone goes back before the upload, so the reply plays in the headset
+        // as media does; media itself waits until the reply has been spoken.
+        val turn = headsetTurn
+        headsetTurn = null
+        endpointer = null
+        HeadsetTalk.listening = false
+        turn?.releaseRoute()
         stopForegroundCompat()
         lastSentAtMs = SystemClock.elapsedRealtime()
         Log.i(TAG, "recording stopped (opus, ${bytes.size}B)")
@@ -335,7 +397,7 @@ class RecordService : Service() {
         captureJob = scope.launch {
             val reply = if (bytes.isEmpty()) null else uploader.sendOpus(bytes, sentMs.toInt())
             logClip(sent = true, ms = sentMs, bytes = bytes.size, reqId = reply?.requestId.orEmpty())
-            handleResponse(reply, uploader.lastFailure, turnEntry)
+            handleResponse(reply, uploader.lastFailure, turnEntry, turn)
             stopSelf()
         }
     }
@@ -384,6 +446,7 @@ class RecordService : Service() {
     // onDestroy can arrive mid-capture; release the MediaRecorder or the mic stays held for the process lifetime.
     override fun onDestroy() {
         capHandler.removeCallbacksAndMessages(null)
+        endHeadsetTurn()
         recording = false
         mediaRecorder?.let { r ->
             runCatching { r.stop() }
