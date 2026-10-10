@@ -101,6 +101,10 @@ class PlaybackService : MediaSessionService() {
 
         @Volatile private var alive = false
 
+        /** True while Rist's own player is sounding; the volume buttons then go to Media. */
+        @Volatile var playing = false
+            private set
+
         /** Pauses whatever is playing. Does not start the service just to tell it to be quiet. */
         fun pause(ctx: Context) { if (alive) sendControl(ctx, CONTROL_PAUSE) }
 
@@ -331,6 +335,8 @@ class PlaybackService : MediaSessionService() {
     }
 
     private val playerListener = object : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) { playing = isPlaying }
+
         override fun onPlaybackStateChanged(state: Int) {
             when (state) {
                 Player.STATE_BUFFERING -> { broadcastStatus("♪ buffering…"); startNowPlayingTicker() }
@@ -408,6 +414,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         alive = false
+        playing = false
         npHandler.removeCallbacks(npTick)
         npRunning = false
         resolverIo.cancel()

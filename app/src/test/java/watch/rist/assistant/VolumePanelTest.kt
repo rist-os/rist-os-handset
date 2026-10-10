@@ -32,22 +32,37 @@ class VolumePanelTest {
     }
 
     @Test
-    fun `the ringer stays the default even while something plays`() {
-        assertEquals(VolumeKeys.Channel.RINGER, route(media = true))
-        assertEquals(VolumeKeys.Channel.RINGER, route(voice = true, media = true))
+    fun `while media plays the buttons adjust media, not the ringer`() {
+        // The bug: with an audiobook or music playing, the buttons moved the ringer and the
+        // playing audio stayed as loud as it was.
+        assertEquals(VolumeKeys.Channel.MEDIA, route(media = true))
+    }
+
+    @Test
+    fun `while a voice reply plays the buttons adjust the voice`() {
+        // A reply played as media also reads as music; its loudness is the Voice slider either way.
+        assertEquals(VolumeKeys.Channel.VOICE, route(voice = true))
+        assertEquals(VolumeKeys.Channel.VOICE, route(voice = true, media = true))
+    }
+
+    @Test
+    fun `while an alarm rings the buttons adjust the alarm`() {
+        assertEquals(VolumeKeys.Channel.ALARM, route(alarm = true))
+        assertEquals(VolumeKeys.Channel.ALARM, route(alarm = true, media = true))
     }
 
     @Test
     fun `a slider picked in the open panel keeps the buttons`() {
         assertEquals(VolumeKeys.Channel.ALARM, route(picked = VolumeKeys.Channel.ALARM, media = true))
+        assertEquals(VolumeKeys.Channel.RINGER, route(picked = VolumeKeys.Channel.RINGER, media = true))
     }
 
     @Test
-    fun `a ringing phone and a ringing alarm keep Android's own button behaviour`() {
+    fun `a ringing phone keeps Android's own button behaviour`() {
         // A press while the phone is ringing must reach Android so it silences the ringer. That is a
         // reflex people rely on and Rist must not intercept it.
         assertNull("a ringing phone is Android's to silence", route(ringing = true))
-        assertNull("a ringing alarm is its own screen's to handle", route(alarm = true))
+        assertNull(route(ringing = true, media = true))
     }
 
     @Test
@@ -59,6 +74,8 @@ class VolumePanelTest {
             VolumeKeys.Channel.CALL, route(voip = true))
         assertEquals("a slider picked in the open panel still wins",
             VolumeKeys.Channel.MEDIA, route(call = true, picked = VolumeKeys.Channel.MEDIA))
+        assertEquals("a call outranks media playing",
+            VolumeKeys.Channel.CALL, route(call = true, media = true))
     }
 
     @Test
@@ -126,6 +143,34 @@ class VolumePanelTest {
             a.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_VOLUME_UP)))
         assertTrue(a.volumePanel.isShowing)
         assertEquals(VolumeKeys.Channel.RINGER, a.volumePanel.target)
+    }
+
+    @Test
+    fun `on the home screen with music playing a press lowers media and highlights it`() {
+        val a = Robolectric.buildActivity(MainActivity::class.java).create().resume().visible().get()
+        val am = a.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        am.setStreamVolume(AudioManager.STREAM_MUSIC, 6, 0)
+        am.setStreamVolume(AudioManager.STREAM_RING, 4, 0)
+        org.robolectric.Shadows.shadowOf(am).setIsMusicActive(true)
+
+        a.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_DOWN))
+
+        assertEquals(5, am.getStreamVolume(AudioManager.STREAM_MUSIC))
+        assertEquals("the ringer is untouched", 4, am.getStreamVolume(AudioManager.STREAM_RING))
+        assertEquals(VolumeKeys.Channel.MEDIA, a.volumePanel.target)
+    }
+
+    @Test
+    fun `on the home screen with nothing playing a press still moves the ringer`() {
+        val a = Robolectric.buildActivity(MainActivity::class.java).create().resume().visible().get()
+        val am = a.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        am.setStreamVolume(AudioManager.STREAM_MUSIC, 6, 0)
+        am.setStreamVolume(AudioManager.STREAM_RING, 4, 0)
+
+        a.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_DOWN))
+
+        assertEquals(3, am.getStreamVolume(AudioManager.STREAM_RING))
+        assertEquals("media is untouched", 6, am.getStreamVolume(AudioManager.STREAM_MUSIC))
     }
 
     @Test

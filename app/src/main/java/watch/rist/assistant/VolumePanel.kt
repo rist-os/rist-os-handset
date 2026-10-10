@@ -58,11 +58,10 @@ internal object VolumeKeys {
     /**
      * The channel a press adjusts, or null to leave the press to Android.
      *
-     * A ringing phone and a ringing alarm both keep Android's behaviour: a press while ringing must
-     * reach Android so it silences the ringer, which is a reflex people rely on, and a ringing alarm
-     * is the alarm screen's business. An active call used to be lumped in with them and fall through
-     * too -- so in a call you got Android's dialog instead of Rist's, and the panel had no call
-     * channel to show even if it had opened. It gets [Channel.CALL] now.
+     * The buttons go to what is sounding: a call, a ringing alarm, a voice reply, then media,
+     * and the ringer only when nothing plays. A slider tapped in the open panel takes them over
+     * until it closes. A ringing phone keeps Android's behaviour: a press must reach Android so it
+     * silences the ringer, which is a reflex people rely on.
      *
      * `telephonyCall` and `voipCall` are separate inputs on purpose. They used to be one boolean read
      * from `AudioManager.mode`, which is the wrong signal: `mode` is audio-policy state owned by
@@ -80,16 +79,26 @@ internal object VolumeKeys {
         mediaSounding: Boolean,
         voiceOwnVolume: Boolean = true,
         voipCall: Boolean = false,
-    ): Channel? {
-        // The buttons always start on the ringer, even while
-        // something plays; a slider tapped in the open panel takes them over until it closes.
-        return when {
-            telephonyRinging || alarmRinging -> null
-            telephonyCall || voipCall -> picked ?: Channel.CALL
-            picked != null -> picked
-            else -> Channel.RINGER
-        }
+    ): Channel? = when {
+        telephonyRinging -> null
+        telephonyCall || voipCall -> picked ?: Channel.CALL
+        picked != null -> picked
+        alarmRinging -> Channel.ALARM
+        // Checked before media: a reply played as media also reads as music, and its loudness is
+        // the Voice slider either way.
+        voiceSounding -> Channel.VOICE
+        mediaSounding -> Channel.MEDIA
+        else -> Channel.RINGER
     }
+
+    /**
+     * Whether media is sounding: Android's own answer, or Rist's own player, which Android can
+     * briefly miss between buffers. Active playback configurations are not used: they list paused
+     * players too, so a paused audiobook would keep the buttons on Media.
+     */
+    fun mediaSounding(am: AudioManager): Boolean =
+        runCatching { am.isMusicActive }.getOrDefault(false) ||
+            PlaybackService.playing
 
     /**
      * Whether voice replies can have a volume of their own. Android refuses changes to the
