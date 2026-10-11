@@ -198,7 +198,7 @@ object ChecklistView {
         }.toMutableList()
         val missing = kept.values.filter { k -> k.section == key && rows.none { it.first.id == k.item.id } }
         for (k in missing.sortedBy { it.index }) {
-            rows.add(k.index.coerceIn(0, rows.size), k.item to Checklists.shown(ctx, k.item.id, true))
+            rows.add(k.index.coerceIn(0, rows.size), k.item to Checklists.shown(ctx, k.item.id, k.item.checked))
         }
         return rows
     }

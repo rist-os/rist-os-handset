@@ -349,7 +349,7 @@ class BoxExpandedActivity : AppCompatActivity() {
             ChecklistView.tileRows(this, key, cl, kept).forEachIndexed { at, (item, shown) ->
                 listsView.addView(ChecklistView.row(this, item, shown, rt, tf) { _, now ->
                     Haptics.ack(this)
-                    kept[item.id] = ChecklistView.Kept(key, at, item)
+                    kept[item.id] = ChecklistView.Kept(key, at, item.toBuilder().setChecked(now).build())
                     Checklists.tap(this, item.id, now, !now)
                 })
             }

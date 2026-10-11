@@ -131,6 +131,9 @@ object ItemEdits {
     fun watch() { watching++ }
     fun unwatch() { watching = (watching - 1).coerceAtLeast(0) }
 
+    /** Open tile views; while there are any, a tick's sentence shows under its row too. */
+    fun watchers(): Int = watching
+
     private val main = Handler(Looper.getMainLooper())
 
     private fun announce(ctx: Context) = runCatching {
