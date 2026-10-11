@@ -231,7 +231,8 @@ class Uploader(private val ctx: Context) {
             timestamp: Long,
             authToken: String,
             caps: rist.v1.Capabilities,
-            audio: AudioInput
+            audio: AudioInput,
+            images: List<ImageInput> = emptyList(),
         ): DeviceRequest =
             DeviceRequest.newBuilder()
                 .setDeviceId(deviceId)
@@ -240,6 +241,8 @@ class Uploader(private val ctx: Context) {
                 .setRequestId(newRequestId())
                 .setUtteranceId(newUtteranceId())
                 .setAudio(audio)
+                // A spoken caption: `images` sits outside the oneof, so it rides beside the audio.
+                .addAllImages(images)
                 .setAuthToken(authToken)
                 .setCaps(caps)
                 .build()
@@ -450,7 +453,17 @@ class Uploader(private val ctx: Context) {
     }
 
     /** One photo ready for the wire: already downscaled, upright, and re-encoded. */
-    class Photo(val jpeg: ByteArray, val width: Int, val height: Int, val format: String = "jpeg")
+    class Photo(val jpeg: ByteArray, val width: Int, val height: Int, val format: String = "jpeg") {
+        companion object {
+            /** A staged photo file, or null when it is gone or not a picture. Blocking; call on IO. */
+            fun read(f: java.io.File): Photo? {
+                val bytes = runCatching { f.readBytes() }.getOrNull() ?: return null
+                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                return if (bounds.outWidth <= 0) null else Photo(bytes, bounds.outWidth, bounds.outHeight)
+            }
+        }
+    }
 
     /**
      * Sends [photos] as one turn, with [caption] as the question about them. Blocking; call on IO.
@@ -468,24 +481,7 @@ class Uploader(private val ctx: Context) {
             Log.w(TAG, "sendPhotos: no photos, nothing to send")
             return null
         }
-        if (photos.size > MAX_PHOTOS_PER_TURN) {
-            Log.w(TAG, "sendPhotos: ${photos.size} photos is over the per-turn limit of $MAX_PHOTOS_PER_TURN; not sending")
-            return null
-        }
-        val cap = DeviceProfile.maxImageBytes()
-        val over = photos.firstOrNull { it.jpeg.isEmpty() || it.jpeg.size > cap }
-        if (over != null) {
-            Log.w(TAG, "sendPhotos: a photo of ${over.jpeg.size} bytes is outside (0, $cap]; not sending")
-            return null
-        }
-        val images = photos.map {
-            ImageInput.newBuilder()
-                .setFormat(it.format)
-                .setWidth(maxOf(0, it.width))
-                .setHeight(maxOf(0, it.height))
-                .setData(ByteString.copyFrom(it.jpeg))
-                .build()
-        }
+        val images = imageInputs(photos) ?: return null
         val requestProto = buildPhotosRequest(
             deviceId = Config.deviceId(ctx),
             sessionId = Config.sessionId(ctx),
@@ -499,24 +495,50 @@ class Uploader(private val ctx: Context) {
         return post(requestProto, onLocationInterim = onLocationInterim)
     }
 
-    // Blocking; call on IO.
+    /** [photos] as wire images, or null (logged) when any breaks the count or size limits. */
+    private fun imageInputs(photos: List<Photo>): List<ImageInput>? {
+        if (photos.size > MAX_PHOTOS_PER_TURN) {
+            Log.w(TAG, "photos: ${photos.size} is over the per-turn limit of $MAX_PHOTOS_PER_TURN; not sending")
+            return null
+        }
+        val cap = DeviceProfile.maxImageBytes()
+        val over = photos.firstOrNull { it.jpeg.isEmpty() || it.jpeg.size > cap }
+        if (over != null) {
+            Log.w(TAG, "photos: a photo of ${over.jpeg.size} bytes is outside (0, $cap]; not sending")
+            return null
+        }
+        return photos.map {
+            ImageInput.newBuilder()
+                .setFormat(it.format)
+                .setWidth(maxOf(0, it.width))
+                .setHeight(maxOf(0, it.height))
+                .setData(ByteString.copyFrom(it.jpeg))
+                .build()
+        }
+    }
+
+    // Blocking; call on IO. [photos], when given, are what the recording asks about.
     fun sendOpus(
         oggOpus: ByteArray,
         durationMs: Int = 0,
+        photos: List<Photo> = emptyList(),
         onLocationInterim: ((DeviceResponse) -> Unit)? = null
     ): DeviceResponse? {
         if (oggOpus.isEmpty()) {
             Log.w(TAG, "sendOpus: empty audio, nothing to send")
             return null
         }
+        val images = imageInputs(photos) ?: run { lastFailure = Unavailable.PHOTOS; return null }
         val requestProto = buildRequest(
             deviceId = Config.deviceId(ctx),
             sessionId = Config.sessionId(ctx),
             timestamp = System.currentTimeMillis(),
             authToken = Config.authToken(ctx),
             caps = DeviceProfile.capabilities(ctx),
-            audio = buildOpusAudioInput(oggOpus, durationMs)
+            audio = buildOpusAudioInput(oggOpus, durationMs),
+            images = images,
         )
+        if (images.isNotEmpty()) Log.i(TAG, "voice: ${images.size} image(s) with the recording")
         return post(requestProto, onLocationInterim = onLocationInterim)
     }
 

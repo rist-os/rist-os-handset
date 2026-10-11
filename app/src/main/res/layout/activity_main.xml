@@ -424,7 +424,7 @@
         android:layout_marginStart="0dp"
         android:layout_marginEnd="0dp"
         android:layout_marginBottom="6dp"
-        app:layout_constraintBottom_toTopOf="@id/inputRow"
+        app:layout_constraintBottom_toTopOf="@id/pendingPhotosScroll"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
@@ -502,6 +502,28 @@
             android:background="@color/ink" />
     </FrameLayout>
 
+    <!-- Photos waiting to go with the next message, typed or spoken. Gone when there are none,
+         and the views above then sit on the message box as before. -->
+    <HorizontalScrollView
+        android:id="@+id/pendingPhotosScroll"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/gap"
+        android:layout_marginEnd="@dimen/gap"
+        android:paddingBottom="6dp"
+        android:scrollbars="none"
+        android:visibility="gone"
+        app:layout_constraintBottom_toTopOf="@id/inputRow"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <LinearLayout
+            android:id="@+id/pendingPhotos"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" />
+    </HorizontalScrollView>
+
     <LinearLayout
         android:id="@+id/inputRow"
         android:layout_width="0dp"
@@ -536,9 +558,8 @@
             android:imeOptions="actionSend"
             android:importantForAutofill="no" />
 
-        <!-- Camera and send share one slot. Equal space either side centres the icon between
-             the end of the message box and the edge of the screen; both carry the same margins
-             so swapping one for the other moves nothing. -->
+        <!-- The camera stays while typing so a photo can be added to words already written; the
+             send arrow joins it once there is text or a photo to send. -->
         <ImageView
             android:id="@+id/photoButton"
             android:layout_width="40dp"
@@ -585,7 +606,7 @@
         app:layout_constraintTop_toBottomOf="@id/titleText"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintBottom_toTopOf="@id/inputRow">
+        app:layout_constraintBottom_toTopOf="@id/pendingPhotosScroll">
 
         <TextView
             android:id="@+id/navMinimize"

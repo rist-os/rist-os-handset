@@ -35,6 +35,11 @@ class RecordService : Service() {
         const val EXTRA_ENTRY_ID = "entry_id"
         /** On [ACTION_START]: a headset press, so listen through the headset until speech ends. */
         const val EXTRA_HEADSET = "headset"
+        /**
+         * On [ACTION_START]: staged photos the recording is about. Sent with it and deleted after;
+         * a recording that is cancelled or hears nothing leaves them for the home screen to keep.
+         */
+        const val EXTRA_PHOTO_PATHS = "photo_paths"
         const val ACTION_CAPTURE_WARNING = "watch.rist.assistant.action.CAPTURE_WARNING"
         const val EXTRA_SECS_LEFT = "secs_left"
         const val ACTION_CAPTURE_DISCARDED = "watch.rist.assistant.action.CAPTURE_DISCARDED"
@@ -81,6 +86,7 @@ class RecordService : Service() {
     @Volatile private var ampSamples = 0
     @Volatile private var clipId = ""
     @Volatile private var entryId = 0L
+    @Volatile private var photoPaths: List<String> = emptyList()
     private val capHandler = android.os.Handler(android.os.Looper.getMainLooper())
     /** The headset turn listening now, if this recording is one. */
     private var headsetTurn: HeadsetTurn? = null
@@ -92,7 +98,10 @@ class RecordService : Service() {
         startForegroundCompat()
         when (intent?.action) {
             ACTION_START -> {
-                if (!recording && headsetTurn == null) entryId = intent.getLongExtra(EXTRA_ENTRY_ID, 0L)
+                if (!recording && headsetTurn == null) {
+                    entryId = intent.getLongExtra(EXTRA_ENTRY_ID, 0L)
+                    photoPaths = intent.getStringArrayListExtra(EXTRA_PHOTO_PATHS).orEmpty()
+                }
                 if (intent.getBooleanExtra(EXTRA_HEADSET, false)) startHeadsetTurn() else startRecording()
             }
             ACTION_STOP -> {
@@ -349,6 +358,7 @@ class RecordService : Service() {
 
     private fun cancelRecording(nothingHeard: Boolean = false) {
         capHandler.removeCallbacksAndMessages(null)
+        photoPaths = emptyList()
         endHeadsetTurn()
         if (!recording) {
             if (nothingHeard) broadcastDiscarded(nothingHeard = true)
@@ -406,9 +416,13 @@ class RecordService : Service() {
         val sentMs = SystemClock.elapsedRealtime() - captureStartedAtMs
         val turnEntry = entryId
         entryId = 0L
+        val photoFiles = photoPaths.map { File(it) }
+        photoPaths = emptyList()
         val uploader = Uploader(applicationContext)
         captureJob = scope.launch {
-            val reply = if (bytes.isEmpty()) null else uploader.sendOpus(bytes, sentMs.toInt())
+            val photos = photoFiles.mapNotNull { Uploader.Photo.read(it) }
+            val reply = if (bytes.isEmpty()) null else uploader.sendOpus(bytes, sentMs.toInt(), photos)
+            photoFiles.forEach { runCatching { it.delete() } }
             logClip(sent = true, ms = sentMs, bytes = bytes.size, reqId = reply?.requestId.orEmpty())
             handleResponse(reply, uploader.lastFailure, turnEntry, turn)
             stopSelf()

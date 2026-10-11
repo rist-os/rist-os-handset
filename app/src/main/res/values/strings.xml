@@ -79,12 +79,11 @@
     <string name="camera_cancel">CANCEL</string>
     <string name="camera_unavailable">The camera is currently unavailable.</string>
     <string name="camera_permission_denied">Camera permission denied</string>
-    <string name="photo_compose_close">✕</string>
-    <string name="photo_compose_close_desc">Discard these photos and go back</string>
-    <string name="photo_compose_remove">REMOVE</string>
-    <string name="photo_compose_remove_desc">Remove this photo</string>
-    <string name="photo_compose_preview_desc">Photo about to be sent</string>
-    <string name="photo_compose_send_desc">Send the photo with the caption</string>
+    <string name="pending_photo_desc">Photo %1$d of %2$d, sent with your next message</string>
+    <string name="pending_photo_remove">✕</string>
+    <string name="pending_photo_remove_desc">Remove this photo</string>
+    <string name="photo_ready">📷 say or type what you want to know about it</string>
+    <string name="photo_limit">Up to %1$d photos per message</string>
     <string name="photo_caption_hint">Add a caption…</string>
     <string name="camera_switch">FLIP</string>
     <string name="camera_switch_desc">Switch between front and back camera</string>

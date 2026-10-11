@@ -290,20 +290,14 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
             if (uris.isEmpty()) status("no photos chosen") else stagePhotos(uris)
         }
 
-    // Photos sized for the wire and waiting on the caption screen; deleted once sent or dropped.
+    // Photos sized for the wire and waiting above the message box for the next message, typed
+    // or spoken; deleted once sent or removed.
     private var stagedPhotos: List<File> = emptyList()
-
-    private val photoComposeLauncher =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            val paths = result.data?.getStringArrayListExtra(PhotoComposeActivity.EXTRA_PATHS).orEmpty()
-            val caption = result.data?.getStringExtra(PhotoComposeActivity.EXTRA_CAPTION).orEmpty()
-            if (result.resultCode != RESULT_OK || paths.isEmpty()) {
-                discardStagedPhotos()
-                status("photo discarded")
-                return@registerForActivityResult
-            }
-            sendPhotos(paths.map { File(it) }, caption)
-        }
+    // Small copies for the strip above the message box, by staged file.
+    private val stagedThumbs = HashMap<File, android.graphics.Bitmap>()
+    // Staged photos handed to the recording in progress. They come back to the strip if that
+    // recording is cancelled or hears nothing; RecordService deletes them once sent.
+    private var voicePhotos: List<File> = emptyList()
 
     private val pushReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -612,7 +606,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         photoButton = findViewById(R.id.photoButton)
         photoButton.setOnClickListener { openPhotoSource() }
         textInput.doAfterTextChanged { syncComposeButton() }
-        syncComposeButton()
+        renderStagedPhotos()
         textInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEND) { sendTypedText(); true } else false
         }
@@ -1028,8 +1022,14 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         // which entry its answer closes.
         activeEntryId = runCatching { Transcript.begin(this, "(voice)", EntryState.RECORDING) }.getOrDefault(0L)
         Transcript.markLive(activeEntryId)
+        // Photos waiting above the message box go with what is said now.
+        voicePhotos = stagedPhotos
+        if (activeEntryId != 0L) rememberThumbs(activeEntryId, voicePhotos.mapNotNull { stagedThumbs[it] })
+        stagedPhotos = emptyList()
+        renderStagedPhotos()
         val svc = Intent(this, RecordService::class.java).setAction(RecordService.ACTION_START)
             .putExtra(RecordService.EXTRA_ENTRY_ID, activeEntryId)
+            .putStringArrayListExtra(RecordService.EXTRA_PHOTO_PATHS, ArrayList(voicePhotos.map { it.absolutePath }))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(svc)
         else startService(svc)
         recordLabel.text = getString(R.string.recording_label)
@@ -1291,10 +1291,20 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                 activeEntryId = 0L
                 renderTranscript()
             }
+            restoreVoicePhotos()
             recordLabel.text = getString(R.string.record_label)
             setKnobRecording(false)
             statusText.text = getString(R.string.status_idle)
         }
+    }
+
+    /** A recording that sent nothing gives its photos back to the strip, still unsent. */
+    private fun restoreVoicePhotos() {
+        val back = voicePhotos.filter { it.exists() }
+        voicePhotos = emptyList()
+        if (back.isEmpty()) return
+        stagedPhotos = (back + stagedPhotos).distinct().take(Uploader.MAX_PHOTOS_PER_TURN)
+        renderStagedPhotos()
     }
 
     private val notifCountsReceiver = object : BroadcastReceiver() {
@@ -1324,6 +1334,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         // INVISIBLE, not GONE: keeps the height so the ring does not shift.
         findViewById<TextView>(R.id.recordCancel)?.visibility = View.INVISIBLE
         if (activeEntryId != 0L) { runCatching { Transcript.discard(this, activeEntryId) }; activeEntryId = 0L; renderTranscript() }
+        restoreVoicePhotos()
         recordLabel.text = getString(R.string.record_label)
         setKnobRecording(false)
         statusText.text = getString(R.string.status_idle)
@@ -1385,17 +1396,79 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
     }
 
     /**
-     * One slot, two jobs: the camera while there is nothing to send, the send arrow the moment
-     * there is. Both icons are 40dp wide, so the row does not shift as they swap.
+     * The send arrow shows whenever there is something to send (words or a waiting photo) and
+     * the camera whenever another photo would fit, so a photo can join words already typed.
      *
      * Driven by a text watcher rather than set at each call site, because the field is also
-     * cleared after a send and by the editor action — anything that empties it has to put the
-     * camera back, and a watcher is the only place that sees all of them.
+     * cleared after a send and by the editor action, and a watcher is the only place that sees
+     * all of them; changes to the waiting photos call it from [renderStagedPhotos].
      */
     private fun syncComposeButton() {
         val hasText = isSendable(textInput.text?.toString()?.trim().orEmpty())
-        sendButton.visibility = if (hasText) View.VISIBLE else View.GONE
-        photoButton.visibility = if (hasText) View.GONE else View.VISIBLE
+        sendButton.visibility = if (hasText || stagedPhotos.isNotEmpty()) View.VISIBLE else View.GONE
+        photoButton.visibility =
+            if (stagedPhotos.size < Uploader.MAX_PHOTOS_PER_TURN) View.VISIBLE else View.GONE
+    }
+
+    /**
+     * Draws the waiting photos above the message box, each with a ✕ to take it back out. Nothing
+     * leaves the phone until the next message is typed or spoken.
+     */
+    private fun renderStagedPhotos() {
+        val scroll = findViewById<View>(R.id.pendingPhotosScroll) ?: return
+        val row = findViewById<LinearLayout>(R.id.pendingPhotos) ?: return
+        stagedThumbs.keys.retainAll((stagedPhotos + voicePhotos).toSet())
+        row.removeAllViews()
+        scroll.visibility = if (stagedPhotos.isEmpty()) View.GONE else View.VISIBLE
+        syncComposeButton()
+        if (stagedPhotos.isEmpty()) return
+        val t = Themes.current(this)
+        val d = resources.displayMetrics.density
+        val edge = (PENDING_THUMB_DP * d).toInt()
+        for ((i, f) in stagedPhotos.withIndex()) {
+            val cell = android.widget.FrameLayout(this).apply {
+                layoutParams = LinearLayout.LayoutParams(edge, edge).apply { rightMargin = (8 * d).toInt() }
+            }
+            cell.addView(ImageView(this).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                contentDescription = getString(R.string.pending_photo_desc, i + 1, stagedPhotos.size)
+                stagedThumbs[f]?.let { setImageBitmap(it) }
+                layoutParams = android.widget.FrameLayout.LayoutParams(edge, edge)
+            })
+            cell.addView(TextView(this).apply {
+                text = getString(R.string.pending_photo_remove)
+                contentDescription = getString(R.string.pending_photo_remove_desc)
+                gravity = android.view.Gravity.CENTER
+                setTextColor(t.ground)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(t.ink)
+                }
+                val size = (24 * d).toInt()
+                layoutParams = android.widget.FrameLayout.LayoutParams(
+                    size, size, android.view.Gravity.TOP or android.view.Gravity.END
+                ).apply { setMargins(0, (2 * d).toInt(), (2 * d).toInt(), 0) }
+                setOnClickListener { removeStagedPhoto(f) }
+            })
+            row.addView(cell)
+        }
+        val missing = stagedPhotos.filter { it !in stagedThumbs }
+        if (missing.isNotEmpty()) uiScope.launch {
+            val made = withContext(Dispatchers.IO) {
+                missing.mapNotNull { f ->
+                    runCatching { f.readBytes() }.getOrNull()?.let { thumbnailOf(it) }?.let { f to it }
+                }
+            }
+            made.forEach { (f, b) -> stagedThumbs[f] = b }
+            if (made.isNotEmpty()) renderStagedPhotos()
+        }
+    }
+
+    private fun removeStagedPhoto(f: File) {
+        runCatching { f.delete() }
+        stagedPhotos = stagedPhotos - f
+        renderStagedPhotos()
     }
 
     /** Camera or existing photos. Everything behind both was already built; only this was missing. */
@@ -1437,28 +1510,32 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         // RIST while it is open, the capture still comes back — to a recreated activity that
         // would otherwise have forgotten where it asked for the file to be written.
         pendingCameraFile?.let { outState.putString(STATE_PENDING_CAMERA_FILE, it.absolutePath) }
-        // Same story for the caption screen: its result must find the staged files to send.
+        // Same story for the photos waiting above the message box.
         if (stagedPhotos.isNotEmpty()) {
             outState.putStringArrayList(STATE_STAGED_PHOTOS, ArrayList(stagedPhotos.map { it.absolutePath }))
         }
     }
 
     /**
-     * Sizes each photo for the wire and opens the caption screen over them.
+     * Sizes each photo for the wire and adds it to the strip above the message box.
      *
      * The camera and the picker both land here, so a captured photo and a chosen one are
-     * downscaled by the same rule and get the same chance to be captioned or dropped before
-     * anything is sent. Nothing leaves the phone until that screen says send.
+     * downscaled by the same rule and wait the same way: the next message, typed or spoken, is
+     * what is asked about them. Nothing leaves the phone before that.
      */
     private fun stagePhotos(uris: List<android.net.Uri>, deleteAfter: List<File> = emptyList()) {
+        val room = (Uploader.MAX_PHOTOS_PER_TURN - stagedPhotos.size).coerceAtLeast(0)
+        if (uris.size > room) toast(getString(R.string.photo_limit, Uploader.MAX_PHOTOS_PER_TURN))
         status("📷 preparing…")
         uiScope.launch {
             val staged = withContext(Dispatchers.IO) {
                 val dir = File(cacheDir, "photos").apply { mkdirs() }
                 val stamp = System.currentTimeMillis()
-                dir.listFiles { f -> f.name.startsWith("staged-") && stamp - f.lastModified() > STALE_STAGED_MS }
-                    ?.forEach { runCatching { it.delete() } }
-                val out = uris.take(Uploader.MAX_PHOTOS_PER_TURN).mapIndexedNotNull { i, uri ->
+                val keep = (stagedPhotos + voicePhotos).toSet()
+                dir.listFiles { f ->
+                    f.name.startsWith("staged-") && f !in keep && stamp - f.lastModified() > STALE_STAGED_MS
+                }?.forEach { runCatching { it.delete() } }
+                val out = uris.take(room).mapIndexedNotNull { i, uri ->
                     val loaded = loadScaledJpeg(uri) ?: return@mapIndexedNotNull null
                     runCatching { File(dir, "staged-$stamp-$i.jpg").also { it.writeBytes(loaded.first) } }
                         .getOrNull()
@@ -1466,26 +1543,14 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
                 deleteAfter.forEach { runCatching { it.delete() } }
                 out
             }
-            if (staged.isEmpty()) { status(Unavailable.PHOTOS); return@launch }
-            discardStagedPhotos()
-            stagedPhotos = staged
-            runCatching {
-                photoComposeLauncher.launch(
-                    Intent(this@MainActivity, PhotoComposeActivity::class.java).putStringArrayListExtra(
-                        PhotoComposeActivity.EXTRA_PATHS, ArrayList(staged.map { it.absolutePath })
-                    )
-                )
-            }.onFailure {
-                Log.w(TAG, "caption screen failed to open", it)
-                discardStagedPhotos()
-                status(Unavailable.PHOTOS)
+            if (staged.isEmpty()) {
+                if (room > 0) status(Unavailable.PHOTOS)
+                return@launch
             }
+            stagedPhotos = (stagedPhotos + staged).take(Uploader.MAX_PHOTOS_PER_TURN)
+            renderStagedPhotos()
+            status(getString(R.string.photo_ready))
         }
-    }
-
-    private fun discardStagedPhotos() {
-        stagedPhotos.forEach { runCatching { it.delete() } }
-        stagedPhotos = emptyList()
     }
 
     /**
@@ -1722,6 +1787,8 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
      * looked greyscale on the phone while the bytes sent were in colour.
      */
     private fun sendPhotos(files: List<File>, caption: String) {
+        stagedPhotos = stagedPhotos - files.toSet()
+        renderStagedPhotos()
         cancelInFlightTurn()
         hideKeyboard()
         val prompt = buildString {
@@ -1732,19 +1799,10 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         val entryId = runCatching { Transcript.begin(this, prompt, EntryState.WAITING) }.getOrDefault(0L)
         uiScope.launch {
             val photos = withContext(Dispatchers.IO) {
-                files.mapNotNull { f ->
-                    val bytes = runCatching { f.readBytes() }.getOrNull() ?: return@mapNotNull null
-                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-                    if (bounds.outWidth <= 0) null else Uploader.Photo(bytes, bounds.outWidth, bounds.outHeight)
-                }
+                files.mapNotNull { Uploader.Photo.read(it) }.also { files.forEach { f -> runCatching { f.delete() } } }
             }
-            discardStagedPhotos()
             if (entryId != 0L && photos.isNotEmpty()) {
-                sentPhotoThumbs[entryId] = withContext(Dispatchers.IO) { photos.mapNotNull { thumbnailOf(it.jpeg) } }
-                while (sentPhotoThumbs.size > MAX_PHOTO_TURNS_REMEMBERED) {
-                    sentPhotoThumbs.remove(sentPhotoThumbs.keys.first())
-                }
+                rememberThumbs(entryId, withContext(Dispatchers.IO) { photos.mapNotNull { thumbnailOf(it.jpeg) } })
             }
             renderTranscript()
             if (photos.isEmpty()) {
@@ -1758,6 +1816,14 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
             TurnRunner.launch(applicationContext, entryId, "photo", send = { uploader ->
                 uploader.sendPhotos(photos, caption, onLocationInterim = { resp -> speakInterim(resp) })
             })
+        }
+    }
+
+    private fun rememberThumbs(entryId: Long, thumbs: List<android.graphics.Bitmap>) {
+        if (thumbs.isEmpty()) return
+        sentPhotoThumbs[entryId] = thumbs
+        while (sentPhotoThumbs.size > MAX_PHOTO_TURNS_REMEMBERED) {
+            sentPhotoThumbs.remove(sentPhotoThumbs.keys.first())
         }
     }
 
@@ -1819,6 +1885,12 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
 
     private fun sendTypedText() {
         val text = textInput.text?.toString()?.trim().orEmpty()
+        if (stagedPhotos.isNotEmpty()) {
+            // The words are the question about the waiting photos; none at all is fine too.
+            textInput.text?.clear()
+            sendPhotos(stagedPhotos, if (isSendable(text)) text else "")
+            return
+        }
         if (!isSendable(text)) {
             textInput.text?.clear()
             return
@@ -3033,6 +3105,7 @@ class MainActivity : AppCompatActivity(), CommsFeedView.Watcher {
         // Bounded because these are bitmaps in memory: 6 turns of 4 photos at 400 px is ~11 MB
         // at worst, which is as much as a feed should hold for pictures nobody can tap.
         private const val THUMB_EDGE_PX = 400
+        private const val PENDING_THUMB_DP = 64
         private const val MAX_PHOTO_TURNS_REMEMBERED = 6
 
         // A staged file older than this belongs to a caption screen that never came back

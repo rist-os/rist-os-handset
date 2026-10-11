@@ -196,6 +196,34 @@ class UploaderContractTest {
     }
 
     @Test
+    fun deviceRequest_aSpokenCaptionCarriesPhotosBesideTheAudio() {
+        // A recording made while photos wait above the message box: the audio is the question.
+        val a = photo(4_096, 1600, 1200)
+        val req = Uploader.buildRequest(
+            deviceId = "d", sessionId = "s", timestamp = 1L, authToken = "",
+            caps = DeviceProfile.capabilities(1080, 2400),
+            audio = Uploader.buildAudioInput(pcm(1_600)),
+            images = listOf(a),
+        )
+        assertEquals(DeviceRequest.InputCase.AUDIO, req.inputCase)
+        assertEquals(1, req.imagesCount)
+        assertEquals(a, req.getImages(0))
+        val parsed = DeviceRequest.parseFrom(req.toByteArray())
+        assertEquals(1, parsed.imagesCount)
+        assertTrue(parsed.hasAudio())
+    }
+
+    @Test
+    fun deviceRequest_aPlainRecordingCarriesNoPhotos() {
+        val req = Uploader.buildRequest(
+            deviceId = "d", sessionId = "s", timestamp = 1L, authToken = "",
+            caps = DeviceProfile.capabilities(1080, 2400),
+            audio = Uploader.buildAudioInput(pcm(1_600)),
+        )
+        assertEquals(0, req.imagesCount)
+    }
+
+    @Test
     fun deviceRequest_photosSurviveSerializeParseRoundTrip() {
         val original = Uploader.buildPhotosRequest(
             deviceId = "d", sessionId = "s", timestamp = 1L, authToken = "t",
