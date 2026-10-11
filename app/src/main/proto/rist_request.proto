@@ -1,7 +1,7 @@
 // The device <-> backend contract, schema v18, with the proposed v19 features fields, the
 // proposed home boxes fields, the v23 checklist messages, the v25 note edit messages and the v26
 // texts-on-request fields, the v28 developer mode fields, the v29 new_conversation field, the v31
-// reroute and the v32 Bluetooth messages.
+// reroute, the v32 Bluetooth messages and the v33 tick answers.
 // Copied from the backend's canonical file; change it there first.
 
 syntax = "proto3";
@@ -930,7 +930,7 @@ message Checklist {
 
 // v23: one tick, as the state wanted, never a toggle.
 message ItemCheck {
-  // Minted on the phone, for logs only.
+  // Minted on the phone once per tap; the op id on /v1/device/items/edit (v33), resent unchanged.
   string check_id    = 1;
   string item_id     = 2;
   bool   checked     = 3;
@@ -977,6 +977,8 @@ message ItemEditBatch {
   repeated ItemEdit   edits   = 1;
   repeated ItemAdd    adds    = 2;
   repeated ItemDelete deletes = 3;
+  // v33: ticks, each answered by an ItemOutcome with op_id = check_id. At most 50.
+  repeated ItemCheck  checks  = 4;
 }
 
 // v30: what happened to one op. outcome is "saved", "unchanged", "copied", "stale", "deleted",
@@ -988,6 +990,8 @@ message ItemOutcome {
   string item_id = 3;
   string text    = 4;
   string note    = 5;
+  // v33, a tick only: the item's state after the op ("stale": the state a later change left).
+  bool   checked = 6;
 }
 
 message ItemEditReply {

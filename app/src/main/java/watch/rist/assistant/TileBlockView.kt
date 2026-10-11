@@ -188,7 +188,9 @@ class TileBlockView(private val ctx: Context, private val rt: RistTheme, private
             look(now)
             line.addView(ChecklistView.bareBox(ctx, row.id, now, rt, onLook = ::look) { checked ->
                 Haptics.ack(ctx)
-                kept[row.id] = Kept(block, at, row)
+                // Kept as ticked, not as the backend first sent it: once the tick's hold ends, a
+                // kept row the newer list hides must not fall back to the row's old state.
+                kept[row.id] = Kept(block, at, row.toBuilder().setChecked(checked).build())
                 Checklists.tap(ctx, row.id, checked, !checked)
             }.apply { contentDescription = shown })
         } else if (!checklist) {
@@ -216,6 +218,13 @@ class TileBlockView(private val ctx: Context, private val rt: RistTheme, private
         }
         wrap.addView(line)
         statusLine(key)?.let { wrap.addView(it) }
+        if (row.checkable && row.id.isNotBlank()) Checklists.lineFor(ctx, row.id)?.let {
+            wrap.addView(text(it, 13f, muted).apply {
+                tag = TAG_STATUS
+                accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+                setPadding(px(4f), 0, 0, px(6f))
+            })
+        }
         return wrap
     }
 

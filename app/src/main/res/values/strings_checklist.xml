@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="checklist_save_failed">Couldn\'t save that tick</string>
+    <!-- A tick that could not be saved: what the row says under it (the owner's wording rule). -->
+    <string name="checklist_save_failed">Saving is currently unavailable.</string>
 </resources>

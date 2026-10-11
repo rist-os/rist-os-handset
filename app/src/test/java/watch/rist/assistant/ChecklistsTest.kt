@@ -125,7 +125,7 @@ class ChecklistsTest {
         status = 204
         assertEquals(1, Checklists.flush(ctx))
         assertTrue(Checklists.queued(ctx).isEmpty())
-        assertTrue(paths.all { it == "/v1/device/items" })
+        assertEquals("/v1/device/items", paths.last())
         val sent = batches.last().checksList.single()
         assertEquals("milk", sent.itemId)
         assertTrue(sent.checked)
